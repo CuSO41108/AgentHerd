@@ -16,7 +16,7 @@ import type { HostEvent } from "../src/api.ts";
 import { type AgentDef, agentProfile, parseDshFeed } from "../src/catalog.ts";
 import { writeConfig } from "../src/config.ts";
 import { Host } from "../src/host.ts";
-import { type ArchiveRelease, type Release, RuntimeStore } from "../src/runtimes.ts";
+import { type ArchiveRelease, type Release, RuntimeStore, windowsTar } from "../src/runtimes.ts";
 import { verifyProfile } from "../src/verify.ts";
 
 const SCRIPT = fileURLToPath(new URL("../../mock-agent/scripts/approve.yaml", import.meta.url));
@@ -40,15 +40,27 @@ async function serve(files: Record<string, Buffer>): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-/** An archive with tool/tool printing `reported`. */
+const TOOL_BIN = process.platform === "win32" ? "tool/tool.cmd" : "tool/tool";
+
+/** An archive with tool/tool (or tool/tool.cmd on Windows) printing `reported`. */
 function fakeArchive(format: "tar.gz" | "zip", reported: string): Buffer {
   const dir = mkdtempSync(join(tmpdir(), "fake-agent-"));
   mkdirSync(join(dir, "tool"));
-  writeFileSync(join(dir, "tool", "tool"), `#!/bin/sh\necho ${reported}\n`);
-  chmodSync(join(dir, "tool", "tool"), 0o755);
+  if (process.platform === "win32") {
+    writeFileSync(join(dir, "tool", "tool.cmd"), `@echo off\r\necho ${reported}\r\n`);
+  } else {
+    writeFileSync(join(dir, "tool", "tool"), `#!/bin/sh\necho ${reported}\n`);
+    chmodSync(join(dir, "tool", "tool"), 0o755);
+  }
   const archive = join(dir, `a.${format}`);
-  if (format === "tar.gz") execFileSync("tar", ["-czf", archive, "-C", dir, "tool"]);
-  else execFileSync("zip", ["-qr", archive, "tool"], { cwd: dir });
+  if (process.platform === "win32") {
+    const tarArgs = format === "tar.gz" ? ["-czf"] : ["-a", "-cf"];
+    execFileSync(windowsTar(), [...tarArgs, archive, "-C", dir, "tool"]);
+  } else if (format === "tar.gz") {
+    execFileSync("tar", ["-czf", archive, "-C", dir, "tool"]);
+  } else {
+    execFileSync("zip", ["-qr", archive, "tool"], { cwd: dir });
+  }
   return readFileSync(archive);
 }
 
@@ -70,7 +82,7 @@ function release(
     },
     bytes: bytes.length,
     format: path.endsWith(".zip") ? "zip" : "tar.gz",
-    executable: "tool/tool",
+    executable: TOOL_BIN,
     check: "exec",
     ...patch,
   };
@@ -103,7 +115,7 @@ describe("RuntimeStore", () => {
     const first = await store.install(release(base, "/a.tar.gz", tgz), {
       onProgress: (p) => progress.push(p.received),
     });
-    expect(first.path).toBe(join(store.dir("tool", "9.9.9"), "tool/tool"));
+    expect(first.path).toBe(join(store.dir("tool", "9.9.9"), TOOL_BIN));
     expect(store.installed("tool")).toEqual(first);
     expect(progress.at(-1)).toBe(tgz.length);
 
@@ -181,6 +193,24 @@ describe("catalog", () => {
     expect(script.env).toMatchObject({ INITIAL_AGENT_MODE: "read-only" });
     const bin = agentProfile({ ...def, acpArgs: ["acp"] }, "/r/opencode");
     expect(bin.command).toEqual(["/r/opencode", "acp"]);
+    const upperScript = agentProfile(def, "C:\\rt\\index.JS");
+    expect(upperScript.command).toEqual([process.execPath, "C:\\rt\\index.JS"]);
+  });
+
+  it("hides download capability for agents whose targets exclude the current platform", () => {
+    const store = { installed: () => undefined } as unknown as RuntimeStore;
+    const baseOpts = {
+      store,
+      env: { PATH: "" },
+      exists: () => false,
+      dshApp: "C:\\missing\\dsh.cmd",
+      onChange() {},
+    };
+    const winAgents = new Agents({ ...baseOpts, platform: "win32", target: "win32-x64" });
+    expect(winAgents.views([], {}).find((v) => v.id === "dsh")?.canInstall).toBe(false);
+    expect(winAgents.views([], {}).find((v) => v.id === "pi")?.canInstall).toBe(true);
+    const macAgents = new Agents({ ...baseOpts, platform: "darwin", target: "darwin-arm64" });
+    expect(macAgents.views([], {}).find((v) => v.id === "dsh")?.canInstall).toBe(true);
   });
 });
 
@@ -347,7 +377,7 @@ describe("verifyProfile", () => {
     const check = await verifyProfile({
       id: "broken",
       name: "Broken",
-      command: ["/bin/sh", "-c", "echo 'please run login first' >&2; exit 3"],
+      command: [process.execPath, "-e", "console.error('please run login first'); process.exit(3)"],
       env: {},
       exporter: null,
     });
@@ -358,7 +388,13 @@ describe("verifyProfile", () => {
 
   it("gives up after the timeout", async () => {
     const check = await verifyProfile(
-      { id: "slow", name: "Slow", command: ["/bin/sleep", "30"], env: {}, exporter: null },
+      {
+        id: "slow",
+        name: "Slow",
+        command: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+        env: {},
+        exporter: null,
+      },
       { timeoutMs: 300 },
     );
     expect(check).toMatchObject({ ok: false, error: expect.stringMatching(/no answer within/) });

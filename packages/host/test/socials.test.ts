@@ -4,10 +4,14 @@
 
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AppTools } from "@agentherd/core";
 import { describe, expect, it } from "vitest";
-import { combineApps } from "../src/socials.ts";
-import { Xiaohongshu } from "../src/xiaohongshu.ts";
+import { findChrome } from "../src/cdp.ts";
+import { combineApps, Socials } from "../src/socials.ts";
+import { XHS_VERSION, Xiaohongshu, xhsAsset } from "../src/xiaohongshu.ts";
 import { Zhihu, type ZhihuBrowser } from "../src/zhihu.ts";
 
 function fakeServer(signedIn: boolean) {
@@ -73,8 +77,9 @@ function platform(signedIn: boolean) {
   const server = fakeServer(signedIn);
   const env: NodeJS.ProcessEnv[] = [];
   const states: string[] = [];
+  const home = join("/tmp", "agentherd-xhs-test");
   const x: Xiaohongshu = new Xiaohongshu({
-    home: "/tmp/agentherd-xhs-test",
+    home,
     seed: 7,
     changed: () => states.push(x.state),
     fetch: server.fetchFn,
@@ -86,17 +91,17 @@ function platform(signedIn: boolean) {
       return child;
     },
   });
-  return { x, server, env, states };
+  return { x, home, server, env, states };
 }
 
 describe("小红书 (ADR 0058)", () => {
   it("starts with its own token and cookie file, and reads the sign-in", async () => {
-    const { x, env, states } = platform(true);
+    const { x, home, env, states } = platform(true);
     await x.start();
     expect(states).toEqual(["starting", "ready"]);
     expect(x.account).toBe("小羊不吃草");
     expect(env[0]?.AUTH_TOKEN).toMatch(/^[0-9a-f]{48}$/);
-    expect(env[0]?.COOKIES_PATH).toBe("/tmp/agentherd-xhs-test/xiaohongshu/cookies.json");
+    expect(env[0]?.COOKIES_PATH).toBe(join(home, "xiaohongshu", "cookies.json"));
     expect(env[0]?.XHS_FP_SEED).toBe("7");
     x.stop();
     expect(x.state).toBe("off");
@@ -314,5 +319,68 @@ describe("知乎 (ADR 0058)", () => {
     await z.logout();
     expect(z.state).toBe("signed-out");
     await expect(z.unread()).rejects.toThrow("知乎登录已失效");
+  });
+
+  it("resolves Windows Chrome/Edge paths and xiaohongshu-mcp Windows binary", async () => {
+    expect(
+      findChrome(
+        "win32",
+        { ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "C:\\Program Files (x86)" },
+        (p) => p === "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      ),
+    ).toBe("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe");
+    expect(
+      findChrome(
+        "win32",
+        { ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "C:\\Program Files (x86)" },
+        (p) => p === "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      ),
+    ).toBe("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe");
+
+    expect(xhsAsset("win32", "x64")).toBe("xiaohongshu-mcp-windows-amd64.exe");
+    expect(xhsAsset("win32", "arm64")).toBe("xiaohongshu-mcp-windows-amd64.exe");
+    expect(xhsAsset("darwin", "arm64")).toBe("xiaohongshu-mcp-darwin-arm64");
+    expect(xhsAsset("linux", "x64")).toBe("xiaohongshu-mcp-linux-amd64");
+
+    const home = mkdtempSync(join(tmpdir(), "xhs-win-"));
+    const fetchedUrls: string[] = [];
+    const launchedBins: string[] = [];
+    const server = fakeServer(true);
+    const x = new Xiaohongshu({
+      home,
+      seed: 1,
+      platform: "win32",
+      arch: "x64",
+      changed: () => {},
+      fetch: async (input, init) => {
+        const url = String(input);
+        if (url.startsWith("https://github.com/")) {
+          fetchedUrls.push(url);
+          return new Response(Buffer.from("MZ"));
+        }
+        return server.fetchFn(input, init);
+      },
+      launch: (bin) => {
+        launchedBins.push(bin);
+        const child = new EventEmitter() as ChildProcess;
+        (child as unknown as { kill: () => boolean }).kill = () => true;
+        return child;
+      },
+    });
+    await x.start();
+    expect(fetchedUrls[0]).toContain("xiaohongshu-mcp-windows-amd64.exe");
+    expect(launchedBins[0]).toBe(join(home, "bin", `xiaohongshu-mcp-${XHS_VERSION}.exe`));
+    x.stop();
+
+    const socials = new Socials({
+      home,
+      changed: () => {},
+      xiaohongshu: x,
+      zhihu: new Zhihu({ home, changed: () => {}, browser: fakeZhihu(true).browser }),
+    });
+    expect(socials.views().map((v) => [v.platform, v.available])).toEqual([
+      ["xiaohongshu", true],
+      ["zhihu", true],
+    ]);
   });
 });

@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join, posix, win32 } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentProfile } from "@agentherd/protocol";
 import { AGENTS, agentDef, agentProfile, DSH_APP_LAUNCHER } from "./catalog.ts";
@@ -12,8 +12,38 @@ import { nodeEnv } from "./runtimes.ts";
 const MOCK_BIN = fileURLToPath(new URL("../../mock-agent/bin/mock-agent.ts", import.meta.url));
 const PI_ACP_BIN = fileURLToPath(new URL("../../pi-acp/bin/pi-acp.ts", import.meta.url));
 
-/** Folders where npm, Homebrew and installers put CLIs; an app opened from Finder lacks them on PATH. */
-export function extraBinDirs(home: string = homedir()): string[] {
+/** Case-insensitive env lookup (Windows `process.env` copies may carry `Path` instead of `PATH`). */
+export function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const direct = env[name];
+  if (direct !== undefined) return direct;
+  const lower = name.toLowerCase();
+  for (const [k, v] of Object.entries(env)) {
+    if (k.toLowerCase() === lower && v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/** Folders where npm, Homebrew and package managers put CLIs; GUI apps often lack them on PATH. */
+export function extraBinDirs(
+  home: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (platform === "win32") {
+    const appData = envValue(env, "APPDATA") ?? win32.join(home, "AppData", "Roaming");
+    const localAppData = envValue(env, "LOCALAPPDATA") ?? win32.join(home, "AppData", "Local");
+    const programFiles = envValue(env, "ProgramFiles") ?? "C:\\Program Files";
+    return [
+      win32.join(appData, "npm"),
+      win32.join(localAppData, "pnpm"),
+      win32.join(localAppData, "Yarn", "bin"),
+      win32.join(home, ".bun", "bin"),
+      win32.join(home, ".local", "bin"),
+      win32.join(home, "scoop", "shims"),
+      win32.join(home, ".cargo", "bin"),
+      win32.join(programFiles, "nodejs"),
+    ];
+  }
   return [
     join(home, ".local/bin"),
     join(home, ".npm-global/bin"),
@@ -27,10 +57,15 @@ export function extraBinDirs(home: string = homedir()): string[] {
  * PATH of the user's login shell, then the current PATH, then extraBinDirs(). The login shell is
  * asked once; it fails quietly (no shell, slow profile) and then the other two still apply.
  */
-export function searchPath(env: NodeJS.ProcessEnv = process.env): string {
+export function searchPath(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string {
+  const sep = platform === "win32" ? win32.delimiter : posix.delimiter;
   let login = "";
-  const shell = env.SHELL;
-  if (shell !== undefined && shell !== "" && process.platform !== "win32") {
+  const shell = envValue(env, "SHELL");
+  if (shell !== undefined && shell !== "" && platform !== "win32" && process.platform !== "win32") {
     try {
       login = execFileSync(shell, ["-ilc", 'printf "%s" "$PATH"'], {
         encoding: "utf8",
@@ -41,8 +76,9 @@ export function searchPath(env: NodeJS.ProcessEnv = process.env): string {
       login = "";
     }
   }
-  const dirs = [...login.split(delimiter), ...(env.PATH ?? "").split(delimiter), ...extraBinDirs()];
-  return [...new Set(dirs.filter((d) => d !== ""))].join(delimiter);
+  const current = envValue(env, "PATH") ?? "";
+  const dirs = [...login.split(sep), ...current.split(sep), ...extraBinDirs(home, platform, env)];
+  return [...new Set(dirs.filter((d) => d !== ""))].join(sep);
 }
 
 /**
@@ -69,12 +105,13 @@ export function onPath(
   path: string | undefined,
   exists: (p: string) => boolean,
   platform: NodeJS.Platform = process.platform,
+  pathext?: string,
 ): string | undefined {
   const sep = platform === "win32" ? win32.delimiter : posix.delimiter;
   for (const dir of (path ?? "").split(sep)) {
     if (dir === "") continue;
     for (const name of names) {
-      const found = commandCandidates(dir, name, platform).find((c) => exists(c));
+      const found = commandCandidates(dir, name, platform, pathext).find((c) => exists(c));
       if (found !== undefined) return found;
     }
   }
@@ -90,27 +127,38 @@ export const DSH_WINDOWS_LAUNCHER = "resources\\runtime\\cli\\bin\\dsh.cmd";
 /** Runs `reg.exe`; throws when it fails or finds nothing. */
 export type RegQuery = (args: string[]) => string;
 
-const regQuery: RegQuery = (args) =>
-  execFileSync("reg", args, {
+const regQuery: RegQuery = (args) => {
+  const regExe = win32.join(
+    envValue(process.env, "SystemRoot") ?? envValue(process.env, "windir") ?? "C:\\Windows",
+    "System32",
+    "reg.exe",
+  );
+  return execFileSync(regExe, args, {
     encoding: "utf8",
     timeout: 3000,
     windowsHide: true,
     stdio: ["ignore", "pipe", "ignore"],
   });
+};
 
 /**
  * Install folders of DeepSeek Harness from the uninstall entries in `reg query /s /f ... /d`
  * output: an entry whose DisplayName starts with the app name, through its DisplayIcon
- * (`<folder>\DeepSeek Harness.exe,0`). The installer may put the app in any folder.
+ * (`<folder>\DeepSeek Harness.exe,0`) or InstallLocation fallback. The installer may put the app in any folder.
  */
 export function dshInstallDirs(output: string): string[] {
   const dirs: string[] = [];
   let name = "";
   let icon = "";
+  let installLocation = "";
   const flush = () => {
-    if (name.startsWith("DeepSeek Harness") && icon !== "") dirs.push(win32.dirname(icon));
+    if (name.startsWith("DeepSeek Harness")) {
+      if (icon !== "") dirs.push(win32.dirname(icon));
+      else if (installLocation !== "") dirs.push(installLocation);
+    }
     name = "";
     icon = "";
+    installLocation = "";
   };
   for (const line of output.split(/\r?\n/)) {
     if (line.startsWith("HKEY_")) {
@@ -122,6 +170,7 @@ export function dshInstallDirs(output: string): string[] {
     const data = (value[2] ?? "").trim();
     if (value[1] === "DisplayName") name = data;
     if (value[1] === "DisplayIcon") icon = data.replace(/,-?\d+$/, "").replace(/^"(.*)"$/, "$1");
+    if (value[1] === "InstallLocation") installLocation = data.replace(/^"(.*)"$/, "$1");
   }
   flush();
   return dirs;
@@ -129,7 +178,7 @@ export function dshInstallDirs(output: string): string[] {
 
 /**
  * Where the DeepSeek Harness desktop app may keep its CLI: the macOS bundle; on Windows the
- * launcher in each install folder the uninstall entries name (per-user, then all users).
+ * launcher in each install folder the uninstall entries name (per-user, then all users + WOW6432Node).
  */
 export function dshAppBins(
   platform: NodeJS.Platform = process.platform,
@@ -137,9 +186,13 @@ export function dshAppBins(
 ): string[] {
   if (platform === "darwin") return [DSH_APP_BIN];
   if (platform !== "win32") return [];
+  const keys = [
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  ];
   const bins: string[] = [];
-  for (const root of ["HKCU", "HKLM"]) {
-    const key = `${root}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall`;
+  for (const key of keys) {
     let output: string;
     try {
       output = query(["query", key, "/s", "/f", "DeepSeek Harness", "/d"]);
@@ -232,14 +285,14 @@ export function findAgent(
 ): string | undefined {
   const def = agentDef(id);
   if (def === undefined) return undefined;
-  const explicit = env[def.envVar];
+  const explicit = envValue(env, def.envVar);
   if (explicit !== undefined && explicit !== "") return explicit;
   const app = () => (id === "dsh" ? appBins().find((p) => exists(p)) : undefined);
   if (platform === "win32") {
     const fromApp = app();
     if (fromApp !== undefined) return fromApp;
   }
-  const found = onPath(def.systemNames, env.PATH, exists, platform);
+  const found = onPath(def.systemNames, envValue(env, "PATH"), exists, platform);
   if (found !== undefined) return found;
   return platform === "win32" ? undefined : app();
 }
@@ -287,7 +340,7 @@ export function agentEnv(
   platform: NodeJS.Platform = process.platform,
   clis: () => string[] = () => codexAppClis(platform),
 ): Record<string, string> {
-  if (id !== "codex" || (env.CODEX_PATH ?? "") !== "") return {};
+  if (id !== "codex" || (envValue(env, "CODEX_PATH") ?? "") !== "") return {};
   const cli = clis().find((p) => exists(p));
   return cli === undefined ? {} : { CODEX_PATH: cli };
 }

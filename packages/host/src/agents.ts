@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import type { AgentProfile } from "@agentherd/protocol";
 import type { AgentSource, AgentView } from "./api.ts";
 import { AGENTS, type AgentDef, type Fetchers, httpFetchers, npmRuntime } from "./catalog.ts";
-import { agentEnv, codexAppClis, dshAppBins, onPath } from "./profiles.ts";
+import { agentEnv, codexAppClis, dshAppBins, envValue, onPath } from "./profiles.ts";
 import { currentTarget, type InstallProgress, type RuntimeStore } from "./runtimes.ts";
 
 export interface AgentsOptions {
@@ -62,7 +62,7 @@ export class Agents {
   find(id: string): AgentPath | undefined {
     const def = this.catalog.find((d) => d.id === id);
     if (def === undefined) return undefined;
-    const explicit = this.env[def.envVar];
+    const explicit = envValue(this.env, def.envVar);
     if (explicit !== undefined && explicit !== "") return { path: explicit, source: "system" };
     const managed = this.opts.store.installed(id);
     if (managed !== undefined) {
@@ -80,7 +80,12 @@ export class Agents {
       const fromApp = app();
       if (fromApp !== undefined) return fromApp;
     }
-    const onSystem = onPath(def.systemNames, this.env.PATH, (p) => this.exists(p), platform);
+    const onSystem = onPath(
+      def.systemNames,
+      envValue(this.env, "PATH"),
+      (p) => this.exists(p),
+      platform,
+    );
     if (onSystem !== undefined) return { path: onSystem, source: "system" };
     return platform === "win32" ? undefined : app();
   }
@@ -138,7 +143,9 @@ export class Agents {
     const error = this.errors.get(def.id);
     const withError = error === undefined ? {} : { error };
     const install = this.installs.get(def.id);
-    const canInstall = def.latest !== undefined;
+    const target = this.opts.target ?? currentTarget();
+    const canInstall =
+      def.latest !== undefined && (def.targets === undefined || def.targets.includes(target));
     if (install !== undefined) {
       return {
         ...base,

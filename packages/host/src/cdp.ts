@@ -5,18 +5,48 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:net";
+import { win32 } from "node:path";
+import { killTree } from "@agentherd/acp-client";
+import { envValue } from "./profiles.ts";
 
-/** Where Chrome usually is on a Mac. */
-const CHROME_PATHS = [
+/** Where Chrome usually is on macOS. */
+const MAC_CHROME_PATHS = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 ];
+/** Where Chrome/Chromium/Edge usually are on Linux. */
+const LINUX_CHROME_PATHS = [
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/microsoft-edge",
+];
 const START_MS = 20_000;
 const CALL_MS = 30_000;
 
-export function findChrome(): string | undefined {
-  return CHROME_PATHS.find((p) => existsSync(p));
+export function findChrome(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+): string | undefined {
+  if (platform === "win32") {
+    const pf = envValue(env, "ProgramFiles") ?? "C:\\Program Files";
+    const pf86 = envValue(env, "ProgramFiles(x86)") ?? "C:\\Program Files (x86)";
+    const local = envValue(env, "LOCALAPPDATA");
+    const candidates = [
+      win32.join(pf, "Google", "Chrome", "Application", "chrome.exe"),
+      win32.join(pf86, "Google", "Chrome", "Application", "chrome.exe"),
+      ...(local === undefined || local === ""
+        ? []
+        : [win32.join(local, "Google", "Chrome", "Application", "chrome.exe")]),
+      win32.join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      win32.join(pf, "Microsoft", "Edge", "Application", "msedge.exe"),
+    ];
+    return candidates.find((p) => exists(p));
+  }
+  const paths = platform === "darwin" ? MAC_CHROME_PATHS : LINUX_CHROME_PATHS;
+  return paths.find((p) => exists(p));
 }
 
 export function freePort(): Promise<number> {
@@ -222,7 +252,7 @@ export class Chrome {
         "--window-size=1280,900",
         "about:blank",
       ],
-      { stdio: "ignore" },
+      { stdio: "ignore", windowsHide: true },
     );
     this.child = child;
     child.on("exit", (code) => {
@@ -268,6 +298,6 @@ export class Chrome {
   stop(): void {
     const child = this.child;
     this.child = undefined;
-    child?.kill();
+    if (child !== undefined) killTree(child, "SIGTERM");
   }
 }

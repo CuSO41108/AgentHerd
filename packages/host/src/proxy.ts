@@ -4,6 +4,8 @@
 // set to is passed on as HTTPS_PROXY/HTTP_PROXY, unless the environment already has one.
 
 import { execFileSync } from "node:child_process";
+import { win32 } from "node:path";
+import { envValue } from "./profiles.ts";
 
 /** Runs a command and returns its output; throws when it fails. */
 export type ProxyQuery = (command: string, args: string[]) => string;
@@ -29,8 +31,8 @@ export function windowsProxy(output: string): string | undefined {
   // "host:port", or per protocol: "http=host:port;https=host:port".
   const parts = server.split(";").map((p) => p.trim());
   const pick =
-    parts.find((p) => p.startsWith("https="))?.slice(6) ??
-    parts.find((p) => p.startsWith("http="))?.slice(5) ??
+    parts.find((p) => /^https=/i.test(p))?.slice(6) ??
+    parts.find((p) => /^http=/i.test(p))?.slice(5) ??
     parts.find((p) => !p.includes("="));
   if (pick === undefined || pick === "") return undefined;
   return /^\w+:\/\//.test(pick) ? pick : `http://${pick}`;
@@ -55,14 +57,41 @@ export function withSystemProxy(
   platform: NodeJS.Platform = process.platform,
   query: ProxyQuery = run,
 ): NodeJS.ProcessEnv {
-  if (env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy) return env;
+  if (envValue(env, "HTTPS_PROXY") || envValue(env, "HTTP_PROXY")) return env;
   let proxy: string | undefined;
   try {
-    if (platform === "win32") proxy = windowsProxy(query("reg", ["query", SETTINGS]));
-    else if (platform === "darwin") proxy = macProxy(query("scutil", ["--proxy"]));
+    if (platform === "win32") {
+      const regExe = win32.join(
+        envValue(env, "SystemRoot") ?? envValue(env, "windir") ?? "C:\\Windows",
+        "System32",
+        "reg.exe",
+      );
+      proxy = windowsProxy(query(regExe, ["query", SETTINGS]));
+    } else if (platform === "darwin") {
+      proxy = macProxy(query("scutil", ["--proxy"]));
+    }
   } catch {
     proxy = undefined;
   }
   if (proxy === undefined) return env;
-  return { ...env, HTTPS_PROXY: proxy, HTTP_PROXY: proxy };
+  return {
+    ...env,
+    HTTPS_PROXY: proxy,
+    HTTP_PROXY: proxy,
+    ...(envValue(env, "NO_PROXY") !== undefined ? {} : { NO_PROXY: "localhost,127.0.0.1,::1" }),
+    ...(envValue(env, "NODE_USE_ENV_PROXY") !== undefined ? {} : { NODE_USE_ENV_PROXY: "1" }),
+  };
+}
+
+/** Writes system proxy settings into `env` (typically `process.env`) when unset. */
+export function applySystemProxy(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  query: ProxyQuery = run,
+): void {
+  const next = withSystemProxy(env, platform, query);
+  if (next === env) return;
+  for (const key of ["HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_USE_ENV_PROXY"] as const) {
+    if (next[key] !== undefined && envValue(env, key) === undefined) env[key] = next[key];
+  }
 }

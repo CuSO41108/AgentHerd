@@ -52,9 +52,9 @@ function talk(path: string, lines: string[], n: number): Promise<unknown[]> {
 
 describe("mcpSocketPath", () => {
   it("is a named pipe on Windows and a socket file elsewhere", () => {
-    expect(mcpSocketPath("C:\\Users\\me\\.agentherd", "win32")).toMatch(
-      /^\\\\\.\\pipe\\agentherd-mcp-[0-9a-f]{16}$/,
-    );
+    const pipe = mcpSocketPath("C:\\Users\\me\\.agentherd", "win32");
+    expect(pipe).toMatch(/^\\\\\.\\pipe\\agentherd-mcp-[0-9a-f]{16}$/);
+    expect(mcpSocketPath("C:/Users/me/.agentherd/", "win32")).toBe(pipe);
     expect(mcpSocketPath("/home/me/.agentherd", "linux")).toBe(
       join("/home/me/.agentherd", "run", "mcp.sock"),
     );

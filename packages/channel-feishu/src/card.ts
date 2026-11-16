@@ -96,7 +96,7 @@ function actionRow(target: string, action: string, label: string): Record<string
 const ANSWER_BUTTON_MAX = 15;
 
 function fitsButton(label: string): boolean {
-  return [...label].length <= ANSWER_BUTTON_MAX && !label.includes("/");
+  return [...label].length <= ANSWER_BUTTON_MAX && !label.includes("/") && !label.includes("\\");
 }
 
 /**

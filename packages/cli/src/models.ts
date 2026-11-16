@@ -19,6 +19,8 @@ import {
 import { builtinProviders, resolveModel, serviceKey, testModel } from "@agentherd/herder";
 import { readConfig, writeConfig } from "@agentherd/host";
 
+const EOF_KEY = process.platform === "win32" ? "Ctrl-Z then Enter" : "Ctrl-D";
+
 export const MODEL_USAGE = `Usage: agentherd model <command>
 
   providers                          Providers that need only a key, with their models
@@ -80,7 +82,9 @@ export async function modelCommand(
         return await addCompatible(home, rest, out, deps);
       case "key": {
         const service = findService(settingsOf(home), rest[0]);
-        const key = await deps.readKey(`Paste the key for ${service.id}, then Enter and Ctrl-D:`);
+        const key = await deps.readKey(
+          `Paste the key for ${service.id}, then Enter and ${EOF_KEY}:`,
+        );
         if (key === "") deps.secrets.delete(modelKeyAccount(service.id));
         else deps.secrets.set(modelKeyAccount(service.id), key);
         out(key === "" ? `Removed the key of ${service.id}.` : `Saved the key of ${service.id}.`);
@@ -211,7 +215,7 @@ async function finishAdd(
 ): Promise<number> {
   const next = putService(settingsOf(home), service);
   const key = await deps.readKey(
-    `Paste the key for ${service.id}, then Enter and Ctrl-D (empty: none or from the environment):`,
+    `Paste the key for ${service.id}, then Enter and ${EOF_KEY} (empty: none or from the environment):`,
   );
   if (key !== "") deps.secrets.set(modelKeyAccount(service.id), key);
   save(home, next);

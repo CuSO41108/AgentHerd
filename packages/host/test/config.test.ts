@@ -14,8 +14,10 @@ describe("secretFile", () => {
     await feishuSecrets(home).saveSecret("cli_x", "app-secret");
     expect(store.get("model:deepseek")).toBe("sk-1");
     expect(await feishuSecrets(home).getSecret("cli_x")).toBe("app-secret");
-    expect(statSync(secretsPath(home)).mode & 0o777).toBe(0o600);
-    expect(statSync(home).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") {
+      expect(statSync(secretsPath(home)).mode & 0o777).toBe(0o600);
+      expect(statSync(home).mode & 0o777).toBe(0o700);
+    }
     expect(readFileSync(configPath(home), "utf8")).not.toContain("sk-1");
     store.delete("model:deepseek");
     expect(store.get("model:deepseek")).toBeUndefined();

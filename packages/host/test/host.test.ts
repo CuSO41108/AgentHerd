@@ -296,6 +296,12 @@ describe("Host", () => {
 });
 
 describe("local API socket", () => {
+  it("normalizes Windows home paths when deriving named pipe paths", () => {
+    const pipe = socketPath("C:\\Users\\me\\.agentherd", "win32");
+    expect(pipe).toMatch(/^\\\\\.\\pipe\\agentherd-[0-9a-f]{16}$/);
+    expect(socketPath("C:/Users/me/.agentherd/", "win32")).toBe(pipe);
+  });
+
   it("answers calls, forwards events and refuses a second host", async () => {
     const t = makeHost();
     await t.host.start();

@@ -1,4 +1,4 @@
-import { delimiter } from "node:path";
+import { posix, win32 } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   agentEnv,
@@ -29,6 +29,11 @@ describe("findAgent dsh", () => {
         "darwin",
       ),
     ).toBe("/x/dsh");
+  });
+  it("reads Path case-insensitively from plain env objects on Windows", () => {
+    expect(
+      findAgent("pi", { Path: "C:\\Tools" }, has("C:\\Tools\\pi.cmd"), "win32", () => []),
+    ).toBe("C:\\Tools\\pi.cmd");
   });
   it("then searches PATH in order", () => {
     expect(findAgent("dsh", { PATH: "/a:/b" }, has("/b/dsh", DSH_APP_BIN), "darwin")).toBe(
@@ -194,17 +199,29 @@ describe("DSH app on Windows", () => {
     "Search end: 3 match(es) found.",
   ].join("\r\n");
 
-  it("reads install folders from the uninstall entries", () => {
+  it("reads install folders from DisplayIcon or InstallLocation", () => {
+    const withInstallLocation = [
+      "HKEY_LOCAL_MACHINE\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\dsh",
+      "    DisplayName    REG_SZ    DeepSeek Harness 0.2.1",
+      "    InstallLocation    REG_SZ    C:\\Program Files (x86)\\DeepSeek Harness",
+    ].join("\r\n");
     expect(dshInstallDirs(OUTPUT)).toEqual(["G:\\Program File\\DSH"]);
+    expect(dshInstallDirs(withInstallLocation)).toEqual([
+      "C:\\Program Files (x86)\\DeepSeek Harness",
+    ]);
   });
-  it("points at the CLI launcher in each folder, per-user first", () => {
+  it("points at the CLI launcher in each folder, per-user then HKLM and WOW6432Node", () => {
     const asked: string[] = [];
     const bins = dshAppBins("win32", (args) => {
       asked.push(args[1] ?? "");
       if (args[1]?.startsWith("HKLM")) throw new Error("ERROR: no match");
       return OUTPUT;
     });
-    expect(asked.map((k) => k.slice(0, 4))).toEqual(["HKCU", "HKLM"]);
+    expect(asked).toEqual([
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+    ]);
     expect(bins).toEqual(["G:\\Program File\\DSH\\resources\\runtime\\cli\\bin\\dsh.cmd"]);
   });
 });
@@ -278,12 +295,33 @@ describe("commandCandidates", () => {
 });
 
 describe("searchPath", () => {
-  it("keeps PATH and adds the usual install folders without duplicates", () => {
-    const path = searchPath({
-      PATH: ["/usr/bin", "/opt/homebrew/bin"].join(delimiter),
-    }).split(delimiter);
+  it("keeps PATH and adds the usual install folders without duplicates on POSIX", () => {
+    const path = searchPath(
+      { PATH: ["/usr/bin", "/opt/homebrew/bin"].join(posix.delimiter) },
+      "darwin",
+      "/Users/me",
+    ).split(posix.delimiter);
     expect(path.slice(0, 2)).toEqual(["/usr/bin", "/opt/homebrew/bin"]);
     expect(path).toContain("/usr/local/bin");
     expect(path.filter((d) => d === "/opt/homebrew/bin")).toHaveLength(1);
+  });
+
+  it("includes Windows npm, pnpm, scoop, and nodejs dirs and reads Path case-insensitively", () => {
+    const path = searchPath(
+      {
+        Path: ["C:\\Tools", "C:\\Users\\me\\AppData\\Roaming\\npm"].join(win32.delimiter),
+        APPDATA: "C:\\Users\\me\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local",
+        ProgramFiles: "C:\\Program Files",
+      },
+      "win32",
+      "C:\\Users\\me",
+    ).split(win32.delimiter);
+    expect(path[0]).toBe("C:\\Tools");
+    expect(path).toContain("C:\\Users\\me\\AppData\\Roaming\\npm");
+    expect(path).toContain("C:\\Users\\me\\AppData\\Local\\pnpm");
+    expect(path).toContain("C:\\Users\\me\\scoop\\shims");
+    expect(path).toContain("C:\\Program Files\\nodejs");
+    expect(path.filter((d) => d === "C:\\Users\\me\\AppData\\Roaming\\npm")).toHaveLength(1);
   });
 });

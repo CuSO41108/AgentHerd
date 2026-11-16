@@ -5,6 +5,7 @@ import { feishuSecrets, secretFile } from "./config.ts";
 import { Host } from "./host.ts";
 import { mcpSocketPath, serveMcp } from "./mcp-socket.ts";
 import { searchPath } from "./profiles.ts";
+import { applySystemProxy } from "./proxy.ts";
 import { type ApiServer, serveApi, socketPath } from "./server.ts";
 
 export interface RunHostOptions {
@@ -21,6 +22,7 @@ export interface RunningHost {
 
 export async function runHost(opts: RunHostOptions): Promise<RunningHost> {
   const log = opts.log ?? ((line: string) => console.log(line));
+  applySystemProxy(process.env);
   // An app opened from Finder gets a short PATH; find dsh/pi and let agents find `node` like a
   // terminal would.
   process.env.PATH = searchPath(process.env);

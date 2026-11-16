@@ -3,10 +3,12 @@
 // Feishu app when it has none, signs the owner in by QR (device flow), and tells every new task
 // that lark-cli is there. What a lark-cli command may do is decided in rules/outbound.ts.
 
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join, posix, win32 } from "node:path";
+import { commandLine, killTree } from "@agentherd/acp-client";
+import { envValue, onPath, searchPath } from "./profiles.ts";
 
 export type LarkState = "missing" | "installing" | "no-app" | "signed-out" | "ready" | "failed";
 
@@ -48,18 +50,66 @@ export const LARK_DOMAINS = [
 const PACKAGE = "@larksuite/cli";
 const LOGIN_WAIT_MS = 10 * 60_000;
 
+const MAX_BUFFER = 8 * 1024 * 1024;
+
 export const runFile: Run = (file, args, opts = {}) =>
   new Promise((resolve) => {
-    const child = execFile(
-      file,
-      [...args],
-      { timeout: opts.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: process.env },
-      (error, stdout, stderr) => {
-        const code = error === null ? 0 : typeof error.code === "number" ? error.code : 1;
-        resolve({ code, stdout: String(stdout), stderr: String(stderr) });
-      },
-    );
-    if (opts.input !== undefined) child.stdin?.end(opts.input);
+    const line = commandLine(file, args);
+    const verbatim = "windowsVerbatimArguments" in line && line.windowsVerbatimArguments === true;
+    const child = spawn(line.command, line.args, {
+      env: { ...process.env, ...line.env },
+      windowsHide: true,
+      ...(verbatim ? { windowsVerbatimArguments: true } : {}),
+      stdio: [opts.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+    });
+    const outChunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    let outBytes = 0;
+    let errBytes = 0;
+    let settled = false;
+    let spawnError: NodeJS.ErrnoException | undefined;
+    let timedOut = false;
+    const finish = (code: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const stdout = Buffer.concat(outChunks).toString("utf8");
+      let stderr = Buffer.concat(errChunks).toString("utf8");
+      if (stderr === "" && spawnError !== undefined) {
+        stderr = spawnError.code ? `${spawnError.code}: ${spawnError.message}` : spawnError.message;
+      } else if (stderr === "" && timedOut) {
+        stderr = "timed out";
+      }
+      resolve({ code, stdout, stderr });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(child, "SIGKILL");
+    }, opts.timeoutMs ?? 60_000);
+    timer.unref();
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (outBytes < MAX_BUFFER) {
+        outChunks.push(chunk);
+        outBytes += chunk.length;
+      }
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (errBytes < MAX_BUFFER) {
+        errChunks.push(chunk);
+        errBytes += chunk.length;
+      }
+    });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      spawnError = error;
+      finish(1);
+    });
+    child.on("close", (code) => {
+      finish(code ?? 1);
+    });
+    if (opts.input !== undefined) {
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(opts.input);
+    }
   });
 
 /** JSON in a lark-cli answer (it prints errors as JSON on stderr). */
@@ -79,6 +129,9 @@ export interface LarkOptions {
   run?: Run;
   /** Where to look for lark-cli besides PATH. */
   dirs?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  exists?: (path: string) => boolean;
   /** AgentHerd's own Feishu app, to set lark-cli up when it has no app yet. */
   app?: () => Promise<{ appId: string; secret: string; brand: string } | undefined>;
   /** A QR code image (data URL) for a link. */
@@ -108,17 +161,27 @@ export class Lark {
 
   /** lark-cli on PATH or in the usual install places. */
   find(): string | undefined {
-    const dirs = [
-      ...(process.env.PATH ?? "").split(delimiter),
-      join(homedir(), ".local", "bin"),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      ...(this.opts.dirs ?? []),
-    ];
-    for (const d of dirs) {
-      if (d !== "" && existsSync(join(d, "lark-cli"))) return join(d, "lark-cli");
-    }
-    return undefined;
+    const plat = this.opts.platform ?? process.platform;
+    const env = this.opts.env ?? process.env;
+    const exists = this.opts.exists ?? existsSync;
+    const sep = plat === "win32" ? win32.delimiter : posix.delimiter;
+    const extraWin =
+      plat === "win32"
+        ? [
+            win32.join(
+              envValue(env, "APPDATA") ?? win32.join(homedir(), "AppData", "Roaming"),
+              "npm",
+            ),
+            win32.join(
+              envValue(env, "LOCALAPPDATA") ?? win32.join(homedir(), "AppData", "Local"),
+              "pnpm",
+            ),
+          ]
+        : [];
+    const path = [...(this.opts.dirs ?? []), searchPath(env, plat), ...extraWin]
+      .filter((d) => d !== "")
+      .join(sep);
+    return onPath(["lark-cli"], path, exists, plat, envValue(env, "PATHEXT"));
   }
 
   /** Looks again: installed, set up, signed in. */
@@ -155,15 +218,29 @@ export class Lark {
   }
 
   private async install(): Promise<void> {
-    const npm = [
-      "npm",
-      join(homedir(), ".local", "bin", "npm"),
-      "/opt/homebrew/bin/npm",
-      "/usr/local/bin/npm",
-    ];
+    const plat = this.opts.platform ?? process.platform;
+    const env = this.opts.env ?? process.env;
+    const exists = this.opts.exists ?? existsSync;
+    const sep = plat === "win32" ? win32.delimiter : posix.delimiter;
+    const candidates: string[] = [];
+    if (plat === "win32") {
+      const programFiles = envValue(env, "ProgramFiles") ?? "C:\\Program Files";
+      const path = [searchPath(env, plat), win32.join(programFiles, "nodejs")].join(sep);
+      const found = onPath(["npm"], path, exists, plat, envValue(env, "PATHEXT"));
+      if (found !== undefined) candidates.push(found);
+      const pfNpm = win32.join(programFiles, "nodejs", "npm.cmd");
+      if (!candidates.includes(pfNpm) && exists(pfNpm)) candidates.push(pfNpm);
+    } else {
+      candidates.push(
+        "npm",
+        join(homedir(), ".local", "bin", "npm"),
+        "/opt/homebrew/bin/npm",
+        "/usr/local/bin/npm",
+      );
+    }
     this.set({ state: "installing" });
-    for (const n of npm) {
-      if (n !== "npm" && !existsSync(n)) continue;
+    for (const n of candidates) {
+      if (n !== "npm" && !exists(n)) continue;
       const r = await this.run(n, ["install", "-g", PACKAGE], { timeoutMs: 5 * 60_000 });
       if (r.code === 0) {
         this.opts.log?.(`[lark] installed ${PACKAGE}`);

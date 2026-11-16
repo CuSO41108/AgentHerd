@@ -8,6 +8,7 @@ import { FeishuChannel } from "@agentherd/channel-feishu";
 import { Herd, Store } from "@agentherd/core";
 import {
   agentherdHome,
+  applySystemProxy,
   feishuSecrets,
   findAgent,
   RuntimeStore,
@@ -15,6 +16,7 @@ import {
   resolveProfile,
   runHost,
   secretFile,
+  secretsPath,
   writeConfig,
 } from "@agentherd/host";
 import type { Locale, Mode } from "@agentherd/protocol";
@@ -47,7 +49,10 @@ export async function main(argv: string[], out: Out = console.log): Promise<numb
   const home = agentherdHome();
   switch (command) {
     case "setup":
-      if (rest[0] === "feishu") return setupFeishu(home, out);
+      if (rest[0] === "feishu") {
+        applySystemProxy();
+        return setupFeishu(home, out);
+      }
       out(USAGE);
       return 2;
     case "model":
@@ -55,10 +60,13 @@ export async function main(argv: string[], out: Out = console.log): Promise<numb
         out(MODEL_USAGE);
         return rest[0] === undefined ? 2 : 0;
       }
+      applySystemProxy();
       return modelCommand(home, rest, out, { secrets: secretFile(home), readKey });
     case "run":
+      applySystemProxy();
       return run(home, rest, out);
     case "start":
+      applySystemProxy();
       return start(home, rest, out);
     case "status":
       return status(home, out);
@@ -87,8 +95,12 @@ async function setupFeishu(home: string, out: Out): Promise<number> {
   const runDir = join(home, "run");
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const qrPng = join(runDir, "qr.png");
+  let qrWrite: Promise<void> | undefined;
   const binding = await feishuChannel(home).setup({
     showQrCode(url, expiresInSeconds) {
+      qrWrite = QRCode.toFile(qrPng, url, { width: 360 }).catch((error: Error) => {
+        out(`[setup] could not write ${qrPng}: ${error.message}`);
+      });
       void QRCode.toString(url, { type: "terminal", small: true }).then((qr) => {
         out(qr);
         out(
@@ -97,15 +109,15 @@ async function setupFeishu(home: string, out: Out): Promise<number> {
         out(url);
         out(`QR image: ${qrPng}`);
       });
-      void QRCode.toFile(qrPng, url, { width: 360 });
     },
     showStatus(state) {
       out(`[setup] ${state}`);
     },
   });
+  await qrWrite;
   const config = readConfig(home);
   writeConfig(home, { ...config, channel: binding });
-  out(`Bound to Feishu app ${binding.data.appId}. The App Secret is in ${home}/secrets.json.`);
+  out(`Bound to Feishu app ${binding.data.appId}. The App Secret is in ${secretsPath(home)}.`);
   return 0;
 }
 
@@ -172,6 +184,7 @@ async function run(home: string, args: string[], out: Out): Promise<number> {
     void herd.stop().then(() => process.exit(130));
   };
   process.once("SIGINT", stop);
+  if (process.platform === "win32") process.once("SIGBREAK", stop);
   try {
     await herd.start();
     out(`[herd] connected to Feishu; running ${profile.id} in ${dir}`);
@@ -180,6 +193,7 @@ async function run(home: string, args: string[], out: Out): Promise<number> {
     return 0;
   } finally {
     process.off("SIGINT", stop);
+    if (process.platform === "win32") process.off("SIGBREAK", stop);
     await herd.stop();
   }
 }
@@ -213,7 +227,15 @@ async function start(home: string, args: string[], out: Out): Promise<number> {
     out("[herd] no agent profiles: install DeepSeek Harness, add profiles, or pass --script.");
   }
   out("[herd] send /help to the bot. Ctrl-C to stop.");
-  await new Promise<void>((done) => process.once("SIGINT", () => done()));
+  await new Promise<void>((done) => {
+    const onSignal = () => {
+      process.off("SIGINT", onSignal);
+      if (process.platform === "win32") process.off("SIGBREAK", onSignal);
+      done();
+    };
+    process.once("SIGINT", onSignal);
+    if (process.platform === "win32") process.once("SIGBREAK", onSignal);
+  });
   out("[herd] stopping");
   await running.stop();
   return 0;

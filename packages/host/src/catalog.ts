@@ -28,6 +28,8 @@ export interface AgentDef {
   env: Record<string, string>;
   /** Latest release for a target (`darwin-arm64`, …); undefined when there is no build for it. */
   latest?: (target: string, fetch: Fetchers) => Promise<Release | undefined>;
+  /** Supported targets for downloads; omitted means all targets. */
+  targets?: readonly string[];
   /** npm releases need npm itself, downloaded as the `npm` runtime. */
   npm?: boolean;
 }
@@ -218,6 +220,7 @@ export const AGENTS: AgentDef[] = [
     // read-only: every write and network command becomes a permission request.
     env: { DSH_PERMISSION_MODE: "read-only" },
     latest: dshLatest,
+    targets: ["darwin-arm64", "darwin-x64"],
   },
   {
     id: "pi",
@@ -248,7 +251,7 @@ export function agentDef(id: string): AgentDef | undefined {
 
 /** Scripts run with AgentHerd's own Node (Electron's in the app); binaries run directly. */
 export function isScript(path: string): boolean {
-  return /\.(c|m)?js$/.test(path);
+  return /\.(c|m)?js$/i.test(path);
 }
 
 /**
