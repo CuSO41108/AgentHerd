@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntry } from "./entry.ts";
 
 export const UPSTREAM_URL = "https://github.com/earendil-works/pi.git";
 export const MAPPING: ReadonlyArray<{ upstream: string; local: string }> = [
@@ -175,7 +176,7 @@ export interface SyncReport {
 
 export function sync(opts: SyncOptions): SyncReport {
   const mdPath = join(opts.pkgDir, "UPSTREAM.md");
-  const md = readFileSync(mdPath, "utf8");
+  const md = readFileSync(mdPath, "utf8").replace(/\r\n/g, "\n");
   const from = readBase(md);
   const toSha = resolveSha(opts.repo, opts.to);
   const report: SyncReport = {
@@ -195,7 +196,9 @@ export function sync(opts: SyncOptions): SyncReport {
     const localPath = join(opts.pkgDir, local);
     const base = baseFiles.has(upstreamPath) ? show(opts.repo, from.sha, upstreamPath) : undefined;
     const target = targetFiles.has(upstreamPath) ? show(opts.repo, toSha, upstreamPath) : undefined;
-    const ours = existsSync(localPath) ? readFileSync(localPath, "utf8") : undefined;
+    const ours = existsSync(localPath)
+      ? readFileSync(localPath, "utf8").replace(/\r\n/g, "\n")
+      : undefined;
     const action = classify(base, target, ours);
     if (action.kind === "unchanged") continue;
 
@@ -231,7 +234,7 @@ export function sync(opts: SyncOptions): SyncReport {
 
   const pkgPath = join(opts.pkgDir, "package.json");
   const deps = syncDeps(
-    readFileSync(pkgPath, "utf8"),
+    readFileSync(pkgPath, "utf8").replace(/\r\n/g, "\n"),
     show(opts.repo, toSha, "packages/agent/package.json"),
   );
   report.deps = deps.changes;
@@ -288,6 +291,6 @@ function main(argv: string[]): number {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntry(process.argv[1], import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }
