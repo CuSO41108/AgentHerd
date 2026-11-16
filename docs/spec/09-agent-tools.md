@@ -201,7 +201,9 @@ Homebrew, `%APPDATA%\npm`, `%LOCALAPPDATA%\pnpm`) or installs it with
 `npm install -g @larksuite/cli` (using hidden console windows and system proxy env from
 `applySystemProxy` on Windows), sets it up with AgentHerd's own Feishu app when it has none, and
 signs in with `auth login --no-wait --json --domain …` (QR in 应用连接, `--device-code` finishes
-in the background). It is not a gateway tool: every new task gets one paragraph saying lark-cli is
+in the background). `auth status` counts the owner signed in when the user identity is `ready`
+or `needs_refresh` (the access token ran out and lark-cli refreshes it by itself on the next
+call). It is not a gateway tool: every new task gets one paragraph saying lark-cli is
 signed in, as whom, and where its guides are (`lark-cli skills read lark-doc`), and the agent runs
 it with its shell. `outboundCheck` reads lark-cli commands: reads, `--help`, `--dry-run`, `auth`,
 `config`, `schema` and `skills` stay on the computer; `+create` of a doc, sheet, slides, base or mind

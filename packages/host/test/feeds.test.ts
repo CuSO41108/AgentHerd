@@ -103,7 +103,7 @@ describe("news sources (ADR 0059)", () => {
   });
 });
 
-function fakeLark(state: { configured: boolean; signedIn: boolean }) {
+function fakeLark(state: { configured: boolean; signedIn: boolean; user?: object }) {
   const calls: string[] = [];
   const run: Run = async (_file, args, opts) => {
     calls.push(`${args.join(" ")}${opts?.input === undefined ? "" : " <secret>"}`);
@@ -122,7 +122,9 @@ function fakeLark(state: { configured: boolean; signedIn: boolean }) {
       }
       return out({
         identities: {
-          user: state.signedIn ? { status: "ready", userName: "郭宇航" } : { status: "missing" },
+          user:
+            state.user ??
+            (state.signedIn ? { status: "ready", userName: "郭宇航" } : { status: "missing" }),
         },
       });
     }
@@ -194,6 +196,29 @@ describe("飞书 through lark-cli (ADR 0059)", () => {
     lark.find = () => undefined;
     expect((await lark.check()).state).toBe("missing");
     expect((await lark.test()).message).toContain("自动安装");
+  });
+
+  it("counts a user token lark-cli refreshes by itself as signed in", async () => {
+    // lark-cli's access token lasts hours; past that it says needs_refresh and refreshes on the
+    // next call, as long as the refresh token (days) has not run out.
+    const signedIn = async (user: object) => {
+      const lark = new Lark({
+        changed: () => {},
+        run: fakeLark({ configured: true, signedIn: false, user }).run,
+        dirs: [dir()],
+        qr: async () => "",
+      });
+      return lark.check();
+    };
+    expect(
+      await signedIn({
+        status: "needs_refresh",
+        available: true,
+        userName: "郭宇航",
+        tokenStatus: "needs_refresh",
+      }),
+    ).toMatchObject({ state: "ready", account: "郭宇航" });
+    expect((await signedIn({ status: "expired", available: false })).state).toBe("signed-out");
   });
 
   it("skips extensionless POSIX shims and finds .cmd/.exe plus npm.cmd on Windows", async () => {
