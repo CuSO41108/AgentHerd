@@ -175,6 +175,27 @@ Each kind of message looks different, the same in Feishu and in the app:
 
 The owner's message is never dropped silently: it is handled, or the owner is told why not.
 
+## 6. The 主管 page and its action log
+
+The app's 「主管」 page shows the Herder's model (with 试一下) and two rows that open their own
+pages: 「说话风格」 (ADR 0053) and 「行动记录」.
+
+「行动记录」 shows what the Herder did, newest turn first, grouped by day. It is read from what is
+already saved, nothing extra is written: the turns come from `herder_log` (the whole conversation,
+ADR 0045), and errors, retries, model switches, guard hits and folds from the `herder.*` rows of
+`audit` (not `herder.turn`, `herder.tool` and `herder.answer`, which the turns already show).
+
+- A turn is one line: the time, what started it (你说 / 你选了 / 任务结果 / 定时任务 / 新活 /
+  收到通知), the words, and badges for steps, failed steps, 「重启前的」 and 「没说话」.
+- Opened, it shows the question the owner answered, the notices that came with it, each tool
+  call by a Chinese name with its key argument (opened: the arguments and the result, which is
+  cut at 4,000 characters; a failed call is red) and the reply with the model, or 「决定不说话」.
+- 「出错的」 shows only turns with a failed call and error or retry rows.
+- The page asks the host again every 5 seconds while open. The host returns the newest 200 turns
+  (local API `herderActivity(limit?)`) and the audit rows since the oldest of them.
+
+A turn that failed is rolled back out of `herder_log` (ADR 0037), so it shows only as its error row.
+
 ## Order of work
 
 1. `project_find`, `session_start` folder check, `herder_turns`.

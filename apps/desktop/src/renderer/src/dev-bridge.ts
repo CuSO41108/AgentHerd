@@ -39,6 +39,7 @@ import {
   PLACEHOLDER_QR,
   providers,
   sampleFeeds,
+  sampleHerderActivity,
   sampleLark,
   sampleMemory,
   sampleSchedules,
@@ -445,6 +446,7 @@ function installFakeBridge(): void {
     },
     tasks: () => delay(tasks),
     transcript: (taskId) => delay(sampleTranscript(taskId)),
+    herderActivity: () => delay(sampleHerderActivity()),
     memories: () => delay(memory),
     schedules: () => delay(schedules),
     setSchedulePaused: (id, paused) => {

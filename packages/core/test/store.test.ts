@@ -459,6 +459,23 @@ describe("Store (herder_log)", () => {
   });
 });
 
+describe("Store (audit by kind prefix)", () => {
+  it("gives the newest rows of the kinds that start with a prefix, oldest first", () => {
+    const store = Store.open(":memory:");
+    store.audit("herder.turn", { kind: "owner" });
+    store.audit("item.decided", { id: "x" });
+    store.audit("herder.error", { message: "boom" });
+    store.audit("herder.retry", { delay: 1 });
+    expect(store.auditRowsLike("herder.", 2).map((r) => [r.kind, r.data])).toEqual([
+      ["herder.error", { message: "boom" }],
+      ["herder.retry", { delay: 1 }],
+    ]);
+    // A % or _ in the prefix is taken as it is, not as a pattern.
+    expect(store.auditRowsLike("herder%", 10)).toEqual([]);
+    store.close();
+  });
+});
+
 describe("Store (herder_turns)", () => {
   it("keeps the Herder's conversation and finds Chinese words in it", () => {
     const store = Store.open(":memory:");
