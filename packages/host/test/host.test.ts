@@ -216,6 +216,46 @@ describe("Host", () => {
     expect(() => t.host.setSchedulePaused(made.id, true)).toThrow(/no such schedule/);
   });
 
+  it("shows what the Herder did, newest turn first, with its errors", async () => {
+    const t = makeHost(true);
+    await t.host.start();
+    expect(t.host.herderActivity()).toEqual({ turns: [], incidents: [], total: 0 });
+    const herd = (t.host as unknown as { herd: Herd }).herd;
+    const say = (text: string, at: number) => ({
+      role: "user",
+      content: [{ type: "text", text: `[Now: x]\n[Owner's message]\n${text}` }],
+      timestamp: at,
+    });
+    const reply = (text: string, at: number) => ({
+      role: "assistant",
+      content: [{ type: "text", text }],
+      timestamp: at,
+    });
+    herd.store.writeHerderLog(0, [
+      say("一", Date.parse("2026-11-16T01:00:00Z")),
+      reply("好", Date.parse("2026-11-16T01:00:01Z")),
+      say("二", Date.parse("2026-11-16T02:00:00Z")),
+      reply("行", Date.parse("2026-11-16T02:00:01Z")),
+    ]);
+    herd.store.audit("herder.tool", { name: "session_list" }, "2026-11-16T02:00:00.500Z");
+    herd.store.audit("herder.error", { message: "boom" }, "2026-11-16T02:30:00Z");
+    herd.store.audit("herder.retry", { delay: 1 }, "2026-11-16T00:30:00Z");
+
+    const all = t.host.herderActivity();
+    expect(all.total).toBe(2);
+    expect(all.turns.map((x) => [x.text, x.reply])).toEqual([
+      ["二", "行"],
+      ["一", "好"],
+    ]);
+    // herder.tool is already in the turns; a retry before the oldest turn shown is left out.
+    expect(all.incidents).toEqual([
+      { at: "2026-11-16T02:30:00Z", kind: "herder.error", data: { message: "boom" } },
+    ]);
+    const newest = t.host.herderActivity(1);
+    expect(newest.turns.map((x) => x.text)).toEqual(["二"]);
+    expect(newest.total).toBe(2);
+  });
+
   it("keeps Codex out of new tasks after it fails to start one", async () => {
     const t = makeHost(true, ["pi", "codex"]);
     await t.host.start();

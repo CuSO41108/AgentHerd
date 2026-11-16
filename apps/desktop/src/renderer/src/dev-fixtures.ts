@@ -4,6 +4,7 @@
 
 import type {
   FeedView,
+  HerderActivityView,
   LarkView,
   MemoryView,
   ModelsView,
@@ -479,4 +480,114 @@ export function sampleFeeds(): FeedView[] {
     { source: "hacker-news", name: "Hacker News", on: true },
     { source: "arxiv", name: "arXiv", on: false },
   ];
+}
+
+/** The Herder's action log for 主管 › 行动记录, from a real night of finding issues. */
+export function sampleHerderActivity(): HerderActivityView {
+  const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  return {
+    total: 4,
+    turns: [
+      {
+        at: at(3),
+        trigger: "owner",
+        text: "哪九个，你跟我说一下分别问题是啥",
+        events: [],
+        resumed: false,
+        steps: [
+          {
+            tool: "session_prompt",
+            args: { task: "d8fb0f19", text: "每个 issue 用一两句说清要解决什么" },
+            result: "sent to d8fb0f19",
+            error: false,
+            ms: 12,
+          },
+        ],
+        reply: "已让 agent 逐个写清楚，每条一两句，出来我就发你。",
+        quiet: false,
+        model: "deepseek-flash",
+      },
+      {
+        at: at(7),
+        trigger: "task",
+        text: "pi-desktop：复查可做的 issue",
+        events: [],
+        resumed: false,
+        steps: [],
+        reply:
+          "上次那 9 个都没变化，仍可做；新查出来 2 个：#2226 内置浏览器加静音按钮，#2220 Windows 下路径带空格打不开。",
+        quiet: false,
+        model: "deepseek-flash",
+      },
+      {
+        at: at(16),
+        trigger: "answer",
+        text: "/Users/me/learnspace/PI-Desktop",
+        question: "再选一次具体路径，我就开任务（两个同名项目）",
+        events: [],
+        resumed: false,
+        steps: [
+          {
+            tool: "session_start",
+            args: {
+              project: "/Users/me/learnspace/PI-Desktop",
+              profile: "pi",
+              model: "deepseek/deepseek-flash",
+              name: "pi-desktop：复查可做的 issue",
+            },
+            result:
+              "started task d8fb0f19 in /Users/me/learnspace/PI-Desktop with pi, deepseek/deepseek-flash.",
+            error: false,
+            ms: 410,
+          },
+        ],
+        reply:
+          "已在 learnspace/PI-Desktop 开跑了（模型 deepseek-flash），复查上次那 9 个，再找新的。",
+        quiet: false,
+        model: "deepseek-flash",
+      },
+      {
+        at: at(19),
+        trigger: "answer",
+        text: "PI-Desktop（learnspace 里那个）",
+        question: "有两个叫 PI-Desktop 的项目，用哪个？",
+        events: [],
+        resumed: false,
+        steps: [
+          {
+            tool: "session_start",
+            args: { project: "PI-Desktop", profile: "pi" },
+            result:
+              "the owner did not pick /Users/me/learnspace/PI-Desktop in this message; call project_find and ask the owner to pick the folder",
+            error: true,
+            ms: 3,
+          },
+          {
+            tool: "project_find",
+            args: { query: "PI-Desktop" },
+            result: "/Users/me/learnspace/PI-Desktop\n/Users/me/work/PI-Desktop",
+            error: false,
+            ms: 85,
+          },
+          {
+            tool: "ask",
+            args: { question: "再选一次具体路径，我就开任务（两个同名项目）" },
+            result: "asked",
+            error: false,
+            ms: 20,
+          },
+        ],
+        reply: "",
+        quiet: false,
+        model: "deepseek-flash",
+      },
+    ],
+    incidents: [
+      {
+        at: at(5),
+        kind: "herder.retry",
+        data: { kind: "owner", message: "Connection error.", delay: 2000 },
+      },
+    ],
+  };
 }

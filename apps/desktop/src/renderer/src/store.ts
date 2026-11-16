@@ -36,6 +36,8 @@ export type Mode = HostStatus["mode"];
 export type Page =
   | "tasks"
   | "herders"
+  | "herder-style"
+  | "herder-activity"
   | "memory"
   | "schedules"
   | "connections"
@@ -84,6 +86,8 @@ interface AppState {
 const PAGES: readonly Page[] = [
   "tasks",
   "herders",
+  "herder-style",
+  "herder-activity",
   "memory",
   "schedules",
   "connections",
@@ -146,6 +150,12 @@ export const useApp = create<AppState>()((set, get) => ({
 }));
 
 let nextToastId = 1;
+
+/** Pages opened from another page, not from the sidebar; the sidebar marks their parent. */
+export const PARENT_PAGE: Partial<Record<Page, Page>> = {
+  "herder-style": "herders",
+  "herder-activity": "herders",
+};
 
 export function bridge(): Bridge {
   return window.agentherd;

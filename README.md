@@ -26,7 +26,7 @@ English · [简体中文](README.zh-CN.md)
 - **A Herder that talks like a person.** The Herder is a light-model agent that takes your
   messages, starts and follows tasks, and tells you each result in its own words, with the
   agent's own reply one tap away. Pick how it talks: a capable friend, an opinionated partner,
-  or a crisp secretary.
+  or a crisp secretary. Its 「行动记录」 page in the app shows every step it took and why.
 - **The right agent and model for each task.** Pi, Codex and DeepSeek Harness run through the
   [Agent Client Protocol](https://agentclientprotocol.com), on your own model services. The
   Herder picks the model, the agent follows from it, and a broken first turn switches to the

@@ -110,7 +110,8 @@ Rules:
   the channel), `providers`, `models`, `putService`, `removeService`, `setKey`, `chooseModel`,
   `testModel`, `probeModels` (GET `/models` of an OpenAI- or Anthropic-compatible service, so
   the owner ticks models instead of typing ids), `setupFeishu`, `cancelSetup`, `setupState`,
-  `updateSettings`. Later: `rule.*`, `export.*`.
+  `updateSettings`, `transcript` (a task's conversation), `herderActivity` (what the Herder did,
+  see 08 §6). Later: `rule.*`, `export.*`.
 
 ## 5. Storage
 

@@ -114,6 +114,53 @@ export interface TranscriptView {
   live: string;
 }
 
+/** One tool call the Herder made in a turn (主管 › 行动记录). */
+export interface HerderActivityStep {
+  tool: string;
+  args: Record<string, unknown>;
+  /** The tool's answer as the Herder saw it, cut when long. */
+  result: string;
+  error: boolean;
+  ms?: number;
+}
+
+/** One Herder turn, read back from its saved conversation. */
+export interface HerderActivityTurn {
+  at: string;
+  /** What started it. notice: only task reports or other news (turns from before 2026-11). */
+  trigger: "owner" | "answer" | "task" | "scheduled" | "intake" | "notice" | "other";
+  /** The owner's words, their answer, the task's name, the schedule's name, the GitHub item. */
+  text: string;
+  /** The question an answer answered. */
+  question?: string;
+  /** News that came along with the turn, one entry each. */
+  events: string[];
+  /** It came before AgentHerd restarted. */
+  resumed: boolean;
+  steps: HerderActivityStep[];
+  /** What the Herder said last; "" when it said nothing. */
+  reply: string;
+  /** It chose to say nothing. */
+  quiet: boolean;
+  model?: string;
+}
+
+/** Something that happened to the Herder outside its conversation: an error, a retry, a guard hit. */
+export interface HerderIncident {
+  at: string;
+  /** The audit kind, e.g. "herder.error". */
+  kind: string;
+  data: Record<string, unknown>;
+}
+
+/** 主管 › 行动记录: the Herder's turns and incidents, newest first. */
+export interface HerderActivityView {
+  turns: HerderActivityTurn[];
+  incidents: HerderIncident[];
+  /** Turns there are in all; `turns` holds the newest of them. */
+  total: number;
+}
+
 /** The Herder's long-term memory for the 记忆 page (ADR 0038). */
 export interface MemoryView {
   /** Active entries, newest first, and the last deleted ones (to restore). */
@@ -327,6 +374,8 @@ export interface HostApi {
   tasks(): TasksView;
   /** The conversation of one task: prompts, replies and tool calls. */
   transcript(taskId: string): TranscriptView;
+  /** What the Herder did, newest turn first: at most `limit` turns (default 200). */
+  herderActivity(limit?: number): HerderActivityView;
   memories(): MemoryView;
   /** Changes an entry's text; the old text stays in its history. */
   editMemory(id: string, text: string): MemoryView;
@@ -406,6 +455,7 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "status",
   "tasks",
   "transcript",
+  "herderActivity",
   "memories",
   "editMemory",
   "forgetMemory",

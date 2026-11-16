@@ -369,6 +369,16 @@ export class Store {
     return rows.map(toAuditRow);
   }
 
+  /** The newest `limit` rows whose kind starts with `prefix` (e.g. "herder."), oldest first. */
+  auditRowsLike(prefix: string, limit: number): AuditRow[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id, at, kind, data_json FROM audit WHERE substr(kind, 1, ?) = ? ORDER BY id DESC LIMIT ?",
+      )
+      .all(prefix.length, prefix, limit);
+    return rows.map(toAuditRow).reverse();
+  }
+
   /** Adds a line to a task's conversation (secrets redacted). */
   addTranscript(
     taskId: string,

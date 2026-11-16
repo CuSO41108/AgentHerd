@@ -24,6 +24,7 @@ import {
   UnknownTokenError,
 } from "@agentherd/core";
 import {
+  activityTurns,
   agentForModel,
   builtinBaseUrls,
   builtinProviders,
@@ -52,6 +53,7 @@ import type {
   AppsView,
   FeedSource,
   FeedView,
+  HerderActivityView,
   HostApi,
   HostEvent,
   HostStatus,
@@ -144,6 +146,13 @@ export interface HostOptions {
   /** The MCP socket agents reach the gateway on (mcp-socket.ts). Without it, agents get none. */
   mcpSocket?: string;
 }
+
+/** Turns 主管 › 行动记录 shows by default. */
+const HERDER_ACTIVITY_TURNS = 200;
+/** Herder audit rows looked at for incidents. */
+const HERDER_INCIDENTS_MAX = 2000;
+/** Herder audit kinds the turns already show. */
+const HERDER_ROUTINE = new Set(["herder.turn", "herder.tool", "herder.answer"]);
 
 export class Host implements HostApi {
   private readonly opts: HostOptions;
@@ -729,6 +738,21 @@ export class Host implements HostApi {
 
   transcript(taskId: string): TranscriptView {
     return this.herd?.transcript(taskId) ?? { entries: [], live: "" };
+  }
+
+  herderActivity(limit = HERDER_ACTIVITY_TURNS): HerderActivityView {
+    const store = this.herd?.store;
+    if (store === undefined) return { turns: [], incidents: [], total: 0 };
+    const all = activityTurns(store.herderLog());
+    const turns = all.slice(-Math.max(1, limit)).reverse();
+    // Incidents since the oldest turn shown; tool calls are already in the turns.
+    const since = turns.at(-1)?.at ?? "";
+    const incidents = store
+      .auditRowsLike("herder.", HERDER_INCIDENTS_MAX)
+      .filter((r) => !HERDER_ROUTINE.has(r.kind) && r.at >= since)
+      .reverse()
+      .map((r) => ({ at: r.at, kind: r.kind, data: r.data }));
+    return { turns, incidents, total: all.length };
   }
 
   memories(): MemoryView {
