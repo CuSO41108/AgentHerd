@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Feeds, parseArxiv, parseTrending } from "../src/feeds.ts";
-import { Lark, type Run } from "../src/lark.ts";
+import { Lark, type Run, runFile } from "../src/lark.ts";
 
 const TRENDING = `<html><article class="Box-row">
   <h2 class="h3 lh-condensed"><a href="/meta/astryx" class="Link"><svg><path d="M8 .25a.75"></path></svg>
@@ -149,7 +149,7 @@ describe("飞书 through lark-cli (ADR 0059)", () => {
   const dir = () => {
     const d = mkdtempSync(join(tmpdir(), "lark-"));
     // A fake lark-cli on the search path.
-    writeFileSync(join(d, "lark-cli"), "");
+    writeFileSync(join(d, process.platform === "win32" ? "lark-cli.cmd" : "lark-cli"), "");
     return d;
   };
 
@@ -194,5 +194,89 @@ describe("飞书 through lark-cli (ADR 0059)", () => {
     lark.find = () => undefined;
     expect((await lark.check()).state).toBe("missing");
     expect((await lark.test()).message).toContain("自动安装");
+  });
+
+  it("skips extensionless POSIX shims and finds .cmd/.exe plus npm.cmd on Windows", async () => {
+    const npmBin = "C:\\Users\\me\\AppData\\Roaming\\npm";
+    const files = new Set([
+      `${npmBin}\\lark-cli`,
+      `${npmBin}\\lark-cli.cmd`,
+      "C:\\Program Files\\nodejs\\npm.cmd",
+    ]);
+    const ran: string[] = [];
+    const lark = new Lark({
+      changed: () => {},
+      platform: "win32",
+      env: { Path: "", APPDATA: "C:\\Users\\me\\AppData\\Roaming", PATHEXT: ".EXE;.CMD" },
+      exists: (p) => files.has(p),
+      run: async (file, args) => {
+        ran.push(`${file} ${args.join(" ")}`);
+        if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
+        if (args[0] === "auth")
+          return {
+            code: 0,
+            stdout: JSON.stringify({ identities: { user: { status: "ready" } } }),
+            stderr: "",
+          };
+        return {
+          code: 0,
+          stdout: JSON.stringify({ device_code: "D", verification_url: "https://x" }),
+          stderr: "",
+        };
+      },
+      qr: async () => "data:qr",
+    });
+    expect(lark.find()).toBe(`${npmBin}\\lark-cli.cmd`);
+
+    files.delete(`${npmBin}\\lark-cli.cmd`);
+    expect(lark.find()).toBeUndefined();
+    files.add(`${npmBin}\\lark-cli.cmd`);
+    // Verify install() selects npm.cmd on win32 when missing before install.
+    let installed = false;
+    const installer = new Lark({
+      changed: () => {},
+      platform: "win32",
+      env: {
+        PATH: "",
+        APPDATA: "C:\\Users\\me\\AppData\\Roaming",
+        ProgramFiles: "C:\\Program Files",
+        PATHEXT: ".EXE;.CMD",
+      },
+      exists: (p) =>
+        p === "C:\\Program Files\\nodejs\\npm.cmd" ||
+        (installed && p === `${npmBin}\\lark-cli.cmd`),
+      run: async (file, args) => {
+        ran.push(`${file} ${args.join(" ")}`);
+        if (args[0] === "install") {
+          installed = true;
+          return { code: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "--version") return { code: 0, stdout: "1.0.0", stderr: "" };
+        if (args[0] === "auth" && args[1] === "status") {
+          return {
+            code: 0,
+            stdout: JSON.stringify({ identities: { user: { status: "ready" } } }),
+            stderr: "",
+          };
+        }
+        return {
+          code: 0,
+          stdout: JSON.stringify({ device_code: "D", verification_url: "https://x" }),
+          stderr: "",
+        };
+      },
+      qr: async () => "data:qr",
+    });
+    await installer.connect();
+    expect(ran).toContain("C:\\Program Files\\nodejs\\npm.cmd install -g @larksuite/cli");
+
+    if (process.platform === "win32") {
+      const cmdDir = mkdtempSync(join(tmpdir(), "lark-cmd-"));
+      const cmd = join(cmdDir, "fake-lark.cmd");
+      writeFileSync(cmd, '@echo off\r\necho {"ok":true}\r\n');
+      const res = await runFile(cmd, ["--version"]);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain('{"ok":true}');
+    }
   });
 });

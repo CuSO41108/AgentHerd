@@ -20,6 +20,27 @@ export interface Segment {
 }
 
 const OPERATORS: readonly JoinOperator[] = ["&&", "||", ";", "|", "&", "\n"];
+const POSIX_ESCAPE_CHARS = new Set([
+  " ",
+  "\t",
+  '"',
+  "'",
+  "$",
+  "`",
+  "&",
+  "|",
+  ";",
+  "<",
+  ">",
+  "(",
+  ")",
+  "#",
+]);
+const CMD_BOUNDARY_CHARS = new Set([" ", "\t", "&", "|", ";", "<", ">"]);
+
+function isWindowsPathWord(word: string): boolean {
+  return word.includes("\\") || /^[A-Za-z]:$/.test(word) || word === "." || word === "..";
+}
 
 /** Split a command line into segments joined by control operators. */
 export function splitCommand(input: string): Segment[] {
@@ -51,11 +72,50 @@ export function splitCommand(input: string): Segment[] {
     const next = input[i + 1];
 
     if (c === "\\") {
-      if (next === undefined) throw new UnparsedCommandError("trailing backslash");
-      if (next !== "\n") {
+      if (next === "\n") {
+        i += 2;
+        continue;
+      }
+      if (next === "\r" && input[i + 2] === "\n") {
+        i += 3;
+        continue;
+      }
+      // Start of a UNC path (`\\server\share`) rather than a POSIX escape.
+      if (!inWord && next === "\\") {
+        word = "\\\\";
+        inWord = true;
+        i += 2;
+        continue;
+      }
+      if (next === undefined) {
+        if (inWord && isWindowsPathWord(word)) {
+          word += "\\";
+          i += 1;
+          continue;
+        }
+        throw new UnparsedCommandError("trailing backslash");
+      }
+      // Trailing backslash on a Windows path before a space or command operator (`rd C:\foo\ /s`).
+      if (inWord && isWindowsPathWord(word) && CMD_BOUNDARY_CHARS.has(next)) {
+        word += "\\";
+        i += 1;
+        continue;
+      }
+      if (next === "\\") {
+        word += "\\";
+        inWord = true;
+        i += 2;
+        continue;
+      }
+      if (POSIX_ESCAPE_CHARS.has(next) && !(inWord && isWindowsPathWord(word))) {
         word += next;
         inWord = true;
+        i += 2;
+        continue;
       }
+      // Preserve backslashes inside Windows paths (`C:\Users\me\.ssh`, `\\server\share\file`).
+      word += `\\${next}`;
+      inWord = true;
       i += 2;
       continue;
     }
@@ -81,8 +141,28 @@ export function splitCommand(input: string): Segment[] {
           throw new UnparsedCommandError("command substitution");
         }
         if (d === "\\" && i + 1 < input.length) {
-          word += input[i + 1];
-          i += 2;
+          const escNext = input[i + 1] as string;
+          if (escNext === "\n") {
+            i += 2;
+            continue;
+          }
+          if (escNext === "\r" && input[i + 2] === "\n") {
+            i += 3;
+            continue;
+          }
+          // Only unescape POSIX metacharacters or `\\` before closing `"`; keep Windows `\`.
+          if (
+            escNext === '"' ||
+            escNext === "$" ||
+            escNext === "`" ||
+            (escNext === "\\" && input[i + 2] === '"')
+          ) {
+            word += escNext;
+            i += 2;
+            continue;
+          }
+          word += d;
+          i += 1;
           continue;
         }
         word += d;
@@ -98,8 +178,8 @@ export function splitCommand(input: string): Segment[] {
     if ((c === "<" || c === ">") && next === "(") {
       throw new UnparsedCommandError("process substitution");
     }
-    if (c === " " || c === "\t") {
-      endWord();
+    if (c === " " || c === "\t" || (c === "\r" && next === "\n")) {
+      if (c !== "\r") endWord();
       i += 1;
       continue;
     }
@@ -164,6 +244,8 @@ export function splitCommand(input: string): Segment[] {
 const WRAPPERS = new Set([
   "sudo",
   "doas",
+  "runas",
+  "gsudo",
   "command",
   "builtin",
   "exec",
@@ -173,10 +255,14 @@ const WRAPPERS = new Set([
   "env",
 ]);
 
+const RUNAS_SWITCH =
+  /^\/(?:noprofile|profile|env|netonly|savecred|smartcard|showtrustlevels|(?:user|trustlevel):.+)$/i;
+
 /**
  * The words of a segment starting at the real program: leading `NAME=value` assignments and
- * wrappers such as `sudo`, `env`, `nohup` are skipped. Options of the wrappers are skipped too
- * (coarse: every word starting with `-` right after a wrapper).
+ * wrappers such as `sudo`, `env`, `nohup`, `runas`, `gsudo` are skipped. Options of the wrappers
+ * are skipped too (coarse: every word starting with `-` right after a wrapper, plus `runas` `/...`
+ * switches).
  */
 export function programWords(words: readonly string[]): string[] {
   let i = 0;
@@ -186,9 +272,17 @@ export function programWords(words: readonly string[]): string[] {
       i += 1;
       continue;
     }
-    if (WRAPPERS.has(basename(w))) {
+    const base = basename(w);
+    if (WRAPPERS.has(base)) {
       i += 1;
-      while (i < words.length && (words[i] as string).startsWith("-")) i += 1;
+      while (i < words.length) {
+        const opt = words[i] as string;
+        if (opt.startsWith("-") || (base === "runas" && RUNAS_SWITCH.test(opt))) {
+          i += 1;
+          continue;
+        }
+        break;
+      }
       continue;
     }
     break;
@@ -196,7 +290,9 @@ export function programWords(words: readonly string[]): string[] {
   return words.slice(i);
 }
 
+/** Normalized executable name: strips directory prefix (`/` or `\`), lowercases, drops Windows extensions. */
 export function basename(word: string): string {
-  const slash = word.lastIndexOf("/");
-  return slash === -1 ? word : word.slice(slash + 1);
+  const slash = Math.max(word.lastIndexOf("/"), word.lastIndexOf("\\"));
+  const base = slash === -1 ? word : word.slice(slash + 1);
+  return base.toLowerCase().replace(/\.(?:exe|cmd|bat|com|ps1)$/, "");
 }

@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StdioMcpServer } from "@agentherd/acp-client";
 import { type JsonRpcMessage, UnknownTokenError } from "@agentherd/core";
@@ -18,7 +18,10 @@ const INTERNAL_ERROR = -32603;
 
 export function mcpSocketPath(home: string, platform: NodeJS.Platform = process.platform): string {
   if (platform === "win32") {
-    const id = createHash("sha256").update(home.toLowerCase()).digest("hex").slice(0, 16);
+    const id = createHash("sha256")
+      .update(win32.resolve(home).toLowerCase())
+      .digest("hex")
+      .slice(0, 16);
     return `\\\\.\\pipe\\agentherd-mcp-${id}`;
   }
   return join(home, "run", "mcp.sock");
@@ -118,7 +121,11 @@ export async function serveMcp(path: string, handle: McpHandler): Promise<McpSer
     serveSocket(socket, handle);
   });
   await new Promise<void>((done, fail) => {
-    server.once("error", fail);
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      if (windows && error.code === "EADDRINUSE") {
+        fail(new Error(`another AgentHerd host is running (${path})`));
+      } else fail(error);
+    });
     server.listen(path, () => done());
   });
   if (!windows) chmodSync(path, 0o600);

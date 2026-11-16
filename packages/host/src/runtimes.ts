@@ -19,8 +19,25 @@ import { join, win32 } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
+import { commandLine } from "@agentherd/acp-client";
 
 const run = promisify(execFile);
+const RM_OPTS = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 } as const;
+const TRANSIENT_FS_ERRORS = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+/** Retries `renameSync` on Windows when Defender or a closing process briefly locks a file. */
+export async function renameWithRetry(from: string, to: string, attempts = 10): Promise<void> {
+  for (let i = 1; ; i++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (i >= attempts || !TRANSIENT_FS_ERRORS.has(code)) throw error;
+      await new Promise((r) => setTimeout(r, 50 * i));
+    }
+  }
+}
 
 export interface Digest {
   algorithm: "sha256" | "sha512";
@@ -158,26 +175,26 @@ export class RuntimeStore {
       else await npmInstall(release, staging, opts);
       writeFileSync(join(staging, READY_MARK), `${release.version}\n`);
       const dir = this.dir(release.id, release.version);
-      rmSync(dir, { recursive: true, force: true });
-      renameSync(staging, dir);
+      rmSync(dir, RM_OPTS);
+      await renameWithRetry(staging, dir);
       writeFileSync(
         join(parent, CURRENT),
         `${JSON.stringify({ version: release.version, executable: release.executable })}\n`,
       );
       for (const name of readdirSync(parent)) {
         if (name !== release.version && name !== CURRENT) {
-          rmSync(join(parent, name), { recursive: true, force: true });
+          rmSync(join(parent, name), RM_OPTS);
         }
       }
       return { id: release.id, version: release.version, path: join(dir, release.executable) };
     } finally {
-      rmSync(staging, { recursive: true, force: true });
+      rmSync(staging, RM_OPTS);
     }
   }
 
   /** Removes every downloaded version. */
   remove(id: string): void {
-    rmSync(join(this.root, id), { recursive: true, force: true });
+    rmSync(join(this.root, id), RM_OPTS);
   }
 }
 
@@ -197,9 +214,9 @@ async function unpackArchive(
     if (process.platform === "win32") {
       // Windows 10+ ships bsdtar, which also reads zip; there is no unzip. Name it by path: a
       // GNU tar from Git for Windows earlier on PATH reads "C:\..." as a remote host.
-      await run(windowsTar(), ["-xf", archive, "-C", staging]);
+      await run(windowsTar(), ["-xf", archive, "-C", staging], { windowsHide: true });
     } else if (release.format === "tar.gz") {
-      await run("tar", ["-xzf", archive, "-C", staging]);
+      await run("tar", ["-xzf", archive, "-C", staging], { windowsHide: true });
     } else if (process.platform === "darwin") {
       // ditto keeps symlinks and code signatures inside .app bundles.
       await run("ditto", ["-x", "-k", archive, staging]);
@@ -207,18 +224,21 @@ async function unpackArchive(
       await run("unzip", ["-q", archive, "-d", staging]);
     }
   } finally {
-    rmSync(archive, { force: true });
+    rmSync(archive, { force: true, maxRetries: 10, retryDelay: 50 });
   }
   const bin = join(staging, release.executable);
   if (!existsSync(bin)) throw new Error(`${release.id} archive has no ${release.executable}`);
   if (release.check === "none") return;
-  const [command, args, env] =
+  const line =
     release.check === "node"
-      ? [process.execPath, [bin, "--version"], nodeEnv()]
-      : [bin, ["--version"], {}];
-  const { stdout } = await run(command, args, {
+      ? { command: process.execPath, args: [bin, "--version"], env: nodeEnv() }
+      : commandLine(bin, ["--version"]);
+  const verbatim = "windowsVerbatimArguments" in line && line.windowsVerbatimArguments === true;
+  const { stdout } = await run(line.command, line.args, {
     timeout: CHECK_TIMEOUT_MS,
-    env: { ...process.env, ...env },
+    env: { ...process.env, ...line.env },
+    windowsHide: true,
+    ...(verbatim ? { windowsVerbatimArguments: true } : {}),
   }).catch((error: Error & { signal?: string }) => {
     throw new Error(`${release.id} did not start (${describeFailure(error)})`);
   });
@@ -250,6 +270,7 @@ async function npmInstall(release: NpmRelease, staging: string, opts: InstallOpt
     timeout: NPM_TIMEOUT_MS,
     maxBuffer: 16 * 1024 * 1024,
     env: { ...process.env, ...nodeEnv() },
+    windowsHide: true,
     ...(opts.signal === undefined ? {} : { signal: opts.signal }),
   }).catch((error: Error & { stderr?: string }) => {
     if (opts.signal?.aborted) throw new Error("cancelled");

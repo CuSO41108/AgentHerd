@@ -3,7 +3,7 @@
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeChannel } from "@agentherd/channel-fake";
 import type { AgentProfile, RelayView, ReportView, TextView } from "@agentherd/protocol";
@@ -97,7 +97,7 @@ describe("E2E-RUN-COMMAND", () => {
     await channel.say("/run mock");
     expect(texts(channel)).toEqual([
       '没有叫"nope"的 Agent。可用的有：mock。',
-      "不是一个目录：/does/not/exist",
+      `不是一个目录：${resolve("/does/not/exist")}`,
       "用法：/run <agent> <dir> <task>",
     ]);
     expect(herd.tasks()).toHaveLength(0);

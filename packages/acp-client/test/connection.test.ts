@@ -153,7 +153,8 @@ turns:
     // Kill the agent from outside while the request is open.
     process.kill(conn.pid ?? 0, "SIGKILL");
     const e = await exit;
-    expect(e.signal).toBe("SIGKILL");
+    if (process.platform === "win32") expect(e.code).toBe(1);
+    else expect(e.signal).toBe("SIGKILL");
     expect(p.answered).toBe(true);
     expect(await turn).toBeInstanceOf(Error);
   });
@@ -173,13 +174,14 @@ turns:
     expect(lines.match(/mcp agentherd relay/g)).toHaveLength(2);
   });
 
-  it("redacts env secrets in stderr", async () => {
-    const script = 'turns:\n  - - stderr: "token is hunter2-very-secret"\n    - crash: 1\n';
+  it("redacts env secrets in stderr and strips CR from CRLF lines", async () => {
+    const script = 'turns:\n  - - stderr: "token is hunter2-very-secret\\r"\n    - crash: 1\n';
     const { conn, exit, sessionId } = await start(script, { MOCK_SECRET: "hunter2-very-secret" });
     conn.prompt(sessionId, "go").catch(() => {});
     const e = await exit;
     expect(e.stderr.join("\n")).toContain("token is");
     expect(e.stderr.join("\n")).not.toContain("hunter2-very-secret");
+    expect(e.stderr.some((l) => l.includes("\r"))).toBe(false);
   });
 
   it("an invalid script fails start with the reason", async () => {

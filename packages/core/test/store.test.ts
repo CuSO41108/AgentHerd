@@ -257,7 +257,9 @@ describe("Store (file-backed)", () => {
     first.upsertSession(session);
     first.close();
 
-    expect(statSync(join(dir, "nested")).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") {
+      expect(statSync(join(dir, "nested")).mode & 0o777).toBe(0o700);
+    }
 
     const reopened = Store.open(dbPath);
     expect(reopened.getSession("session-1")).toEqual(session);

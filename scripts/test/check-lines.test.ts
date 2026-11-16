@@ -1,5 +1,8 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { countLines, isChecked, longFiles, MAX_LINES } from "../check-lines.ts";
+import { isEntry } from "../entry.ts";
 
 describe("check-lines", () => {
   it("counts lines the way an editor shows them", () => {
@@ -8,6 +11,7 @@ describe("check-lines", () => {
     expect(countLines("a\n")).toBe(1);
     expect(countLines("a\nb\n")).toBe(2);
     expect(countLines("a\n\n")).toBe(2);
+    expect(countLines("a\r\nb\r\n")).toBe(2);
   });
 
   it("checks source files and skips the forked Pi loop and other files", () => {
@@ -34,5 +38,18 @@ describe("check-lines", () => {
       { path: "c.tsx", lines: MAX_LINES + 50 },
       { path: "b.ts", lines: MAX_LINES + 1 },
     ]);
+  });
+});
+
+describe("isEntry", () => {
+  it("matches case-insensitively on win32 and case-sensitively elsewhere", () => {
+    const self = fileURLToPath(import.meta.url);
+    expect(isEntry(undefined, import.meta.url)).toBe(false);
+    expect(isEntry(self, import.meta.url)).toBe(true);
+    expect(isEntry(self.toLowerCase(), import.meta.url, "win32")).toBe(true);
+    const missing = join(dirname(self), "NonExistentScript.ts");
+    const missingUrl = pathToFileURL(missing).href;
+    expect(isEntry(missing.toLowerCase(), missingUrl, "win32")).toBe(true);
+    expect(isEntry(missing.toLowerCase(), missingUrl, "linux")).toBe(false);
   });
 });

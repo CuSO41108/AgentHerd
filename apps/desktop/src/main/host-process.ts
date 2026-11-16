@@ -42,7 +42,7 @@ export async function ensureHost(home: string, sock: string): Promise<void> {
     if (await isHostRunning(sock)) return;
     await new Promise((r) => setTimeout(r, 150));
   }
-  throw new Error("the host did not start within 15 s; see ~/.agentherd/logs/host.log");
+  throw new Error(`the host did not start within 15 s; see ${join(home, "logs", "host.log")}`);
 }
 
 /** How long the host gets to stop by itself before it is killed. */

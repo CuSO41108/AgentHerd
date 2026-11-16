@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Group, IconTile, Section } from "../components/ui";
+import { isAgentSecurityBlock } from "../platform";
 import { call, useApp } from "../store";
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -164,6 +165,7 @@ function CheckResult({ check, agent }: { check: AgentCheck; agent: AgentView }) 
     );
   }
   const killed = check.error?.includes("SIGKILL") ?? false;
+  const blocked = !killed && isAgentSecurityBlock(check.error);
   return (
     <div className="mt-1 flex flex-col gap-0.5 text-danger-text text-sm">
       <div className="flex items-center gap-1.5">
@@ -172,7 +174,9 @@ function CheckResult({ check, agent }: { check: AgentCheck; agent: AgentView }) 
           ? `需要先登录。${LOGIN[agent.id] ?? ""}`
           : killed
             ? "进程被系统杀掉了（SIGKILL），可能是安全软件拦截了这个程序"
-            : "没能启动"}
+            : blocked
+              ? "系统拒绝运行这个程序，可能是权限不足或被安全软件拦截"
+              : "没能启动"}
       </div>
       {check.error !== undefined && check.error !== "" && (
         <div className="selectable ml-5 line-clamp-3 whitespace-pre-wrap font-mono text-ink-muted text-xs">

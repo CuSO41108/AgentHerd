@@ -35,9 +35,16 @@ describe("project_find", () => {
     const fresh = repo(root, "learn-agent/PI_Desktop", 10);
     repo(root, "Library/pi-desktop");
     repo(root, "x/node_modules/pi-desktop");
+    repo(root, "AppData/Local/pi-desktop");
+    repo(root, "OneDrive/pi-desktop");
+    repo(root, "$Recycle.Bin/pi-desktop");
     repo(root, ".cache/pi-desktop");
     repo(root, "learn-agent/PI_Desktop/packages/inner"); // inside a repo: not a project
     expect(findProjects(root, "pi-desktop", listRepos(root))).toEqual({
+      exact: [fresh, old],
+      similar: [],
+    });
+    expect(findProjects(root, "org\\pi-desktop", listRepos(root))).toEqual({
       exact: [fresh, old],
       similar: [],
     });
@@ -79,13 +86,26 @@ describe("pathsIn", () => {
     ).toEqual(["C:\\Users\\me\\gmail-monitor", "D:\\work\\app"]);
     expect(pathsIn("看 ~\\proj", "C:\\Users\\me")).toEqual(["C:\\Users\\me\\proj"]);
   });
+
+  it("takes UNC paths and quoted paths with spaces", () => {
+    expect(
+      pathsIn('在 "C:\\Users\\First Last\\proj" 里，还有 \\\\server\\share\\proj。', "/Users/me"),
+    ).toEqual(["C:\\Users\\First Last\\proj", "\\\\server\\share\\proj"]);
+    expect(pathsIn("看看 '~/my proj' 里的文件", "/Users/me")).toEqual(["/Users/me/my proj"]);
+    expect(pathsIn("看看 '~/my proj' 里的文件", "C:\\Users\\me")).toEqual([
+      "C:\\Users\\me\\my proj",
+    ]);
+  });
 });
 
 describe("pathsInAnswer", () => {
   it("takes a picked button that is one path, spaces included", () => {
     const dir = join(tmpdir(), "项目 2");
     expect(pathsInAnswer(dir, "/home/me")[0]).toBe(resolve(dir));
-    expect(pathsInAnswer("用 /tmp/a 吧", "/home/me")).toEqual([resolve("/tmp/a")]);
+    expect(pathsInAnswer("用 /tmp/a 吧", "/home/me")).toEqual(["/tmp/a"]);
+    expect(pathsInAnswer('用 "C:\\Users\\First Last\\proj" 吧', "C:\\Users\\me")).toEqual([
+      "C:\\Users\\First Last\\proj",
+    ]);
     expect(pathsInAnswer("其他", "/home/me")).toEqual([]);
   });
 });

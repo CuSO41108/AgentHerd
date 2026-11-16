@@ -1339,7 +1339,7 @@ function normalizeForDedupe(content: string): string {
     .slice(splitAt)
     .replace(/\d+/g, "N")
     .replace(/0x[0-9a-fA-F]+/g, "ADDR")
-    .replace(/\/[\w/]+\//g, "/PATH/");
+    .replace(/(?:[A-Za-z]:)?[/\\][\w/\\-]+[/\\]/g, "/PATH/");
   return content.slice(0, splitAt) + suffix;
 }
 
@@ -1356,17 +1356,22 @@ const RUNTIME_FRAME_PREFIXES = [
 ];
 const RUNTIME_FRAME_MARKERS = [
   "site-packages/",
+  "site-packages\\",
   "/usr/lib/python",
   "lib/python3.",
+  "lib\\python3.",
   "node:internal/",
   "node_modules/",
+  "node_modules\\",
   "(internal/",
+  "(internal\\",
   "core::",
   "std::",
   "alloc::",
   "rust_begin_unwind",
   "__rust_",
   "/rustc/",
+  "\\rustc\\",
   "/usr/local/go/src/",
   "/libexec/src/runtime/",
 ];
@@ -1397,9 +1402,10 @@ function isChainHeadLine(content: string): boolean {
 
 function isRuntimeFrame(content: string): boolean {
   const t = content.trimStart();
+  const normalized = content.replace(/\\/g, "/");
   return (
     RUNTIME_FRAME_PREFIXES.some((p) => t.startsWith(p)) ||
-    RUNTIME_FRAME_MARKERS.some((m) => content.includes(m))
+    RUNTIME_FRAME_MARKERS.some((m) => content.includes(m) || normalized.includes(m))
   );
 }
 

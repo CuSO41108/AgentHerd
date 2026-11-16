@@ -47,6 +47,27 @@ function nextToken(s: string, start: number): Token | undefined {
   return { value: s.slice(begin, i), index: i };
 }
 
+function nextPathToken(s: string, start: number): Token | undefined {
+  let i = start;
+  while (i < s.length && isTokenWhitespace(s.charAt(i))) i++;
+  if (i >= s.length) return undefined;
+  const quote = s.charAt(i);
+  if (quote === '"' || quote === "'") {
+    const end = s.indexOf(quote, i + 1);
+    if (end === -1) return undefined;
+    if (end + 1 < s.length && !isTokenWhitespace(s.charAt(end + 1))) return undefined;
+    const value = s.slice(i + 1, end);
+    return value === "" ? undefined : { value, index: end + 1 };
+  }
+  return nextToken(s, i);
+}
+
+function newlineWidth(s: string, i: number): number {
+  if (s.charAt(i) === "\n") return 1;
+  if (s.charAt(i) === "\r" && s.charAt(i + 1) === "\n") return 2;
+  return 0;
+}
+
 /**
  * Strips leading spaces/tabs and at most the first newline run. Inner newlines and
  * everything after them stay verbatim.
@@ -54,8 +75,8 @@ function nextToken(s: string, start: number): Token | undefined {
 function stripTextLeading(s: string): string {
   let i = 0;
   while (i < s.length && (s.charAt(i) === " " || s.charAt(i) === "\t")) i++;
-  if (i < s.length && s.charAt(i) === "\n") {
-    while (i < s.length && s.charAt(i) === "\n") i++;
+  if (newlineWidth(s, i) > 0) {
+    for (let step = newlineWidth(s, i); step > 0; step = newlineWidth(s, i)) i += step;
     while (i < s.length && (s.charAt(i) === " " || s.charAt(i) === "\t")) i++;
   }
   return s.slice(i);
@@ -71,7 +92,7 @@ function commandParts(trimmed: string): { name: string; rest: string } {
 function parseRun(rest: string): Command {
   const agent = nextToken(rest, 0);
   if (agent === undefined) return invalid("run");
-  const dir = nextToken(rest, agent.index);
+  const dir = nextPathToken(rest, agent.index);
   if (dir === undefined) return invalid("run");
   const text = stripTextLeading(rest.slice(dir.index)).trimEnd();
   return text === "" ? invalid("run") : { kind: "run", agent: agent.value, dir: dir.value, text };

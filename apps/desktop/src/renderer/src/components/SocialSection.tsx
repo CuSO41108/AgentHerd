@@ -124,7 +124,7 @@ function ConnectDialog({ social, onClose }: { social: SocialView; onClose: () =>
             这不是平台的官方接口：平台可能认为是自动化行为，导致限流、要求验证甚至封号，后果由你自己承担。
             AgentHerd 会尽量降低频率（每 20
             分钟左右看一次通知），发帖、评论、回复、点赞每次都会先问你，除非你开任务时说过可以。
-            登录信息只保存在这台 Mac 上。担心的话建议先用小号。
+            登录信息只保存在这台电脑上。担心的话建议先用小号。
           </p>
           <label className="flex cursor-pointer items-center gap-2 text-ink text-md">
             <input type="checkbox" checked={ticked} onChange={(e) => setTicked(e.target.checked)} />

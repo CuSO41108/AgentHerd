@@ -51,6 +51,23 @@ describe("message cards by kind", () => {
     expect(JSON.stringify(elements[3])).toContain('"content":"其他"');
   });
 
+  it("renders short Windows backslash paths inside full-width answer boxes", () => {
+    const card = renderCard(
+      {
+        kind: "ask",
+        askId: "a2",
+        text: "哪个目录？",
+        options: [
+          { action: "0", label: "C:\\repo" },
+          { action: "1", label: "其他" },
+        ],
+      },
+      "zh-CN",
+    );
+    const elements = (card.body as { elements: Record<string, unknown>[] }).elements;
+    expect(elements.map((e) => e.tag)).toEqual(["markdown", "interactive_container", "column_set"]);
+  });
+
   it("markdown in a long answer is shown as typed", () => {
     const card = renderCard(
       {

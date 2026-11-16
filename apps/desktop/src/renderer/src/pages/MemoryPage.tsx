@@ -5,6 +5,7 @@ import type { MemoryView } from "@agentherd/host/api";
 import { Brain, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, EmptyState, Group, Section } from "../components/ui";
+import { pathLeaf } from "../platform";
 import { call } from "../store";
 
 type Entry = MemoryView["entries"][number];
@@ -37,7 +38,7 @@ function day(iso: string): string {
 
 function projectName(scope: string): string | undefined {
   if (!scope.startsWith("project:")) return undefined;
-  return scope.slice("project:".length).split("/").filter(Boolean).at(-1);
+  return pathLeaf(scope.slice("project:".length));
 }
 
 function EntryRow({ entry, onChange }: { entry: Entry; onChange: (v: MemoryView) => void }) {

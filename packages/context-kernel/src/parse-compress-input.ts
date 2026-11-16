@@ -530,11 +530,11 @@ function parseLineEntry(
  *  truncated. The topic is metadata (panels, T2 source headers, search) —
  *  never load-bearing for correctness. */
 export function deriveTopicFromSummary(summary: string): string | undefined {
-  const heading = /^#{1,6}\s+(.+)$/m.exec(summary);
+  const heading = /^#{1,6}\s+([^\r\n]+)$/m.exec(summary);
   const source =
     heading !== null
       ? heading[1]!
-      : (summary.split("\n").find((l) => l.trim().length > 0) ?? "");
+      : (summary.split(/\r?\n/).find((l) => l.trim().length > 0) ?? "");
   const text = source.trim().replace(/^[\u2022\-*]\s+/, "");
   if (text.length === 0) return undefined;
   return text.length > 60 ? clampPrefix(text, 60).trimEnd() : text;

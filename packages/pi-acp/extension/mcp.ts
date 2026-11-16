@@ -4,6 +4,59 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createConnection } from "node:net";
+import { win32 } from "node:path";
+
+const BATCH = /\.(cmd|bat)$/i;
+const NODE_SHIM =
+  /(?:^|[\s&|@])(?:"%_prog%"|"%~?dp0%?[\\/]?node\.exe"|node(?:\.exe)?)\s+"%(?:~dp0|dp0%)[\\/]?([^"]+)"/i;
+const NON_SCRIPT_TARGET = /\.(?:exe|cmd|bat|com|ps1)$/i;
+
+/**
+ * Self-contained `.cmd`/`.bat` launcher for Windows (mirrors `@agentherd/acp-client` `commandLine`
+ * without package imports, since Pi compiles this extension standalone).
+ */
+function mcpCommandLine(
+  command: string,
+  args: readonly string[],
+): {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  windowsVerbatimArguments?: boolean;
+} {
+  if (process.platform !== "win32" || !BATCH.test(command)) {
+    return { command, args: [...args], env: {} };
+  }
+  let text = "";
+  try {
+    text = readFileSync(command, "utf8");
+  } catch {
+    // Let cmd.exe report unreadable batch files.
+  }
+  const target = text.match(NODE_SHIM)?.[1];
+  if (target !== undefined && !NON_SCRIPT_TARGET.test(target)) {
+    const script = win32.join(win32.dirname(command), target);
+    const electron = process.versions.electron !== undefined;
+    return {
+      command: process.execPath,
+      args: [script, ...args],
+      env: electron ? { ELECTRON_RUN_AS_NODE: "1" } : {},
+    };
+  }
+  const comspec = process.env.ComSpec ?? "cmd.exe";
+  const quote = (s: string) =>
+    `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`.replace(
+      /([()!^%"<>&|])/g,
+      "^$1",
+    );
+  const cmd = `"${command.replace(/"/g, "")}"`;
+  return {
+    command: comspec,
+    args: ["/d", "/s", "/c", `"${[cmd, ...args.map(quote)].join(" ")}"`],
+    env: {},
+    windowsVerbatimArguments: true,
+  };
+}
 
 export const MCP_ENV = "AGENTHERD_PI_MCP";
 export const AGENTHERD_MCP_SERVER = "agentherd";
@@ -180,11 +233,19 @@ function requestStdio(
   timeoutMs?: number,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    const line = mcpCommandLine(server.command, server.args);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      ...line.env,
       ...Object.fromEntries(server.env.map((e) => [e.name, e.value])),
     };
-    const child = spawn(server.command, server.args, { env, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(line.command, line.args, {
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      ...(line.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    });
+    child.stdin.on("error", () => {});
     let settled = false;
     let rest = "";
     let stderr = "";
@@ -200,7 +261,17 @@ function requestStdio(
       settled = true;
       clearTimeout(timer);
       if (!child.stdin.destroyed) child.stdin.end();
-      if (child.exitCode === null && child.signalCode === null) child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        if (process.platform === "win32" && child.pid !== undefined) {
+          const tk = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+            stdio: "ignore",
+            windowsHide: true,
+          });
+          tk.on("error", () => child.kill());
+        } else {
+          child.kill();
+        }
+      }
       if (err !== undefined) reject(err);
       else resolve(value);
     };

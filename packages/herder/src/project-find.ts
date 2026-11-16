@@ -2,10 +2,25 @@
 // The Herder never picks one itself: the owner picks from what this returns.
 
 import { readdirSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 /** Folders never searched below the home folder. */
-const SKIP = new Set(["Library", "node_modules", "Applications", "Pictures", "Music", "Movies"]);
+const SKIP = new Set([
+  "Library",
+  "node_modules",
+  "Applications",
+  "Pictures",
+  "Music",
+  "Movies",
+  "AppData",
+  "OneDrive",
+  "$Recycle.Bin",
+  "System Volume Information",
+  "Saved Games",
+  "Contacts",
+  "Searches",
+  "Links",
+]);
 export const FIND_DEPTH = 4;
 export const FIND_CACHE_MS = 60_000;
 export const MAX_CHOICES = 3;
@@ -30,9 +45,14 @@ interface Repo {
 
 let cache: { root: string; at: number; repos: Repo[] } | undefined;
 
+function rootKey(root: string): string {
+  return process.platform === "win32" ? resolve(root).toLowerCase() : root;
+}
+
 /** Git repositories under `root`, `depth` levels down; hidden and {@link SKIP} folders skipped. */
 export function listRepos(root: string, depth = FIND_DEPTH, now = Date.now()): Repo[] {
-  if (cache !== undefined && cache.root === root && now - cache.at < FIND_CACHE_MS) {
+  const cachedRoot = rootKey(root);
+  if (cache !== undefined && cache.root === cachedRoot && now - cache.at < FIND_CACHE_MS) {
     return cache.repos;
   }
   const repos: Repo[] = [];
@@ -61,7 +81,7 @@ export function listRepos(root: string, depth = FIND_DEPTH, now = Date.now()): R
     }
   };
   walk(root, depth);
-  cache = { root, at: now, repos };
+  cache = { root: cachedRoot, at: now, repos };
   return repos;
 }
 
@@ -87,7 +107,7 @@ function distance(a: string, b: string): number {
 
 /** Projects named like `name` under `root`. */
 export function findProjects(root: string, name: string, repos = listRepos(root)): FoundProjects {
-  const key = nameKey(name.trim().replace(/^.*\//, ""));
+  const key = nameKey(name.trim().replace(/^.*[/\\]/, ""));
   if (key === "") return { exact: [], similar: [] };
   const exact = repos
     .filter((r) => r.key === key)

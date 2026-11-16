@@ -1,10 +1,19 @@
 // The bridge end to end: AgentHerd's ACP client → bin/pi-acp.ts → a fake Pi that runs the
 // real gate and mcp extensions.
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type PermissionRequest,
@@ -36,7 +45,7 @@ interface Plan {
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
-  await Promise.all(cleanups.splice(0).map((fn) => fn()));
+  for (const fn of cleanups.splice(0)) await fn();
 });
 
 async function start(plan: Plan, extraEnv: Record<string, string> = {}) {
@@ -52,7 +61,9 @@ async function start(plan: Plan, extraEnv: Record<string, string> = {}) {
     { cwd },
   );
   cleanups.push(() => conn.close());
-  cleanups.push(() => rmSync(cwd, { recursive: true, force: true }));
+  cleanups.push(() =>
+    rmSync(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }),
+  );
   const updates: SessionUpdateEvent[] = [];
   const asked: PermissionRequest[] = [];
   conn.on("update", (u) => updates.push(u));
@@ -65,8 +76,10 @@ async function startFakeSocket(
   activeTokens: Set<string>,
   onCall: (token: string, name: string, args: unknown) => { text: string; isError?: boolean },
 ): Promise<string> {
-  const dir = mkdtempSync(join(tmpdir(), "pi-acp-sock-"));
-  const socketPath = join(dir, "mcp.sock");
+  const dir =
+    process.platform === "win32" ? undefined : mkdtempSync(join(tmpdir(), "pi-acp-sock-"));
+  const socketPath =
+    dir === undefined ? `\\\\.\\pipe\\pi-acp-test-${randomUUID()}` : join(dir, "mcp.sock");
   const server = createServer((socket) => {
     let token: string | undefined;
     let rest = "";
@@ -143,7 +156,7 @@ async function startFakeSocket(
     () =>
       new Promise<void>((done) => {
         server.close(() => {
-          rmSync(dir, { recursive: true, force: true });
+          if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
           done();
         });
       }),
@@ -266,7 +279,7 @@ describe("pi-acp bridge", () => {
     conn.on("permission", (p) => p.respond({ kind: "allow" }));
     const sid = await conn.newSession(cwd);
     await conn.prompt(sid, "go");
-    expect(asked.map((p) => p.toolCall.paths)).toEqual([["/etc/hosts"]]);
+    expect(asked.map((p) => p.toolCall.paths)).toEqual([[resolve(cwd, "/etc/hosts")]]);
     expect(statuses(updates)).toEqual(["completed", "completed", "completed"]);
   });
 
@@ -302,15 +315,22 @@ describe("pi-acp bridge", () => {
       }
       return { text: name === "herd_report" ? "reported" : "ok" };
     });
-    const before = new Set(readdirSync(tmpdir()).filter((f) => f.startsWith("pi-acp-mcp-")));
-    const { conn, cwd, updates, asked } = await start({
-      calls: [
-        { toolName: "herd_report", input: { state: "ready", summary: "all set" } },
-        { toolName: "echo_tool", input: { msg: "fail" } },
-      ],
-      reply: "{results}",
-    });
+    const scope = mkdtempSync(join(tmpdir(), "pi-acp-scope-"));
+    cleanups.push(() =>
+      rmSync(scope, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }),
+    );
+    const { conn, cwd, updates, asked } = await start(
+      {
+        calls: [
+          { toolName: "herd_report", input: { state: "ready", summary: "all set" } },
+          { toolName: "echo_tool", input: { msg: "fail" } },
+        ],
+        reply: "{results}",
+      },
+      { TMP: scope, TEMP: scope, TMPDIR: scope },
+    );
     const sid = await conn.newSession(cwd, [gatewayServer(socketPath, "tok-1")]);
+    expect(readdirSync(scope).some((f) => f.startsWith("pi-acp-mcp-"))).toBe(true);
     expect(await conn.prompt(sid, "go")).toEqual({ stopReason: "end_turn" });
     expect(asked).toHaveLength(0);
     expect(seen).toEqual([
@@ -320,8 +340,7 @@ describe("pi-acp bridge", () => {
     expect(statuses(updates)).toEqual(["completed", "failed"]);
     expect(text(updates)).toBe("reported|error: denied by gateway");
     await conn.close();
-    const after = readdirSync(tmpdir()).filter((f) => f.startsWith("pi-acp-mcp-"));
-    expect(after.filter((f) => !before.has(f))).toEqual([]);
+    expect(readdirSync(scope).filter((f) => f.startsWith("pi-acp-mcp-"))).toEqual([]);
   });
 
   it("still gates non-agentherd stdio MCP tools through session/request_permission", async () => {
@@ -346,11 +365,37 @@ describe("pi-acp bridge", () => {
     expect(statuses(updates)).toEqual(["failed"]);
   });
 
+  it.skipIf(process.platform !== "win32")(
+    "starts a .cmd stdio MCP server with spaces on Windows",
+    async () => {
+      const base = customStdioServer();
+      const spaceDir = join(mkdtempSync(join(tmpdir(), "pi-acp-cmdmcp-")), "With Spaces");
+      cleanups.push(() => rmSync(join(spaceDir, ".."), { recursive: true, force: true }));
+      mkdirSync(spaceDir, { recursive: true });
+      const cmd = join(spaceDir, "mcp server.cmd");
+      writeFileSync(cmd, `@echo off\r\n"${base.command}" "${base.args[0]}" %*\r\n`);
+      const server: StdioMcpServer = { name: "custom", command: cmd, args: [], env: [] };
+      const { conn, cwd, updates } = await start({
+        calls: [{ toolName: "custom_ping", input: { q: "win" } }],
+        reply: "{results}",
+      });
+      conn.on("permission", (p) => p.respond({ kind: "allow" }));
+      const sid = await conn.newSession(cwd, [server]);
+      await conn.prompt(sid, "go");
+      expect(text(updates)).toBe("pong:win");
+    },
+  );
+
   it("runs without MCP tools and never logs the token when an MCP server fails at start", async () => {
     const secret = "secret-mcp-token-value";
     const { conn, cwd, updates } = await start({ reply: "still ran" });
     const sid = await conn.newSession(cwd, [
-      gatewayServer("/does/not/exist/mcp.sock", secret),
+      gatewayServer(
+        process.platform === "win32"
+          ? "\\\\.\\pipe\\pi-acp-does-not-exist"
+          : "/does/not/exist/mcp.sock",
+        secret,
+      ),
       {
         name: "dead-stdio",
         command: process.execPath,

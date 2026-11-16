@@ -115,7 +115,7 @@ export class Socials {
       return {
         platform,
         name: NAMES[platform],
-        available: true,
+        available: x.available(),
         accepted: this.settings(platform).acceptedAt !== undefined,
         enabled,
         state: enabled ? x.state : "off",

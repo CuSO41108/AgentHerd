@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import {
   API_VERSION,
   type CallMessage,
@@ -19,10 +19,13 @@ import {
 
 const isWindows = process.platform === "win32";
 
-export function socketPath(home: string): string {
+export function socketPath(home: string, platform: NodeJS.Platform = process.platform): string {
   // Windows has no Unix socket files here; use a named pipe derived from the home path.
-  if (isWindows) {
-    const id = createHash("sha256").update(home.toLowerCase()).digest("hex").slice(0, 16);
+  if (platform === "win32") {
+    const id = createHash("sha256")
+      .update(win32.resolve(home).toLowerCase())
+      .digest("hex")
+      .slice(0, 16);
     return `\\\\.\\pipe\\agentherd-${id}`;
   }
   return join(home, "run", "herd.sock");

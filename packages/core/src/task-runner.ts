@@ -1117,8 +1117,8 @@ export const UNREAD_MAX = 300;
  * labeled parts it may add after a blank line.
  */
 export function promptWords(text: string): string {
-  const body = text.trim().replace(/^\[[^\]\n]*\]\n/, "");
-  const cut = body.indexOf("\n\n[");
+  const body = text.trim().replace(/^\[[^\]\r\n]*\]\r?\n/, "");
+  const cut = body.search(/\r?\n\r?\n\[/);
   return (cut === -1 ? body : body.slice(0, cut)).trim();
 }
 

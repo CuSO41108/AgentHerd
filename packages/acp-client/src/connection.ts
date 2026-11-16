@@ -208,13 +208,12 @@ class StderrRing {
     for (const line of parts) this.add(line);
   }
   private add(line: string): void {
-    this.lines.push(redact(line, this.secrets));
+    this.lines.push(redact(line.replace(/\r$/, ""), this.secrets));
     if (this.lines.length > STDERR_LINES) this.lines.shift();
   }
   snapshot(): string[] {
-    return this.partial === ""
-      ? [...this.lines]
-      : [...this.lines, redact(this.partial, this.secrets)];
+    const tail = this.partial.replace(/\r$/, "");
+    return tail === "" ? [...this.lines] : [...this.lines, redact(tail, this.secrets)];
   }
 }
 
@@ -230,7 +229,10 @@ export async function startAgent(
     cwd: options.cwd,
     env: { ...process.env, ...line.env, ...extraEnv },
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+    ...(line.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
+  child.stdin?.on("error", () => {});
   options.signal?.addEventListener(
     "abort",
     () => {
@@ -329,9 +331,16 @@ export async function startAgent(
       clientInfo: { name: "agentherd", version: "0.0.0" },
     });
   // SIGTERM, then SIGKILL after a grace period for an agent that ignores SIGTERM.
+  // Windows has no SIGTERM: end stdin so polite stdio agents exit cleanly before SIGKILL.
   const terminate = () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
-    killTree(child, "SIGTERM");
+    if (process.platform === "win32") {
+      if (child.stdin !== null && !child.stdin.destroyed && !child.stdin.writableEnded) {
+        child.stdin.end();
+      }
+    } else {
+      killTree(child, "SIGTERM");
+    }
     const force = setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) killTree(child, "SIGKILL");
     }, CLOSE_GRACE_MS);

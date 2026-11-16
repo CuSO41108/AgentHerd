@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isEntry } from "./entry.ts";
 
 export const SOFT_LINES = 3500;
 export const MAX_LINES = 5000;
@@ -71,6 +72,6 @@ function main(): number {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntry(process.argv[1], import.meta.url)) {
   process.exitCode = main();
 }

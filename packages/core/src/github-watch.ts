@@ -3,6 +3,9 @@
 // to fix; a merge or close is told once and ends the watch. Bots never wake a task.
 
 import { execFileSync, spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import { win32 } from "node:path";
+import { commandLine, killTree } from "@agentherd/acp-client";
 import type { Clock, Timer } from "./clock.ts";
 import { headTail } from "./cut-text.ts";
 import { type HerdContext, say } from "./herd-context.ts";
@@ -37,13 +40,54 @@ const PROMPT_ITEMS_MAX = 20;
 
 export const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
 
+function envLookup(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const exact = env[key];
+  if (exact !== undefined) return exact;
+  const upper = key.toUpperCase();
+  for (const [k, v] of Object.entries(env)) {
+    if (k.toUpperCase() === upper && v !== undefined) return v;
+  }
+  return undefined;
+}
+
+function resolveGhCommand(env: NodeJS.ProcessEnv): string {
+  if (process.platform !== "win32") return "gh";
+  const rawPath = envLookup(env, "PATH") ?? "";
+  const rawExt = envLookup(env, "PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+  const exts = rawExt
+    .split(";")
+    .map((e) => e.trim())
+    .filter((e) => e !== "");
+  for (const dir of rawPath.split(";")) {
+    const cleanDir = dir.trim().replace(/^"+|"+$/g, "");
+    if (cleanDir === "") continue;
+    for (const ext of exts) {
+      const candidate = win32.join(cleanDir, `gh${ext}`);
+      try {
+        if (statSync(candidate).isFile()) return candidate;
+      } catch {
+        // Ignore missing entries on PATH.
+      }
+    }
+  }
+  return "gh";
+}
+
 export function runGh(env: NodeJS.ProcessEnv = process.env): GhRun {
   return (args) =>
     new Promise((resolve, reject) => {
-      const child = spawn("gh", args, { env, windowsHide: true });
+      const line = commandLine(resolveGhCommand(env), args);
+      const verbatim =
+        "windowsVerbatimArguments" in line &&
+        (line as { windowsVerbatimArguments?: boolean }).windowsVerbatimArguments === true;
+      const child = spawn(line.command, line.args, {
+        env: { ...env, ...line.env },
+        windowsHide: true,
+        ...(verbatim ? { windowsVerbatimArguments: true } : {}),
+      });
       let out = "";
       let err = "";
-      const timer = setTimeout(() => child.kill(), GH_TIMEOUT_MS);
+      const timer = setTimeout(() => killTree(child, "SIGTERM"), GH_TIMEOUT_MS);
       child.stdout.on("data", (d: Buffer) => {
         out += d.toString("utf8");
       });
@@ -630,6 +674,7 @@ export function gitBranch(dir: string): string | undefined {
       encoding: "utf8",
       timeout: 5_000,
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     return out === "" ? undefined : out;
   } catch {

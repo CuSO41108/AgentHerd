@@ -15,7 +15,9 @@ import {
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) {
+    rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
 
 function tmp(): string {
@@ -176,7 +178,7 @@ describe("sync against a git repo", () => {
       ref: "v2",
       sha: sha2,
     });
-  });
+  }, 15_000);
 
   it("reports conflicts and keeps the base", () => {
     const { repo, sha1 } = upstream(
@@ -189,5 +191,38 @@ describe("sync against a git repo", () => {
     expect(r.files[0]?.action).toBe("conflict");
     expect(readFileSync(join(dir, "src/b.ts"), "utf8")).toContain(">>>>>>> src/b.ts (upstream)");
     expect(readBase(readFileSync(join(dir, "UPSTREAM.md"), "utf8")).sha).toBe(sha1);
-  });
+  }, 15_000);
+
+  it("normalizes CRLF working-tree files so Windows checkouts do not cause false conflicts", () => {
+    const crlf = (s: string) => s.replace(/\n/g, "\r\n");
+    const { repo, sha1, sha2 } = upstream(
+      {
+        "packages/agent/src/a.ts": "a1\n",
+        "packages/agent/src/b.ts": LINES(10),
+      },
+      {
+        "packages/agent/src/a.ts": "a2\n",
+        "packages/agent/src/b.ts": LINES(10, { 8: "upstream" }),
+      },
+    );
+    const dir = tmp();
+    write(dir, {
+      "UPSTREAM.md": crlf(`# x\n\nBase: v1 (${sha1})\n\nmore\n`),
+      "package.json": crlf(pkg("1.0.0")),
+      "src/a.ts": crlf("a1\n"),
+      "src/b.ts": crlf(LINES(10, { 1: "local" })),
+    });
+
+    const r = sync({ repo, pkgDir: dir, to: "v2" });
+    expect(r.conflicts).toBe(0);
+    expect(Object.fromEntries(r.files.map((f) => [f.path, f.action]))).toEqual({
+      "src/a.ts": "update",
+      "src/b.ts": "merge",
+    });
+    expect(readFileSync(join(dir, "src/a.ts"), "utf8")).toBe("a2\n");
+    expect(readFileSync(join(dir, "src/b.ts"), "utf8")).toBe(
+      LINES(10, { 1: "local", 8: "upstream" }),
+    );
+    expect(readBase(readFileSync(join(dir, "UPSTREAM.md"), "utf8")).sha).toBe(sha2);
+  }, 15_000);
 });

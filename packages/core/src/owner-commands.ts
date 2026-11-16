@@ -273,7 +273,11 @@ export class OwnerCommands {
       await say(ctx, ctx.texts.unknownAgent(agent, known));
       return;
     }
-    const cwd = resolve(dir === "~" || dir.startsWith("~/") ? join(userHome, dir.slice(1)) : dir);
+    const cwd = resolve(
+      dir === "~" || dir.startsWith("~/") || dir.startsWith("~\\")
+        ? join(userHome, dir.slice(1))
+        : dir,
+    );
     if (!isDirectory(cwd)) {
       await say(ctx, ctx.texts.notDirectory(cwd));
       return;

@@ -6,10 +6,11 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { arch, platform } from "node:os";
 import { join } from "node:path";
+import { killTree } from "@agentherd/acp-client";
 import type {
   AppToolInfo,
   AppTools,
@@ -19,10 +20,22 @@ import type {
   SocialSource,
 } from "@agentherd/core";
 import { type McpHttpClient, mcpHttpClient } from "./composio.ts";
+import { renameWithRetry } from "./runtimes.ts";
 
 export const XHS_VERSION = "v2.7.4";
-const XHS_ASSET = "xiaohongshu-mcp-darwin-arm64";
-const XHS_URL = `https://github.com/xpzouying/xiaohongshu-mcp/releases/download/${XHS_VERSION}/${XHS_ASSET}`;
+const XHS_ASSETS: Record<string, string> = {
+  "darwin-arm64": "xiaohongshu-mcp-darwin-arm64",
+  "win32-x64": "xiaohongshu-mcp-windows-amd64.exe",
+  "win32-arm64": "xiaohongshu-mcp-windows-amd64.exe",
+  "linux-x64": "xiaohongshu-mcp-linux-amd64",
+};
+
+export function xhsAsset(
+  plat: NodeJS.Platform = platform(),
+  cpu: string = arch(),
+): string | undefined {
+  return XHS_ASSETS[`${plat}-${cpu}`];
+}
 /** Agent tools are named XIAOHONGSHU_<TOOL> so approvals and the owner see where they go. */
 export const XHS_PREFIX = "XIAOHONGSHU_";
 /** Tools agents never get: signing in and out is the owner's, in the app. */
@@ -65,6 +78,8 @@ export interface XiaohongshuOptions {
   launch?: (bin: string, args: string[], env: NodeJS.ProcessEnv) => ChildProcess;
   /** Tests give a ready file. */
   binary?: () => Promise<string>;
+  platform?: NodeJS.Platform;
+  arch?: string;
 }
 
 interface Wrapped<T> {
@@ -114,6 +129,13 @@ export class Xiaohongshu implements SocialSource {
     this.fetchFn = opts.fetch ?? fetch;
   }
 
+  available(): boolean {
+    return (
+      this.opts.binary !== undefined ||
+      xhsAsset(this.opts.platform ?? platform(), this.opts.arch ?? arch()) !== undefined
+    );
+  }
+
   ready(): boolean {
     return this.state === "ready";
   }
@@ -131,20 +153,25 @@ export class Xiaohongshu implements SocialSource {
   /** The pinned server binary, downloaded once. */
   private async binary(): Promise<string> {
     if (this.opts.binary !== undefined) return this.opts.binary();
-    if (platform() !== "darwin" || arch() !== "arm64") {
-      throw new Error("小红书 needs a Mac with Apple silicon for now");
+    const plat = this.opts.platform ?? platform();
+    const cpu = this.opts.arch ?? arch();
+    const asset = xhsAsset(plat, cpu);
+    if (asset === undefined) {
+      throw new Error(`小红书 does not support ${plat}-${cpu} yet`);
     }
+    const url = `https://github.com/xpzouying/xiaohongshu-mcp/releases/download/${XHS_VERSION}/${asset}`;
+    const ext = plat === "win32" ? ".exe" : "";
     const dir = join(this.opts.home, "bin");
-    const bin = join(dir, `xiaohongshu-mcp-${XHS_VERSION}`);
+    const bin = join(dir, `xiaohongshu-mcp-${XHS_VERSION}${ext}`);
     if (existsSync(bin)) return bin;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    this.opts.log?.(`[xiaohongshu] downloading ${XHS_URL}`);
-    const res = await this.fetchFn(XHS_URL);
+    this.opts.log?.(`[xiaohongshu] downloading ${url}`);
+    const res = await this.fetchFn(url);
     if (!res.ok) throw new Error(`could not download xiaohongshu-mcp: HTTP ${res.status}`);
     const part = `${bin}.part`;
     writeFileSync(part, Buffer.from(await res.arrayBuffer()));
-    chmodSync(part, 0o755);
-    renameSync(part, bin);
+    if (plat !== "win32") chmodSync(part, 0o755);
+    await renameWithRetry(part, bin);
     return bin;
   }
 
@@ -172,7 +199,8 @@ export class Xiaohongshu implements SocialSource {
       };
       const args = ["-port", `127.0.0.1:${port}`];
       const child = (
-        this.opts.launch ?? ((b, a, e) => spawn(b, a, { env: e, cwd: this.dir(), stdio: "ignore" }))
+        this.opts.launch ??
+        ((b, a, e) => spawn(b, a, { env: e, cwd: this.dir(), stdio: "ignore", windowsHide: true }))
       )(bin, args, env);
       this.child = child;
       child.on("exit", (code) => {
@@ -301,7 +329,7 @@ export class Xiaohongshu implements SocialSource {
     this.child = undefined;
     this.mcp = undefined;
     this.base = undefined;
-    child?.kill();
+    if (child !== undefined) killTree(child, "SIGTERM");
   }
 
   /** Stops the server; the cookies stay for next time. */

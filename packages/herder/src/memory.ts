@@ -46,7 +46,10 @@ const SETTLED_RE =
 const QUESTION_RE = /[?？]\s*$|[吗呢么]\s*$|^(是不是|能不能|要不要|可不可以|会不会)/;
 const HYPOTHETICAL_RE = /如果|假如|要是|假设|万一|\bif\b|\bsuppose\b/i;
 const TEMP_PATH_RE = /(^|[\s"'`(（])\/(tmp|private\/tmp|var\/folders|private\/var\/folders)(\/|\b)/;
-const PATH_RE = /(?:^|[\s"'`(（「:：])((?:~|\/)[^\s"'`)）」，。；;,!?！？]+)/g;
+const WIN_TEMP_PATH_RE =
+  /(?:^|[\s"'`(（:：])(?:(?:[A-Za-z]:[^\r\n"'`)）]*?[\\/])?AppData[\\/]Local[\\/]Temp|[A-Za-z]:[\\/]Windows[\\/]Temp|%TE?MP%)(?=$|[\\/\s"'`)）」，。；;,!?！？])/i;
+const PATH_RE =
+  /(?:^|[\s"'`(（「:：])((?:~|\/|[A-Za-z]:[\\/]|\\\\[^\\/\s"'`)）」，。；;,!?！？]+\\)[^\s"'`)）」，。；;,!?！？]+)/g;
 
 function ok(text: string): AgentToolResult<undefined> {
   return { content: [{ type: "text", text }], details: undefined };
@@ -112,7 +115,9 @@ export function opProblem(op: ToolOp, turn: TurnContext, old?: MemoryRow): strin
   if (kind === "decision" && !LASTING_RE.test(evidence) && !SETTLED_RE.test(evidence)) {
     return "the owner did not settle this for good (以后/不做/定了/一律…); a choice for one task is not a decision";
   }
-  if (TEMP_PATH_RE.test(text)) return "temporary folders are never kept";
+  if (TEMP_PATH_RE.test(text) || WIN_TEMP_PATH_RE.test(text)) {
+    return "temporary folders are never kept";
+  }
   for (const m of text.matchAll(PATH_RE)) {
     const path = m[1] ?? "";
     if (path.length > 1 && !evidence.includes(path)) {

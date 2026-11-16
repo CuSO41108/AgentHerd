@@ -38,7 +38,7 @@ flowchart LR
 ### Socket and token
 
 - The gateway socket sits next to the host socket: `<home>/run/mcp.sock` (mode 600, directory
-  700) or the named pipe `\\.\pipe\agentherd-mcp-<hash of home>` on Windows. No TCP listener.
+  700) or the named pipe `\\.\pipe\agentherd-mcp-<hash of resolved, lower-cased home>` on Windows. No TCP listener.
 - The token is 32 random bytes per task, made when the task's session starts and dropped when the
   task ends. A message with an unknown token is answered with a JSON-RPC error and closes the
   connection. The token is never written to the audit log or the transcript.
@@ -170,15 +170,18 @@ sign-in links; a session Composio no longer knows (404) is made again once.
 
 ## 3b. 小红书 and 知乎 (ADR 0058)
 
-The host runs a pinned [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) release on
+The host runs a pinned [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) release
+(`v2.7.4`: `xiaohongshu-mcp-darwin-arm64`, `xiaohongshu-mcp-windows-amd64.exe`,
+`xiaohongshu-mcp-linux-amd64`) on
 `127.0.0.1` (random port, bearer token, cookies in `~/.agentherd/xiaohongshu/`) while 小红书 is
 turned on in 应用连接 (risk notice accepted, QR sign-in). Its MCP tools reach agents beside the
 Composio ones as `XIAOHONGSHU_<TOOL>` (`get_login_qrcode` and `delete_cookies` hidden); the
-approval rules above apply, and publish/comment/reply/like/favorite leave the Mac (ADR 0056).
+approval rules above apply, and publish/comment/reply/like/favorite leave the computer (ADR 0056).
 Notices for the owner come from its REST API (`notifications/unread`, `notifications/list`), not
 from agents.
 
 知乎 has no maintained server and its web API signs requests, so the host keeps a headless Chrome
+(or Microsoft Edge on Windows)
 with its own profile (`~/.agentherd/zhihu/profile`, signed in by the site's QR code) and calls the
 API from inside a zhihu.com page, whose session does what the site needs. Its tools are ours,
 named `ZHIHU_<TOOL>`: `SEARCH`, `HOT_LIST`, `GET_QUESTION`, `GET_ANSWER`, `GET_ARTICLE` (read from
@@ -190,13 +193,15 @@ them does not mark them read.
 ## 3c. 飞书, news sources and notes (ADR 0059)
 
 **飞书** is the official [lark-cli](https://www.npmjs.com/package/@larksuite/cli), signed in as the
-owner. The host finds it (PATH, `~/.local/bin`, Homebrew) or installs it with
-`npm install -g @larksuite/cli`, sets it up with AgentHerd's own Feishu app when it has none, and
+owner. The host finds it (`PATH` with `.cmd`/`.exe` resolution on Windows, `~/.local/bin`,
+Homebrew, `%APPDATA%\npm`, `%LOCALAPPDATA%\pnpm`) or installs it with
+`npm install -g @larksuite/cli` (using hidden console windows and system proxy env from
+`applySystemProxy` on Windows), sets it up with AgentHerd's own Feishu app when it has none, and
 signs in with `auth login --no-wait --json --domain …` (QR in 应用连接, `--device-code` finishes
 in the background). It is not a gateway tool: every new task gets one paragraph saying lark-cli is
 signed in, as whom, and where its guides are (`lark-cli skills read lark-doc`), and the agent runs
 it with its shell. `outboundCheck` reads lark-cli commands: reads, `--help`, `--dry-run`, `auth`,
-`config`, `schema` and `skills` stay on the Mac; `+create` of a doc, sheet, slides, base or mind
+`config`, `schema` and `skills` stay on the computer; `+create` of a doc, sheet, slides, base or mind
 note passes (the owner's own space); im, mail, calendar, vc and approval writes ask as `send`;
 other writes and non-GET `lark-cli api` ask as `edit`.
 
@@ -207,7 +212,7 @@ Algolia search) and arXiv (export API, newest first). Agents get `GITHUB_TRENDIN
 reads them with `feed_read` (04-herder).
 
 **Notes.** Notion is a Composio app (§3). An Obsidian vault folder set in 应用连接 → 账号 → Obsidian
-(`obsidianVault` in config.json, checked to exist) is told to every new task like lark-cli.
+(`obsidianVault` in config.json, expanding `~/` and `~\`, checked to exist) is told to every new task like lark-cli.
 
 ## 4. Failure behavior
 

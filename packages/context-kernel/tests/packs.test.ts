@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   isValidPackName,
   sanitizePackSurface,
@@ -260,7 +261,7 @@ test("dir source resolves and lists json packs", () => {
     writeFileSync(path.join(dir, "broken.json"), "not json");
     const src = createDirPackSource("project", dir);
     const pack = src.resolve("team");
-    assert.equal(pack?.source, `file:${path.join(dir, "team.json")}`);
+    assert.equal(pack?.source, pathToFileURL(path.join(dir, "team.json")).href);
     assert.equal(pack?.version, "2.0");
     assert.equal(pack?.surface.toolPrompts?.compress?.description, "T");
     assert.equal(src.resolve("broken"), null);

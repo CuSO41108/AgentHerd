@@ -64,9 +64,21 @@ notice before a platform is turned on, and one page 「应用连接」 that list
 
 ## Consequences
 
-- A 17 MB binary and a headless Chrome run while 小红书 is on. Only Apple-silicon Macs for now.
+- A 17 MB binary and a headless Chrome (or Edge on Windows) run while 小红书/知乎 are on.
 - The account risk is the owner's; the notice says so, and nothing writes without asking.
 - Reading the notice lists marks them read on 小红书, as opening the app would; 知乎's are left
   unread.
 - 知乎 may change the endpoints or demand signatures for more of them; the client then fails
   with the site's message, and 测试连接 shows it.
+
+## Amendment (2026-11-16): Windows support
+
+- `xiaohongshu-mcp` (`v2.7.4`) selects the platform binary (`xiaohongshu-mcp-darwin-arm64`,
+  `xiaohongshu-mcp-windows-amd64.exe`, or `xiaohongshu-mcp-linux-amd64`), hides console windows,
+  and tree-kills child processes on stop.
+- 知乎 CDP checks Windows Chrome and Microsoft Edge (`chrome.exe`, `msedge.exe`) alongside macOS
+  Chrome, with hidden console windows and tree-kill cleanup.
+- `lark-cli` discovery/install supports Windows `.cmd`/`.exe` shims (`%APPDATA%\npm`,
+  `%LOCALAPPDATA%\pnpm`, `%ProgramFiles%\nodejs\npm.cmd`), and `applySystemProxy` propagates
+  Windows Registry proxy settings (`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`/`NODE_USE_ENV_PROXY`)
+  to the host, CLI, and Feishu network traffic.

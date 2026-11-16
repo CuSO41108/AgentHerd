@@ -14,6 +14,7 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { LANGUAGE_PRESERVATION_RULE } from "./compression-rules.ts";
 import type { Prompts } from "./prompts.ts";
 import type { CompressPromptSections, ToolPrompts } from "./surface-config.ts";
@@ -44,7 +45,7 @@ export interface PackSurface {
 }
 
 /** A resolved prompt pack: name + sanitized surface, tagged with provenance
- * (`builtin:lean`, `file:/home/u/.config/x/packs/lean.json`, …). */
+ * (`builtin:lean`, `file:///home/u/.config/x/packs/lean.json`, …). */
 export interface Pack {
   name: string;
   version?: string;
@@ -386,7 +387,7 @@ export function createDirPackSource(id: string, dir: string): PackSource {
       description:
         typeof raw.description === "string" ? raw.description : undefined,
       surface: sanitizePackSurface(raw),
-      source: `file:${file}`,
+      source: path.isAbsolute(file) ? pathToFileURL(file).href : `file:${file}`,
     };
   };
   return {

@@ -72,12 +72,16 @@ const IDENTITY = {
 
 export const runGit: GitRun = (args, options) =>
   new Promise((resolve, reject) => {
-    const child = spawn("git", ["-c", "core.quotepath=false", ...args], {
-      cwd: options.cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...options.env },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
+    const child = spawn(
+      "git",
+      ["-c", "core.quotepath=false", "-c", "core.longpaths=true", ...args],
+      {
+        cwd: options.cwd,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...options.env },
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     child.stdout.on("data", (d: Buffer) => out.push(d));
@@ -249,7 +253,7 @@ export class Workspaces {
     try {
       await this.git(["worktree", "remove", "--force", root], { cwd: top });
     } catch {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       await this.git(["worktree", "prune"], { cwd: top }).catch(() => "");
     }
     // The project's folder of copies goes with its last copy.
@@ -310,7 +314,7 @@ export class Workspaces {
     try {
       return await run({ GIT_INDEX_FILE: join(tmp, "index") });
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }
 
@@ -359,7 +363,14 @@ export class Workspaces {
   /** Writes `changes` from `commit` into the folder `dir`, leaving its index alone. */
   private async write(dir: string, commit: string, changes: Change[]): Promise<void> {
     for (const c of changes) {
-      if (c.deleted) rmSync(join(dir, c.path), { force: true });
+      if (c.deleted) {
+        rmSync(join(dir, c.path), {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 50,
+        });
+      }
     }
     const written = changes.filter((c) => !c.deleted).map((c) => c.path);
     if (written.length === 0) return;

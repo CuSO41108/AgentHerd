@@ -174,9 +174,11 @@ export function outboundCheck(call: ToolCallInfo): OutboundResult | undefined {
   } catch (error) {
     if (!(error instanceof UnparsedCommandError)) throw error;
     // A command we cannot read: ask only when it mentions a step that leaves the Mac.
-    if (/\bgit\b[^\n]*\bpush\b/.test(call.command)) return hit("push", "pushes to a remote");
-    if (/\bgh\s+pr\s+merge\b/.test(call.command)) return hit("merge", "merges a pull request");
-    if (/\bpublish\b/.test(call.command)) return hit("publish", "publishes");
+    if (/\bgit\b[^\n]*\bpush\b/i.test(call.command)) return hit("push", "pushes to a remote");
+    if (/\bgh(?:\.exe)?\s+pr\s+merge\b/i.test(call.command)) {
+      return hit("merge", "merges a pull request");
+    }
+    if (/\bpublish\b/i.test(call.command)) return hit("publish", "publishes");
     return undefined;
   }
   for (const segment of segments) {
@@ -312,8 +314,9 @@ export function pushPlans(command: string, ctx: PathContext): PushPlan[] | undef
     const words = programWords(segment.words);
     const program = basename(words[0] ?? "");
     const args = words.slice(1);
-    if (program === "cd") {
-      here = here === null ? null : resolveWord(args[0] ?? "~", { ...ctx, cwd: here });
+    if (program === "cd" || program === "chdir" || program === "set-location") {
+      const target = /^\/d$/i.test(args[0] ?? "") ? args[1] : args[0];
+      here = here === null ? null : resolveWord(target ?? "~", { ...ctx, cwd: here });
       continue;
     }
     if (program !== "git") continue;

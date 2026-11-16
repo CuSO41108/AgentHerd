@@ -106,7 +106,32 @@ describe("memory checks", () => {
       opProblem({ action: "add", kind: "project", content: "演示项目在 /tmp/demo" }, t),
     ).toContain("temporary");
     expect(
+      opProblem(
+        {
+          action: "add",
+          kind: "project",
+          content: "演示在 C:\\Users\\me\\AppData\\Local\\Temp\\x",
+        },
+        t,
+      ),
+    ).toContain("temporary");
+    expect(
+      opProblem({ action: "add", kind: "project", content: "演示在 C:\\Windows\\Temp\\x" }, t),
+    ).toContain("temporary");
+    expect(opProblem({ action: "add", kind: "project", content: "演示在 %TEMP%\\x" }, t)).toContain(
+      "temporary",
+    );
+    expect(
       opProblem({ action: "add", kind: "project", content: "AgentHerd 在 ~/code/AgentHerd" }, t),
+    ).toContain("not in the owner's words");
+    expect(
+      opProblem({ action: "add", kind: "project", content: "AgentHerd 在 C:\\code\\AgentHerd" }, t),
+    ).toContain("not in the owner's words");
+    expect(
+      opProblem(
+        { action: "add", kind: "project", content: "AgentHerd 在 \\\\server\\share\\AgentHerd" },
+        t,
+      ),
     ).toContain("not in the owner's words");
     expect(
       opProblem(

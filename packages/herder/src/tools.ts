@@ -2,7 +2,7 @@
 // or writes a file.
 
 import { statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, posix, resolve, win32 } from "node:path";
 import {
   describeWhen,
   type FeedSource,
@@ -71,21 +71,32 @@ export function otherOption(locale: string): string {
   return locale === "en" ? "Other" : "其他";
 }
 
-// `~`, `/` or a Windows drive (`C:\`) starts a path; it ends at whitespace or punctuation.
-const PATH_RE = /(?:^|[\s"'`(（「：])((?:~|\/|[A-Za-z]:[\\/])[^\s"'`)）」，。；;,!?！？]*)/g;
+// `~`, `/`, a Windows drive (`C:\`), UNC (`\\server\share`), or quoted variants with spaces.
+const PATH_RE =
+  /"((?:~(?:[/\\]|$)|\/|[A-Za-z]:[\\/]|\\\\[^\\/\r\n"]+\\)[^"\r\n]*)"|'((?:~(?:[/\\]|$)|\/|[A-Za-z]:[\\/]|\\\\[^\\/\r\n']+\\)[^'\r\n]*)'|(?:^|[\s"'`(（「：])((?:~|\/|[A-Za-z]:[\\/]|\\\\[^\\/\s"'`)）」，。；;,!?！？]+\\)[^\s"'`)）」，。；;,!?！？]*)/g;
 
 function homePath(raw: string): boolean {
   return raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\");
+}
+
+function isWinPath(s: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(s) || /^\\\\[^\\/]/.test(s) || s.includes("\\");
+}
+
+function resolveDirPath(raw: string, home: string): string | undefined {
+  const p = isWinPath(home) || isWinPath(raw) ? win32 : posix;
+  if (homePath(raw)) return p.resolve(p.join(home, raw.slice(1)));
+  return p.isAbsolute(raw) ? p.resolve(raw) : undefined;
 }
 
 /** Absolute and `~/` paths in the owner's words, resolved. */
 export function pathsIn(text: string, home: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(PATH_RE)) {
-    const raw = (m[1] ?? "").replace(/[.:：]+$/, "");
-    if (raw === "" || raw === "/" || !(homePath(raw) || isAbsolute(raw))) continue;
-    const dir = homePath(raw) ? resolve(join(home, raw.slice(1))) : resolve(raw);
-    if (!out.includes(dir)) out.push(dir);
+    const raw = (m[1] ?? m[2] ?? m[3] ?? "").replace(/[.:：]+$/, "");
+    if (raw === "" || raw === "/") continue;
+    const dir = resolveDirPath(raw, home);
+    if (dir !== undefined && !out.includes(dir)) out.push(dir);
   }
   return out;
 }
@@ -96,11 +107,8 @@ export function pathsIn(text: string, home: string): string[] {
  */
 export function pathsInAnswer(answer: string, home: string): string[] {
   const whole = answer.trim();
-  const out = homePath(whole)
-    ? [resolve(join(home, whole.slice(1)))]
-    : isAbsolute(whole)
-      ? [resolve(whole)]
-      : [];
+  const resolved = whole === "" || whole === "/" ? undefined : resolveDirPath(whole, home);
+  const out = resolved === undefined ? [] : [resolved];
   for (const p of pathsIn(answer, home)) if (!out.includes(p)) out.push(p);
   return out;
 }

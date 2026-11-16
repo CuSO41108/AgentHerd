@@ -1,7 +1,8 @@
-// 应用连接 › 账号 › Obsidian (ADR 0059): the vault folder on this Mac where agents keep notes.
+// 应用连接 › 账号 › Obsidian (ADR 0059): the vault folder on this computer where agents keep notes.
 
 import { Check, Loader2, NotebookPen } from "lucide-react";
 import { useEffect, useState } from "react";
+import { isMac } from "../platform";
 import { errorText, host, useApp } from "../store";
 import { ConnectionRow } from "./ConnectionRow";
 import { Badge, Button, IconTile, inputClass } from "./ui";
@@ -64,7 +65,11 @@ export function ObsidianRow() {
         <input
           className={`${inputClass} min-w-0 flex-1`}
           value={path}
-          placeholder="笔记库文件夹，如 /Users/你/Documents/我的笔记库"
+          placeholder={
+            isMac()
+              ? "笔记库文件夹，如 /Users/你/Documents/我的笔记库"
+              : "笔记库文件夹，如 C:\\Users\\你\\Documents\\我的笔记库"
+          }
           spellCheck={false}
           onChange={(e) => {
             setPath(e.target.value);

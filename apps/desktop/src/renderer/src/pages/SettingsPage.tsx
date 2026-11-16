@@ -8,6 +8,7 @@ import { useState } from "react";
 import { FeishuSection } from "../components/FeishuSection";
 import { Button, Group, IconTile, Row, Section, Segmented, Switch } from "../components/ui";
 import { FONT_SCALES, setFontScale, useFontScale } from "../font-scale";
+import { isMac } from "../platform";
 import { call, type Mode, useApp } from "../store";
 
 const MODES: { mode: Mode; title: string; hint: string; icon: typeof Eye }[] = [
@@ -109,7 +110,11 @@ export function SettingsPage() {
               </IconTile>
             }
             title="防止休眠"
-            description="有任务在跑时让电脑保持唤醒，合上盖子也能继续"
+            description={
+              isMac()
+                ? "有任务在跑时让电脑保持唤醒，合上盖子也能继续"
+                : "有任务在跑时阻止电脑空闲自动休眠，关闭窗口后在托盘保持连接"
+            }
             trailing={
               <Switch
                 label="防止休眠"

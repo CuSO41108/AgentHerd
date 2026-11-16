@@ -8,16 +8,29 @@ import { join } from "node:path";
 import type { HostEvent, HostMethod } from "@agentherd/host/api";
 import { HOST_METHODS } from "@agentherd/host/api";
 import { connectHost, type HostClient, socketPath } from "@agentherd/host/server";
-import { app, BrowserWindow, ipcMain, nativeTheme, powerSaveBlocker, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  powerSaveBlocker,
+  shell,
+  Tray,
+} from "electron";
 import { ensureHost, ownsHost, stopOwnedHost } from "./host-process.ts";
 
 app.setName("AgentHerd");
+app.setAppUserModelId("com.agentherd.desktop");
 app.setAboutPanelOptions({ applicationName: "AgentHerd", copyright: "MIT License" });
 
+const APP_ICON = join(import.meta.dirname, "../../resources/icon.png");
 const home = process.env.AGENTHERD_HOME ?? join(homedir(), ".agentherd");
 const sock = socketPath(home);
 
 let win: BrowserWindow | undefined;
+let tray: Tray | undefined;
 let client: HostClient | undefined;
 let connected = false;
 let keepAwakeId: number | undefined;
@@ -80,19 +93,61 @@ ipcMain.handle("host:call", async (_event, method: HostMethod, params: unknown[]
 });
 ipcMain.handle("host:connected", () => connected);
 
-/** Window controls for Windows and Linux: transparent, as tall as `--ah-titlebar-height`. */
+function frameColor(): string {
+  return nativeTheme.shouldUseDarkColors ? "#0d0d0d" : "#e8e8eb";
+}
+
+/** Window controls for Windows and Linux: transparent, 36 px tall in the frame strip. */
 function titleBarOverlay(): { color: string; symbolColor: string; height: number } {
   const dark = nativeTheme.shouldUseDarkColors;
-  return { color: "#00000000", symbolColor: dark ? "#dcdcdc" : "#3a3a3c", height: 48 };
+  return { color: "#00000000", symbolColor: dark ? "#dcdcdc" : "#3a3a3c", height: 36 };
+}
+
+function showWindow(): void {
+  if (win === undefined || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function createTray(): void {
+  if (
+    process.platform !== "win32" ||
+    process.env.AGENTHERD_CAPTURE !== undefined ||
+    tray !== undefined
+  ) {
+    return;
+  }
+  const icon = nativeImage.createFromPath(APP_ICON).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip("AgentHerd");
+  tray.on("click", showWindow);
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "打开 AgentHerd", click: showWindow },
+      { type: "separator" },
+      {
+        label: "退出",
+        click: () => {
+          quitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
 }
 
 function createWindow(): void {
-  win = new BrowserWindow({
+  const created = new BrowserWindow({
     width: 1100,
     height: 720,
     minWidth: 860,
     minHeight: 560,
     title: "AgentHerd",
+    icon: APP_ICON,
     show: process.env.AGENTHERD_CAPTURE === undefined,
     // The sidebar is translucent on macOS; the renderer keeps the page card opaque.
     ...(process.platform === "darwin"
@@ -105,7 +160,11 @@ function createWindow(): void {
         }
       : // Elsewhere hiddenInset is ignored and leaves the native title bar and menu bar; draw
         // the window controls over the renderer's title bar strip instead.
-        { titleBarStyle: "hidden" as const, titleBarOverlay: titleBarOverlay() }),
+        {
+          titleBarStyle: "hidden" as const,
+          titleBarOverlay: titleBarOverlay(),
+          backgroundColor: frameColor(),
+        }),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -113,22 +172,33 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
+  win = created;
   if (process.platform !== "darwin") {
-    const w = win;
     const follow = () => {
-      if (!w.isDestroyed()) w.setTitleBarOverlay(titleBarOverlay());
+      if (created.isDestroyed()) return;
+      created.setBackgroundColor(frameColor());
+      created.setTitleBarOverlay(titleBarOverlay());
     };
     nativeTheme.on("updated", follow);
-    w.on("closed", () => nativeTheme.off("updated", follow));
+    created.on("closed", () => nativeTheme.off("updated", follow));
   }
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  created.on("close", (event) => {
+    if (!quitting && tray !== undefined) {
+      event.preventDefault();
+      created.hide();
+    }
+  });
+  created.on("closed", () => {
+    if (win === created) win = undefined;
+  });
+  created.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) void shell.openExternal(url);
     return { action: "deny" };
   });
-  win.webContents.on("will-navigate", (event) => event.preventDefault());
+  created.webContents.on("will-navigate", (event) => event.preventDefault());
   const devUrl = process.env.ELECTRON_RENDERER_URL;
-  if (devUrl !== undefined) void win.loadURL(devUrl);
-  else void win.loadFile(join(import.meta.dirname, "../renderer/index.html"));
+  if (devUrl !== undefined) void created.loadURL(devUrl);
+  else void created.loadFile(join(import.meta.dirname, "../renderer/index.html"));
   const capture = process.env.AGENTHERD_CAPTURE;
   if (capture !== undefined) void captureAndQuit(capture);
 }
@@ -157,9 +227,11 @@ async function captureAndQuit(prefix: string): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  if (process.platform !== "darwin") Menu.setApplicationMenu(null);
   // In development the bundle is node_modules' Electron.app; show the AgentHerd icon anyway.
-  app.dock?.setIcon(join(import.meta.dirname, "../../resources/icon.png"));
+  app.dock?.setIcon(APP_ICON);
   createWindow();
+  createTray();
   void connect();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -167,11 +239,18 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin" || process.env.AGENTHERD_CAPTURE !== undefined) app.quit();
+  if (
+    (process.platform !== "darwin" && (tray === undefined || quitting)) ||
+    process.env.AGENTHERD_CAPTURE !== undefined
+  ) {
+    app.quit();
+  }
 });
 
 app.on("before-quit", (event) => {
   quitting = true;
+  tray?.destroy();
+  tray = undefined;
   client?.close();
   if (!ownsHost()) return;
   // Let the host stop its tasks and tell the owner first; quit again once it is gone.

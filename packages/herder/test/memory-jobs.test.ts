@@ -119,6 +119,41 @@ describe("MemoryWorker", () => {
     ]);
   });
 
+  it("normalizes Windows drive letters in project scope keys without false global promotion", async () => {
+    const { store, worker } = setup({});
+    const { ids } = store.memory.write(
+      [
+        {
+          op: "add",
+          kind: "experience",
+          abstract: "打包签名失败先看构建日志",
+          scope: "project:G:\\code\\app",
+        },
+      ],
+      { actor: "task", source: "task" },
+    );
+    const id = (ids[0] as string).slice(0, 8);
+    store.memory.enqueueJob(LESSON_JOB, { taskId: "t3", cwd: "g:\\code\\app", signals: SIGNALS });
+    store.addTranscript("t3", "prompt", "打包签名失败");
+    store.addTranscript("t3", "agent", "看了构建日志，修好了");
+    (worker as unknown as { deps: { complete: unknown } }).deps.complete = model({
+      [LESSON_SYSTEM]: [LESSON],
+      [EXPERIENCE_SYSTEM]: [
+        JSON.stringify({
+          action: "update",
+          id,
+          abstract: "签名失败先看构建日志",
+          details: "",
+        }),
+      ],
+    }).complete;
+    await worker.drain();
+    const lesson = store.memory.list({ kinds: ["experience"] });
+    expect(lesson.map((r) => [r.abstract, r.scope])).toEqual([
+      ["签名失败先看构建日志", "project:G:\\code\\app"],
+    ]);
+  });
+
   it("most picked tasks teach nothing; a bad reply retries later", async () => {
     const { store, worker } = setup({ [LESSON_SYSTEM]: ['{"skip": true}', "not json"] });
     for (const t of ["t1", "t2"]) {

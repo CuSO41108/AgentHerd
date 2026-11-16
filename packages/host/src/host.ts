@@ -973,7 +973,7 @@ export class Host implements HostApi {
       next.herderStyle = patch.herderStyle;
     }
     if (patch.obsidianVault !== undefined) {
-      const vault = patch.obsidianVault.trim().replace(/^~(?=\/|$)/, homedir());
+      const vault = patch.obsidianVault.trim().replace(/^~(?=[/\\]|$)/, homedir());
       if (vault === "") delete next.obsidianVault;
       else if (!existsSync(vault)) throw new Error(`没有这个文件夹：${vault}`);
       else next.obsidianVault = vault;
