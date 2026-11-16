@@ -1,4 +1,4 @@
-// 主管 › 行动记录: every Herder turn — what started it, each tool it called with the answer, and
+// 主管: every Herder turn — what started it, each tool it called with the answer, and
 // what it said — plus errors, retries and model switches. Read from the Herder's saved
 // conversation; the page asks again every few seconds while it is open.
 
@@ -233,7 +233,7 @@ function IncidentRow({ incident }: { incident: HerderIncident }) {
   );
 }
 
-export function HerderActivityPage() {
+export function HerderActivity() {
   const [view, setView] = useState<HerderActivityView | undefined>();
   const [filter, setFilter] = useState<"all" | "problems">("all");
 

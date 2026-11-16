@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { VoiceRequest } from "@agentherd/core";
-import type { HerderStyle } from "@agentherd/protocol";
 import {
   type FauxProviderRegistration,
   fauxAssistantMessage,
@@ -551,21 +550,17 @@ describe("new work from GitHub (ADR 0052)", () => {
 });
 
 describe("Herder voice (ADR 0053)", () => {
-  function voiced(style: { value: HerderStyle } = { value: "friend" }) {
+  function voiced() {
     const registration = registerFauxProvider();
     faux.push(registration);
     const { host, rec } = fakeHost();
-    host.style = () => style.value;
-    host.setStyle = (s) => {
-      style.value = s;
-    };
     const herder = new Herder({
       host,
       model: registration.getModel(),
       streamFn: streamSimple,
       sleep: async () => {},
     });
-    return { herder, rec, faux: registration, style };
+    return { herder, rec, faux: registration };
   }
   const request: VoiceRequest = {
     kind: "report",
@@ -608,7 +603,9 @@ describe("Herder voice (ADR 0053)", () => {
     expect(words).toBe("查完了，还剩 3 处，清单在 ~/notes.md。");
     expect(seen[0]).toContain("[Task result, not from the owner]");
     expect(seen[0]).toContain("<<<agent");
-    expect(seen[1]).toContain("Your style: a capable friend.");
+    // One voice, a capable friend; the owner no longer picks a style (ADR 0065).
+    expect(seen[1]).toContain("You text like a capable friend.");
+    expect(seen[1]).not.toContain("style_set");
     // The task sends it as its report; the Herder does not say it a second time.
     expect(rec.said).toEqual([]);
   });
@@ -644,39 +641,6 @@ describe("Herder voice (ADR 0053)", () => {
     ]);
     expect(await herder.voice(request)).toBeUndefined();
     expect(rec.alerts).toEqual([]);
-  });
-
-  it("the owner changes the style in chat; the next turn uses it", async () => {
-    const { herder, faux, style } = voiced();
-    const prompts: string[] = [];
-    faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("style_set", { style: "partner" })], {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("好，以后我有话直说。"),
-      (context) => {
-        prompts.push(JSON.stringify(context));
-        return fauxAssistantMessage("嗯。");
-      },
-    ]);
-    herder.ownerMessage("说话别那么客气，有看法就直说");
-    await herder.idle();
-    expect(style.value).toBe("partner");
-    herder.ownerMessage("那个任务怎样了");
-    await herder.idle();
-    expect(prompts[0]).toContain("Your style: a partner with opinions.");
-  });
-
-  it("only the owner changes the style", async () => {
-    const { herder, faux, style } = voiced();
-    faux.setResponses([
-      fauxAssistantMessage([fauxToolCall("style_set", { style: "secretary" })], {
-        stopReason: "toolUse",
-      }),
-      fauxAssistantMessage("查完了。"),
-    ]);
-    await herder.voice(request);
-    expect(style.value).toBe("friend");
   });
 });
 

@@ -101,7 +101,7 @@ The Herder may add, never rewrite.
 | Group | Tools |
 | --- | --- |
 | Sessions | `session_start(project, name, profile?, ownerText, addedContext, model?)` (name: the task's short name, shown on the board and every report, [ADR 0034](../adr/0034-herder-names-tasks.md)) (model: `service/model` the agent can run, picked by the Herder, [ADR 0025](../adr/0025-herder-picks-model-per-task.md)), `session_prompt(sessionId, text, name?)` (name renames the task), `session_cancel(sessionId)` (stops the running turn), `session_end(sessionId)` (closes the task when the owner says it is finished), `session_list()` (also lists models, the agents that can run each, and the owner's model guide, [ADR 0026](../adr/0026-model-guide-for-the-herder.md)) |
-| Owner | `ask(text, options)` (AgentHerd adds 「其他」), `project_find(name)`, `notify(text)`, `relay_start(sessionId)`, `relay_end()`, `style_set(style)` (ADR 0053), `task_search(query)` (earlier tasks by title, project and last report; up to 10, [ADR 0054](../adr/0054-say-what-matters.md)), `task_read(task, replies?)` (a task's latest reply, or its last 5, whole and quoted; at most 40,000 characters, [ADR 0062](../adr/0062-restarts-lose-nothing-and-wake-ups-stop-at-three.md)), `notice_level(kind, level)` (where one kind of small news goes: push, board or off, [ADR 0061](../adr/0061-small-news-on-the-board.md)) |
+| Owner | `ask(text, options)` (AgentHerd adds 「其他」), `project_find(name)`, `notify(text)`, `relay_start(sessionId)`, `relay_end()`, `task_search(query)` (earlier tasks by title, project and last report; up to 10, [ADR 0054](../adr/0054-say-what-matters.md)), `task_read(task, replies?)` (a task's latest reply, or its last 5, whole and quoted; at most 40,000 characters, [ADR 0062](../adr/0062-restarts-lose-nothing-and-wake-ups-stop-at-three.md)), `notice_level(kind, level)` (where one kind of small news goes: push, board or off, [ADR 0061](../adr/0061-small-news-on-the-board.md)) |
 | Read | `task_get`, `task_list`, `session_transcript`, `decisions_list`, `read`, `grep`, `list`, `git_log`, `git_diff` (read tools only inside known project directories) |
 | Schedules | `schedule_add(about, prompt, kind, at?, days?, hours?)`, `schedule_change(schedule, …, paused?)`, `schedule_remove(schedule)`: what the Herder does at set times, only when the owner asks ([ADR 0055](../adr/0055-schedules-the-herder-makes.md)) |
 | Context | `compress`, `decompress`, `search_context`, `acp_status`: fold finished parts of its own conversation, find and show them again ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)) |
@@ -473,16 +473,15 @@ board are not limited.
 
 ### Style
 
-The owner picks how the Herder talks ([ADR 0053](../adr/0053-the-herder-tells-task-results.md)):
-`friend` 能干的朋友 (default, from open-instinct's persona), `partner` 有主见的搭档 (OpenClaw's
-SOUL.md), `secretary` 干练秘书 (Vercel's personal-agent template and nanobot). It is chosen in the
-first run, in Settings, or in chat (`style_set`, only on the owner's own messages), saved as
-`herderStyle` in `config.json`, and read every turn: the next message uses it.
+The Herder has one voice, a capable friend, copied nearly word for word from open-instinct's
+persona ([ADR 0065](../adr/0065-one-herder-voice-and-a-trail-only-herder-page.md); the owner could
+pick among three styles before, ADR 0053). There is nothing to pick: a switch muddled the tone
+with the older replies and rebuilt the whole prompt cache.
 
-All three share one rule ([ADR 0054](../adr/0054-say-what-matters.md)): say what matters. Length follows what the owner asked,
+It follows one rule ([ADR 0054](../adr/0054-say-what-matters.md)): say what matters. Length follows what the owner asked,
 not a number: the result in a sentence or two when that is all they want, every item when they
 ask for a list, the whole of it when it matters. No filler, no steps, no 「结论：」 lines; when
-there is far too much, what matters plus where the rest is. The style texts no longer carry
+there is far too much, what matters plus where the rest is. The style text no longer carries
 "say less" or "under three sentences".
 - Messages are folded in the channel, not shortened ([05-channels.md](05-channels.md#2-what-the-owner-sees)).
 

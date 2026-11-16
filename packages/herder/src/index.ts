@@ -105,7 +105,7 @@ export {
   systemPrompt,
   voicePrompt,
 } from "./prompt.ts";
-export { STYLE_SOURCES, stylePrompt } from "./style.ts";
+export { STYLE_SOURCE, stylePrompt } from "./style.ts";
 export {
   fallbackOrder,
   findTasks,

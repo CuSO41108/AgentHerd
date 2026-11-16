@@ -177,10 +177,12 @@ The owner's message is never dropped silently: it is handled, or the owner is to
 
 ## 6. The 主管 page and its action log
 
-The app's 「主管」 page shows the Herder's model (with 试一下) and two rows that open their own
-pages: 「说话风格」 (ADR 0053) and 「行动记录」.
+The app's 「主管」 page is the Herder's action trail and nothing else
+([ADR 0065](../adr/0065-one-herder-voice-and-a-trail-only-herder-page.md)). Its model is chosen
+on the 「模型」 page (「主管用的模型」, with 试一下). When the Herder is not working, one line above
+the trail says why, with a button to the 「模型」 page.
 
-「行动记录」 shows what the Herder did, newest turn first, grouped by day. It is read from what is
+The trail shows what the Herder did, newest turn first, grouped by day. It is read from what is
 already saved, nothing extra is written: the turns come from `herder_log` (the whole conversation,
 ADR 0045), and errors, retries, model switches, guard hits and folds from the `herder.*` rows of
 `audit` (not `herder.turn`, `herder.tool` and `herder.answer`, which the turns already show).
