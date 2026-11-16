@@ -13,7 +13,7 @@ import type {
   Task,
   TranscriptEntry,
 } from "@agentherd/core";
-import type { HerderStyle, Locale, Mode, Risk } from "@agentherd/protocol";
+import type { Locale, Mode, Risk } from "@agentherd/protocol";
 
 export const API_VERSION = 1;
 
@@ -41,8 +41,6 @@ export interface HostStatus {
   mode: Mode;
   locale: Locale;
   keepAwake: boolean;
-  /** How the Herder talks to the owner (ADR 0053). */
-  herderStyle: HerderStyle;
   /** The owner's Obsidian vault folder, if set (ADR 0059). */
   obsidianVault?: string;
   /** Agent profile ids the owner can start with /run. */
@@ -228,7 +226,6 @@ export type ModelProbe =
 export interface SettingsPatch {
   mode?: Mode;
   keepAwake?: boolean;
-  herderStyle?: HerderStyle;
   /** An Obsidian vault folder; "" clears it. */
   obsidianVault?: string;
 }

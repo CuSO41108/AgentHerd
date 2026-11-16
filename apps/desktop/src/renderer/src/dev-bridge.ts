@@ -98,7 +98,6 @@ function installFakeBridge(): void {
     mode: "observe",
     locale: "zh-CN",
     keepAwake: true,
-    herderStyle: "friend",
     profiles: sim === "no-agent" ? [] : ["dsh"],
   };
 

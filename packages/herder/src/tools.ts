@@ -575,12 +575,6 @@ const askSchema = obj({
   options: arr(str(), { minItems: 1, maxItems: 4 }),
 });
 const notifySchema = obj({ text: str() });
-const styleSchema = obj({
-  style: oneOf(["friend", "partner", "secretary"] as const, {
-    description:
-      "friend: a capable friend, warm and brief; partner: has opinions and says them; secretary: result first, no small talk",
-  }),
-});
 const findSchema = obj({
   name: str({ description: "The project's name as the owner said it, e.g. pi-desktop" }),
 });
@@ -1040,22 +1034,6 @@ export function herderTools(
     },
   ];
   const all = tools.map((t) => t as unknown as AgentTool);
-  const setStyle = host.setStyle;
-  if (setStyle !== undefined) {
-    const styleTool = {
-      name: "style_set",
-      label: "Change how you talk",
-      description:
-        "Changes how you talk to the owner, only when the owner asks for it. Takes effect from your next message.",
-      parameters: styleSchema,
-      execute: async (_id: string, args: { style: "friend" | "partner" | "secretary" }) => {
-        ownerOnly(turn, "change how you talk");
-        setStyle(args.style);
-        return ok(`style is now ${args.style}`);
-      },
-    };
-    all.push(styleTool as unknown as AgentTool);
-  }
   if (host.watchMail !== undefined) {
     all.push(...mailTools(host, turn).map((t) => t as unknown as AgentTool));
   }

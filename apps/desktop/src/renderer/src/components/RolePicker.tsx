@@ -1,11 +1,11 @@
 // Choosing a model from the list for a role (ADR 0021): the select itself, and a row with a
-// 试一下 button (the Herder on the 主管 page, Pi on the 模型 page).
+// 试一下 button (the Herder's model on the 模型 page).
 
 import type { ModelTest } from "@agentherd/host/api";
-import { Check, CircleAlert, Loader2 } from "lucide-react";
+import { Bot, Check, CircleAlert, Loader2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { applyModels, call, type ModelRef, type ModelRole, useApp } from "../store";
-import { Button, Group, inputClass, Row } from "./ui";
+import { Button, Group, IconTile, inputClass, Row } from "./ui";
 
 const NONE = "";
 
@@ -170,15 +170,22 @@ export function RoleRow({
   );
 }
 
-/** The 模型 page's group for Pi's model; the Herder's model is chosen on the 主管 page. */
+/** The 模型 page's group for the Herder's model. Pi's own model is not chosen here: tasks pick
+ * from the tiers. */
 export function RolePicker() {
   const count = useApp((s) => s.models?.services.length ?? 0);
+  const on = useApp((s) => s.status?.herder.on === true);
   return (
     <Group>
       <RoleRow
-        modelRole="pi"
-        title="Pi"
-        description="Pi 干活时默认用的模型；不选就用 Pi 自己的登录和设置"
+        modelRole="herder"
+        icon={
+          <IconTile tone={on ? "green" : "gray"}>
+            <Bot size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="主管用的模型"
+        description="在飞书里跟你说话、开任务；用快一点、便宜一点的就够"
       />
       {count === 0 && (
         <div className="bg-warning-soft/40 px-4 py-2.5 text-sm text-warning-text">

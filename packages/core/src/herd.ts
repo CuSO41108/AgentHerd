@@ -4,8 +4,8 @@
 // task-report.ts (reports, alarms, stages) and permission.ts.
 
 import { join } from "node:path";
-import type { AgentProfile, HerderStyle, Inbound, Item, Mode, Rule } from "@agentherd/protocol";
-import { DEFAULT_HERDER_STYLE, DEFAULT_LOCALE } from "@agentherd/protocol";
+import type { AgentProfile, Inbound, Item, Mode, Rule } from "@agentherd/protocol";
+import { DEFAULT_LOCALE } from "@agentherd/protocol";
 import type { OutboundStep } from "@agentherd/rules";
 import { approveAppCalls } from "./app-calls.ts";
 import { Board } from "./board.ts";
@@ -340,12 +340,6 @@ export class Herd {
               }
             : {}),
         }),
-      ...(this.opts.herderStyle === undefined
-        ? {}
-        : {
-            style: () => this.opts.herderStyle?.get() ?? DEFAULT_HERDER_STYLE,
-            setStyle: (style: HerderStyle) => this.opts.herderStyle?.set(style),
-          }),
       noticeLevels: () => noticeLevels(this.store),
       setNoticeLevel: (kind, level) => setNoticeLevel(this.store, kind, level),
       audit: (type, data) => this.store.audit(type, data),
