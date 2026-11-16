@@ -25,7 +25,9 @@ notice before a platform is turned on, and one page 「应用连接」 that list
    (`v2.7.4`, `xiaohongshu-mcp-darwin-arm64`, to `~/.agentherd/bin/`) the first time the owner turns
    小红书 on, and starts it on `127.0.0.1` at a free port with a random bearer token, its cookies in
    `~/.agentherd/xiaohongshu/cookies.json` and a fixed fingerprint seed per Mac (`XHS_FP_SEED`, in
-   config.json). It is stopped when turned off or when AgentHerd quits; the sign-in stays.
+   config.json). It is stopped when turned off or when AgentHerd quits; the sign-in stays. Its
+   browser goes to 小红书 directly (`XHS_PROXY=direct://`, added 2026-11-16): through a proxy or
+   VPN with an overseas exit, 小红书 redirects to RedNote and the sign-in check times out.
 2. **Turning on needs the notice.** 应用连接 shows what can happen (the platform may limit or close
    an account it thinks is automated; writes ask first; looks are rare; sign-in stays on this Mac;
    use a second account if worried). The owner ticks 「我已了解风险」; the host refuses

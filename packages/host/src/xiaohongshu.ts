@@ -89,6 +89,14 @@ interface Wrapped<T> {
   details?: unknown;
 }
 
+/** The server's `details` in words: a string as is, an object as JSON, nothing when empty. */
+function detailsText(details: unknown): string {
+  if (details === undefined || details === null) return "";
+  if (typeof details === "string") return details;
+  const text = JSON.stringify(details);
+  return text === "{}" || text === "[]" ? "" : text;
+}
+
 const KIND_TAB: Record<SocialKind, string> = {
   mentions: "mentions",
   likes: "likes",
@@ -196,6 +204,11 @@ export class Xiaohongshu implements SocialSource {
         AUTH_TOKEN: this.token,
         COOKIES_PATH: join(this.dir(), "cookies.json"),
         XHS_FP_SEED: String(this.opts.seed),
+        // 小红书 is a service in China. Through a proxy or VPN with an overseas exit it sends the
+        // browser to RedNote (rednote.com), whose page loads too slowly for the server's
+        // 30-second sign-in check and does not know the 小红书 cookies, so the server's browser
+        // goes direct (Chromium `--proxy-server=direct://`).
+        XHS_PROXY: "direct://",
       };
       const args = ["-port", `127.0.0.1:${port}`];
       const child = (
@@ -251,8 +264,9 @@ export class Xiaohongshu implements SocialSource {
     });
     const json = (await res.json().catch(() => ({}))) as Wrapped<T>;
     if (!res.ok || json.success === false) {
+      const details = detailsText(json.details);
       throw new Error(
-        `小红书 ${path}: ${json.error ?? `HTTP ${res.status}`}${json.details ? ` (${String(json.details)})` : ""}`,
+        `小红书 ${path}: ${json.error ?? `HTTP ${res.status}`}${details === "" ? "" : ` (${details})`}`,
       );
     }
     return inner(json.data) as T;
