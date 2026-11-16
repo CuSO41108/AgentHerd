@@ -208,7 +208,9 @@ export class Lark {
       const user = (
         answer.identities as { user?: { status?: string; userName?: string; tokenStatus?: string } }
       )?.user;
-      if (user?.status === "ready") {
+      // "needs_refresh": the access token ran out and lark-cli refreshes it by itself on the
+      // next call, so the owner is still signed in.
+      if (user?.status === "ready" || user?.status === "needs_refresh") {
         this.set({ ...base, state: "ready", ...(user.userName ? { account: user.userName } : {}) });
       } else {
         this.set({ ...base, state: "signed-out" });
