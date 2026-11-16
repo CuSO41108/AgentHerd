@@ -332,7 +332,7 @@ export function createPiBridge(opts: BridgeOptions): AgentApp & { closeAll(): Pr
     const cleanup = () => {
       if (cleaned || mcpDir === undefined) return;
       cleaned = true;
-      rmSync(mcpDir, { recursive: true, force: true });
+      rmSync(mcpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     };
     try {
       s.pi = new PiRpc({

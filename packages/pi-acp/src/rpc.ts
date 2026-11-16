@@ -3,7 +3,7 @@
 // which are valid inside JSON strings.
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { commandLine } from "@agentherd/acp-client";
+import { commandLine, killTree } from "@agentherd/acp-client";
 
 export type PiRecord = { type: string } & Record<string, unknown>;
 
@@ -67,6 +67,8 @@ export class PiRpc {
       cwd: opts.cwd,
       env: { ...opts.env, ...line.env },
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      ...(line.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     const splitter = new LineSplitter();
     this.child.stdout?.on("data", (chunk: Buffer) => splitter.push(chunk, (l) => this.onLine(l)));
@@ -128,11 +130,14 @@ export class PiRpc {
     });
   }
 
-  /** Closes stdin (Pi's orderly shutdown), then SIGTERM if Pi does not exit. */
+  /** Closes stdin (Pi's orderly shutdown), then stops the process tree if Pi does not exit. */
   async close(): Promise<void> {
     if (!this.running) return;
     this.child.stdin?.end();
-    const timer = setTimeout(() => this.child.kill("SIGTERM"), CLOSE_GRACE_MS);
+    const timer = setTimeout(() => {
+      if (this.running) killTree(this.child, "SIGTERM");
+    }, CLOSE_GRACE_MS);
+    timer.unref();
     await this.exited;
     clearTimeout(timer);
   }

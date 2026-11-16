@@ -1,10 +1,12 @@
 export {
   type CommandLine,
   type CommandOptions,
+  cmdVerbatimLine,
   commandLine,
   type KillOptions,
   killTree,
   npmShimTarget,
+  quoteCmdArg,
 } from "./command.ts";
 export {
   type AgentConnection,

@@ -1,6 +1,6 @@
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   decodeQuestion,
@@ -122,8 +122,8 @@ describe("toolCallOf", () => {
     });
     expect(toolCallOf("2", "edit", { path: "a.ts" }, "/p")).toMatchObject({
       kind: "edit",
-      title: "Edit /p/a.ts",
-      locations: [{ path: "/p/a.ts" }],
+      title: `Edit ${resolve("/p", "a.ts")}`,
+      locations: [{ path: resolve("/p", "a.ts") }],
     });
     expect(toolCallOf("3", "find", { pattern: "*.ts" }, "/p")).toMatchObject({
       kind: "search",
@@ -158,9 +158,26 @@ describe("piCommand", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-cmd-"));
     const script = join(dir, "cli.js");
     writeFileSync(script, "#!/usr/bin/env node\nconsole.log(1)\n");
-    symlinkSync(script, join(dir, "pi"));
-    const real = piCommand(join(dir, "pi"), "/node")[1] ?? "";
-    expect(piCommand(join(dir, "pi"), "/node")).toEqual(["/node", real]);
+    let linked = false;
+    try {
+      symlinkSync(script, join(dir, "pi"));
+      linked = true;
+    } catch (error) {
+      if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") {
+        throw error;
+      }
+    }
+    if (linked) {
+      const real = piCommand(join(dir, "pi"), "/node")[1] ?? "";
+      expect(piCommand(join(dir, "pi"), "/node")).toEqual(["/node", real]);
+    } else {
+      expect(piCommand(script, "/node")).toEqual(["/node", realpathSync(script)]);
+    }
+    if (process.platform === "win32") {
+      const cmd = join(dir, "pi.cmd");
+      writeFileSync(cmd, '@SETLOCAL\r\nnode  "%~dp0\\cli.js" %*\r\n');
+      expect(piCommand(cmd, "C:\\node.exe")).toEqual(["C:\\node.exe", realpathSync(script)]);
+    }
     const bin = join(dir, "native");
     writeFileSync(bin, "\x7fELF");
     expect(piCommand(bin, "/node")).toHaveLength(1);

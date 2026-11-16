@@ -1,7 +1,7 @@
 // How to spawn an agent's command line. On Windows, Node cannot spawn a `.cmd` or `.bat` file
-// directly (EINVAL since the CVE-2024-27980 fix). npm installs global CLIs as such `.cmd` shims, so
-// a shim that just runs a Node script is replaced by that script under this process's Node. Any
-// other batch file runs through `cmd.exe`.
+// directly (EINVAL since the CVE-2024-27980 fix). npm and pnpm install global CLIs as `.cmd`
+// shims, so a shim that just runs a Node script is replaced by that script under this process's
+// Node. Any other batch file runs through `cmd.exe /d /s /c`.
 
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -12,6 +12,8 @@ export interface CommandLine {
   args: string[];
   /** Env the command needs on top of the caller's (Electron runs as Node only with this). */
   env: Record<string, string>;
+  /** True when `args` already carries cmd.exe quoting (`spawn` must pass `windowsVerbatimArguments`). */
+  windowsVerbatimArguments?: boolean;
 }
 
 export interface CommandOptions {
@@ -26,13 +28,33 @@ export interface CommandOptions {
 
 const BATCH = /\.(cmd|bat)$/i;
 // npm's cmd-shim: `"%_prog%"  "%dp0%\node_modules\pkg\bin\cli.js" %*`.
-const NPM_SHIM = /"%_prog%"\s+"%dp0%\\([^"]+\.(?:c|m)?js)"/i;
+// pnpm's shim: `"%~dp0\node.exe"  "%~dp0\..\pkg\cli.js" %*` or `node  "%~dp0\..\pkg\cli.js" %*`.
+const NODE_SHIM =
+  /(?:^|[\s&|@])(?:"%_prog%"|"%~?dp0%?[\\/]?node\.exe"|node(?:\.exe)?)\s+"%(?:~dp0|dp0%)[\\/]?([^"]+)"/i;
+const NON_SCRIPT_TARGET = /\.(?:exe|cmd|bat|com|ps1)$/i;
 
-/** The script an npm `.cmd` shim runs, or undefined when `text` is not such a shim. */
+/** The script an npm or pnpm `.cmd` shim runs, or undefined when `text` is not such a shim. */
 export function npmShimTarget(shim: string, text: string): string | undefined {
-  const match = text.match(NPM_SHIM);
-  if (match?.[1] === undefined) return undefined;
-  return win32.join(win32.dirname(shim), match[1]);
+  const match = text.match(NODE_SHIM);
+  const target = match?.[1];
+  if (target === undefined || NON_SCRIPT_TARGET.test(target)) return undefined;
+  return win32.join(win32.dirname(shim), target);
+}
+
+/**
+ * Quotes one argument for `cmd.exe /d /s /c` when spawned with `windowsVerbatimArguments: true`.
+ * Escapes quotes/backslashes for MSVCRT argv parsing, then `^`-escapes cmd.exe metacharacters
+ * (including outer quotes so `%VAR%` and shell operators pass through to the batch file).
+ */
+export function quoteCmdArg(arg: string): string {
+  const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+  return quoted.replace(/([()!^%"<>&|])/g, "^$1");
+}
+
+/** Formats `"<command>" <quoted args...>` inside outer quotes for `cmd.exe /d /s /c`. */
+export function cmdVerbatimLine(command: string, args: readonly string[]): string {
+  const cmd = `"${command.replace(/"/g, "")}"`;
+  return `"${[cmd, ...args.map(quoteCmdArg)].join(" ")}"`;
 }
 
 /** The command line that starts `command args` on this platform. */
@@ -58,9 +80,14 @@ export function commandLine(
       env: electron ? { ELECTRON_RUN_AS_NODE: "1" } : {},
     };
   }
-  // Without /s, cmd keeps the quotes Node puts around a path with spaces.
+  // With /s and outer quotes, cmd.exe strips only the outer pair so spaces in both command and args survive.
   const comspec = opts.comspec ?? process.env.ComSpec ?? "cmd.exe";
-  return { command: comspec, args: ["/d", "/c", command, ...args], env: {} };
+  return {
+    command: comspec,
+    args: ["/d", "/s", "/c", cmdVerbatimLine(command, args)],
+    env: {},
+    windowsVerbatimArguments: true,
+  };
 }
 
 export interface KillOptions {
