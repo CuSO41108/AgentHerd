@@ -14,7 +14,7 @@ import { combineApps, Socials } from "../src/socials.ts";
 import { XHS_VERSION, Xiaohongshu, xhsAsset } from "../src/xiaohongshu.ts";
 import { Zhihu, type ZhihuBrowser } from "../src/zhihu.ts";
 
-function fakeServer(signedIn: boolean) {
+function fakeServer(signedIn: boolean, loginAnswer?: () => Response) {
   const calls: string[] = [];
   const json = (data: unknown) =>
     new Response(JSON.stringify({ success: true, data }), {
@@ -26,6 +26,7 @@ function fakeServer(signedIn: boolean) {
     calls.push(`${init?.method ?? "GET"} ${path}`);
     if (path === "/health") return new Response("ok");
     if (path === "/api/v1/login/status") {
+      if (loginAnswer !== undefined) return loginAnswer();
       return json({ is_logged_in: signedIn, ...(signedIn ? { username: "小羊不吃草" } : {}) });
     }
     if (path === "/api/v1/notifications/unread") {
@@ -73,8 +74,8 @@ function fakeServer(signedIn: boolean) {
   return { calls, fetchFn };
 }
 
-function platform(signedIn: boolean) {
-  const server = fakeServer(signedIn);
+function platform(signedIn: boolean, loginAnswer?: () => Response) {
+  const server = fakeServer(signedIn, loginAnswer);
   const env: NodeJS.ProcessEnv[] = [];
   const states: string[] = [];
   const home = join("/tmp", "agentherd-xhs-test");
@@ -105,6 +106,44 @@ describe("小红书 (ADR 0058)", () => {
     expect(env[0]?.XHS_FP_SEED).toBe("7");
     x.stop();
     expect(x.state).toBe("off");
+  });
+
+  it("goes to 小红书 directly, not through the Mac's proxy or VPN", async () => {
+    // Through an overseas exit 小红书 sends the browser to RedNote, whose page is too slow
+    // for the server's 30-second sign-in check.
+    const { x, env } = platform(true);
+    await x.start();
+    expect(env[0]?.XHS_PROXY).toBe("direct://");
+    x.stop();
+  });
+
+  it("says what the server's error was, never [object Object]", async () => {
+    const failing = (body: unknown) => () =>
+      new Response(JSON.stringify(body), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    const cases: [unknown, string][] = [
+      [
+        { error: "服务器内部错误", code: "INTERNAL_ERROR", details: {} },
+        "小红书 login/status: 服务器内部错误",
+      ],
+      [
+        { error: "检查登录状态失败", details: "context deadline exceeded" },
+        "小红书 login/status: 检查登录状态失败 (context deadline exceeded)",
+      ],
+      [
+        { error: "服务器内部错误", details: { reason: "browser closed" } },
+        '小红书 login/status: 服务器内部错误 ({"reason":"browser closed"})',
+      ],
+    ];
+    for (const [body, problem] of cases) {
+      const { x } = platform(true, failing(body));
+      await x.start();
+      expect(x.state).toBe("failed");
+      expect(x.problem).toBe(problem);
+      x.stop();
+    }
   });
 
   it("gives no tools until signed in", async () => {

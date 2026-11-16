@@ -174,11 +174,14 @@ The host runs a pinned [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongsh
 (`v2.7.4`: `xiaohongshu-mcp-darwin-arm64`, `xiaohongshu-mcp-windows-amd64.exe`,
 `xiaohongshu-mcp-linux-amd64`) on
 `127.0.0.1` (random port, bearer token, cookies in `~/.agentherd/xiaohongshu/`) while 小红书 is
-turned on in 应用连接 (risk notice accepted, QR sign-in). Its MCP tools reach agents beside the
+turned on in 应用连接 (risk notice accepted, QR sign-in). Its browser goes to 小红书 directly
+(`XHS_PROXY=direct://`), not through the Mac's proxy or VPN: through an overseas exit 小红书 sends
+it to RedNote (rednote.com), whose page loads too slowly for the server's 30-second sign-in check
+and does not know the 小红书 cookies. Its MCP tools reach agents beside the
 Composio ones as `XIAOHONGSHU_<TOOL>` (`get_login_qrcode` and `delete_cookies` hidden); the
 approval rules above apply, and publish/comment/reply/like/favorite leave the computer (ADR 0056).
 Notices for the owner come from its REST API (`notifications/unread`, `notifications/list`), not
-from agents.
+from agents. A failed answer shows the server's error and its details in words.
 
 知乎 has no maintained server and its web API signs requests, so the host keeps a headless Chrome
 (or Microsoft Edge on Windows)
