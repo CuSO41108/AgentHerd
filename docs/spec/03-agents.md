@@ -25,10 +25,10 @@ An agent is a profile in configuration, not a package:
 
 ```json
 {
-  "id": "dsh",
-  "name": "DeepSeek Harness",
-  "command": ["dsh", "acp"],
-  "env": { "DSH_PERMISSION_MODE": "read-only" },
+  "id": "claude",
+  "name": "Claude Code",
+  "command": ["claude-agent-acp"],
+  "env": { "NO_BROWSER": "1" },
   "exporter": null
 }
 ```
@@ -38,9 +38,9 @@ server ([09-agent-tools.md](09-agent-tools.md)).
 
 | Agent | Command | Status |
 | --- | --- | --- |
-| DeepSeek Harness | `dsh acp` | Tested 2026-11-04: `initialize` returns `deepseek-harness-acp`, session `close`/`list`/`resume`. Asks over `session/request_permission` only when a command needs more than its sandbox mode allows; see [DSH approvals](#dsh-approvals). Built-in profile `dsh` (found via `AGENTHERD_DSH`, `PATH`, or the app bundle); end-to-end run with Feishu passed 2026-11-04 |
 | Pi | `node packages/pi-acp/bin/pi-acp.ts --pi <pi>` (bridge to `pi --mode rpc`) | Tested 2026-11-04 with Pi 1.5.0 and DeepSeek: allow writes the file, deny blocks it. Steering tested 2026-11-14 with Pi 1.5.0 and `deepseek-flash`: a message sent during a `sleep 8` command was read after it and answered in the same turn; one sent during the final reply was read too; a cancelled turn answered `false` and Pi did not act on the message. Built-in profile `pi` (found via `AGENTHERD_PI`, the copy the app downloaded, or `PATH`); see [Pi](#pi) and ADR 0022 |
 | Codex | `node …/codex-acp/dist/index.js` (npm `@agentclientprotocol/codex-acp`), env `INITIAL_AGENT_MODE=read-only`, `NO_BROWSER=1`, the model in `CODEX_CONFIG` (ADR 0031) | Installs with npm 2026-11-05 (2.5.0); 验证 reports "Codex process was killed by SIGKILL" on this Mac (endpoint security); prompt run not tried **(verify, Q01)** |
+| Claude Code | `node …/claude-agent-acp/dist/index.js` (npm `@agentclientprotocol/claude-agent-acp` 0.107.2), the model in `ANTHROPIC_*` env, `CLAUDE_CONFIG_DIR` = `<home>/run/claude` with `permissions.defaultMode: "default"` and auto mode off ([ADR 0066](../adr/0066-pinned-agents-and-claude-code-for-hard-work.md)) | Only `anthropic-messages` models. Not run on the development Mac: endpoint security kills Claude Code (`Killed: 9`); tested with the mock agent only **(verify, Q01)** |
 | Qwen Code, others | Their ACP mode, as a config.json profile | **(verify, Q02)** |
 
 The desktop app ships built-in profiles for these and lets the user add any ACP command.
@@ -61,33 +61,9 @@ The desktop app ships built-in profiles for these and lets the user add any ACP 
 | `_agentherd/steer` (extension; offered with `agentCapabilities._meta.agentherd.steer: true`) | The owner's or the Herder's message for a running turn; `{ delivered: true }` once the agent's model saw it, `false` when the turn ended first (then it is the next prompt). Pi supports it through pi-acp ([ADR 0063](../adr/0063-messages-reach-a-working-pi-task.md)) |
 
 Permission requests may carry a partial tool call: ACP sends a tool call once and later only
-changed fields, and DSH's `request_permission` carries only the `toolCallId`. The ACP client
+changed fields, and some agents' `request_permission` carries only the `toolCallId`. The ACP client
 merges updates per `toolCallId` (`ToolCallTracker`), so an item always shows the command and
 input the agent announced earlier.
-
-### DSH approvals
-
-Tested 2026-11-04 with DSH 0.0.1 ACP (`/Applications/DeepSeek Harness.app/.../runtime/cli/bin/dsh acp`):
-
-- DSH runs commands in its sandbox and asks only for escalations. With the default mode, a
-  write inside `cwd` (`echo hello > out.txt`) ran without a permission request.
-- With `DSH_PERMISSION_MODE=read-only` in the profile `env`, the write was denied by the
-  sandbox, the model retried with `sandbox_permissions: workspace-write` and a
-  `justification`, and DSH sent `session/request_permission` with options `allow-once`
-  (`allow_once`) and `reject-once` (`reject_once`). After `allow-once`, the file was written.
-- Other modes: `workspace-write`, `danger-full-access`. The built-in DSH profile uses
-  `read-only` so every write and network command reaches the AgentHerd pipeline; the rules and
-  the owner decide, not DSH's own default.
-- `rawInput` of the escalated call has `command`, `description` and `justification`; the card
-  shows the justification.
-- DSH writes two harmless stderr lines: `Node.js environment variables are disabled because
-  this process is invoked by other apps.` and `Got response to unknown request null`.
-- Model ([ADR 0042](../adr/0042-dsh-runs-the-owners-models.md)): tasks use a model from the
-  owner's AgentHerd list, never DSH's native default. Without an explicit choice, AgentHerd
-  selects an available configured model; without one, it refuses to start. The host writes `<home>/run/dsh-model-<hash>.json`, a patch overlay with one provider
-  `agentherd` (`llm-pi-ai`) and the `acp` route pointed at it, appends `--patch <file>` to the
-  command, and passes the key in `AGENTHERD_DSH_KEY`. Only `openai-completions`,
-  `openai-responses` and `anthropic-messages` models run in DSH.
 
 All Host-managed task agents use AgentHerd's configured models. The Herder chooses an
 available model in the owner's tier order when none is specified. Direct starts choose an
@@ -126,7 +102,7 @@ Pi has no native ACP or MCP client and never asks before a tool call. AgentHerd'
   `extension/model.ts` registers it as provider `agentherd`.
 - On macOS and Linux, the host searches the login shell's `PATH` plus `~/.local/bin`,
   `~/.npm-global/bin`, `~/.bun/bin`, `/opt/homebrew/bin` and `/usr/local/bin` so an app opened
-  from Finder finds `dsh`, `pi` and `node`. On Windows, it appends `%APPDATA%\npm`,
+  from Finder finds `pi`, `node` and the ACP adapters. On Windows, it appends `%APPDATA%\npm`,
   `%LOCALAPPDATA%\pnpm`, `%LOCALAPPDATA%\Yarn\bin`, `%USERPROFILE%\.bun\bin`,
   `%USERPROFILE%\.local\bin`, `%USERPROFILE%\scoop\shims`, `%USERPROFILE%\.cargo\bin` and
   `%ProgramFiles%\nodejs`, resolves `.cmd`/`.exe` binaries via `PATHEXT`, unwraps npm/pnpm
@@ -134,17 +110,21 @@ Pi has no native ACP or MCP client and never asks before a tool call. AgentHerd'
 
 ### Managed downloads
 
-The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md)):
-GPT models run in Codex, every other model in Pi, and DSH only when the owner names it. The host
-downloads Pi, and Codex when a GPT model is listed; the desktop **Agent** page shows the three and
-can download each one's latest release: DSH (DeepSeek's update feed, macOS only; Windows uses
-the desktop app or `PATH`), Pi (GitHub releases) and
-Codex (the ACP adapter on npm, installed with a downloaded npm). `packages/host/src/catalog.ts` has
-the sources and the env of each; `packages/host/src/runtimes.ts` checks the publisher's digest
-(and `--version`), installs into `<home>/runtimes/<id>/<version>/` and records it in
-`current.json`. Lookup: `AGENTHERD_<ID>`, the download, `PATH`, then the DSH app. On Windows the DSH
-app (install folder from its uninstall entry, `resources\runtime\cli\bin\dsh.cmd`) comes
-before `PATH`: the npm `dsh` launcher there serves ACP only with its own `acp` profile bundle.
+The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md),
+[ADR 0066](../adr/0066-pinned-agents-and-claude-code-for-hard-work.md)): GPT models run in Codex;
+a hard coding task (`session_start` with `hard: true`) runs in Claude Code when an
+`anthropic-messages` model is listed; every other task runs in Pi. DSH is no longer an agent.
+
+Each agent has one version AgentHerd was adapted to (`packages/host/src/catalog.ts`: Pi
+`1.5.0` from GitHub release tag `v1.5.0`, `@agentclientprotocol/codex-acp` `2.5.0`,
+`@agentclientprotocol/claude-agent-acp` `0.107.2`, installed with a downloaded npm). The host
+downloads Pi, Codex when a GPT model is listed, and Claude Code when an `anthropic-messages`
+model is listed; a managed copy of another version is replaced by the adapted one at start.
+The **Agent** page has no 更新 button: 下载 appears only when an agent is missing, and it fetches
+the adapted version. Moving to a new upstream version is a code change by the maintainer.
+`packages/host/src/runtimes.ts` checks the publisher's digest (and `--version`), installs into
+`<home>/runtimes/<id>/<version>/` and records it in `current.json`. Lookup: `AGENTHERD_<ID>`,
+the download, then `PATH`.
 On Windows, when OpenAI's Codex (ChatGPT) desktop app is installed (package folder from
 `HKCU\...\AppModel\Repository\Packages\OpenAI.Codex_*`, `app\resources\codex.exe`, newest first),
 Codex runs with `CODEX_PATH` naming that CLI, and its download leaves out npm's optional

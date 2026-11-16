@@ -477,7 +477,7 @@ export class TaskRunner {
     return crashed;
   }
 
-  /** Agents to start an ended task again with: its own, then Pi, then the rest but DSH. */
+  /** Agents to start an ended task again with: its own, then Pi, then the rest. */
   private reopenCandidates(f: Following): AgentProfile[] {
     const profiles = this.ctx.opts.profiles;
     const out: AgentProfile[] = [];
@@ -486,7 +486,7 @@ export class TaskRunner {
     };
     add(profiles.find((p) => p.id === f.profile.id));
     add(profiles.find((p) => p.id === "pi"));
-    for (const p of profiles) if (p.id !== "dsh") add(p);
+    for (const p of profiles) add(p);
     return out;
   }
 

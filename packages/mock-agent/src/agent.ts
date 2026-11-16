@@ -1,5 +1,5 @@
 // A real ACP agent that plays a script (docs/spec/03-agents.md "Mock agent"). It speaks the
-// same protocol as DSH or claude-agent-acp, so the client under test cannot tell the difference.
+// same protocol as codex-acp or claude-agent-acp, so the client under test cannot tell the difference.
 
 import {
   type AgentApp,

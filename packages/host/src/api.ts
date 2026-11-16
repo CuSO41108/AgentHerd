@@ -48,7 +48,7 @@ export interface HostStatus {
 }
 
 /** Where an agent's CLI comes from. */
-export type AgentSource = "managed" | "system" | "app" | "config";
+export type AgentSource = "managed" | "system" | "config";
 
 export interface AgentView {
   id: string;
@@ -57,13 +57,15 @@ export interface AgentView {
   state: "ready" | "missing" | "installing" | "unsupported";
   source?: AgentSource;
   path?: string;
-  /** Version the app downloads. */
+  /** Version of the copy in use, when the app downloaded it. */
   version?: string;
+  /** The version AgentHerd is adapted to and downloads (ADR 0066). */
+  adapted?: string;
   /** Bytes, while installing. */
   progress?: { received: number; total: number };
   /** Last install error. */
   error?: string;
-  /** The app can download it. */
+  /** The app can download it (only when missing: no updates from the app, ADR 0066). */
   canInstall: boolean;
   /** A downloaded copy the owner can remove. */
   canRemove: boolean;

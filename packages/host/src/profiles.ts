@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentProfile } from "@agentherd/protocol";
-import { AGENTS, agentDef, agentProfile, DSH_APP_LAUNCHER } from "./catalog.ts";
+import { AGENTS, agentDef, agentProfile } from "./catalog.ts";
 import { nodeEnv } from "./runtimes.ts";
 
 const MOCK_BIN = fileURLToPath(new URL("../../mock-agent/bin/mock-agent.ts", import.meta.url));
@@ -118,12 +118,6 @@ export function onPath(
   return undefined;
 }
 
-/** Where the DeepSeek Harness desktop app keeps its CLI. */
-export const DSH_APP_BIN = `/Applications/${DSH_APP_LAUNCHER}`;
-
-/** The CLI launcher inside the Windows install folder of DeepSeek Harness. */
-export const DSH_WINDOWS_LAUNCHER = "resources\\runtime\\cli\\bin\\dsh.cmd";
-
 /** Runs `reg.exe`; throws when it fails or finds nothing. */
 export type RegQuery = (args: string[]) => string;
 
@@ -140,69 +134,6 @@ const regQuery: RegQuery = (args) => {
     stdio: ["ignore", "pipe", "ignore"],
   });
 };
-
-/**
- * Install folders of DeepSeek Harness from the uninstall entries in `reg query /s /f ... /d`
- * output: an entry whose DisplayName starts with the app name, through its DisplayIcon
- * (`<folder>\DeepSeek Harness.exe,0`) or InstallLocation fallback. The installer may put the app in any folder.
- */
-export function dshInstallDirs(output: string): string[] {
-  const dirs: string[] = [];
-  let name = "";
-  let icon = "";
-  let installLocation = "";
-  const flush = () => {
-    if (name.startsWith("DeepSeek Harness")) {
-      if (icon !== "") dirs.push(win32.dirname(icon));
-      else if (installLocation !== "") dirs.push(installLocation);
-    }
-    name = "";
-    icon = "";
-    installLocation = "";
-  };
-  for (const line of output.split(/\r?\n/)) {
-    if (line.startsWith("HKEY_")) {
-      flush();
-      continue;
-    }
-    const value = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/.exec(line);
-    if (value === null) continue;
-    const data = (value[2] ?? "").trim();
-    if (value[1] === "DisplayName") name = data;
-    if (value[1] === "DisplayIcon") icon = data.replace(/,-?\d+$/, "").replace(/^"(.*)"$/, "$1");
-    if (value[1] === "InstallLocation") installLocation = data.replace(/^"(.*)"$/, "$1");
-  }
-  flush();
-  return dirs;
-}
-
-/**
- * Where the DeepSeek Harness desktop app may keep its CLI: the macOS bundle; on Windows the
- * launcher in each install folder the uninstall entries name (per-user, then all users + WOW6432Node).
- */
-export function dshAppBins(
-  platform: NodeJS.Platform = process.platform,
-  query: RegQuery = regQuery,
-): string[] {
-  if (platform === "darwin") return [DSH_APP_BIN];
-  if (platform !== "win32") return [];
-  const keys = [
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-  ];
-  const bins: string[] = [];
-  for (const key of keys) {
-    let output: string;
-    try {
-      output = query(["query", key, "/s", "/f", "DeepSeek Harness", "/d"]);
-    } catch {
-      continue;
-    }
-    for (const dir of dshInstallDirs(output)) bins.push(win32.join(dir, DSH_WINDOWS_LAUNCHER));
-  }
-  return [...new Set(bins)];
-}
 
 /** The Codex CLI inside the package folder of OpenAI's Codex (ChatGPT) desktop app. */
 export const CODEX_WINDOWS_CLI = "app\\resources\\codex.exe";
@@ -269,11 +200,8 @@ export function mockProfile(script: string): AgentProfile {
 }
 
 /**
- * Finds an agent's CLI without the app's downloads: its env variable (`AGENTHERD_DSH`, …), then
- * its command on `PATH`, then (DSH) the desktop app. On Windows the DSH app comes before PATH:
- * the `dsh` there is usually the separate npm launcher, which serves ACP only when its own
- * `acp` profile bundle is installed, while the app ships every profile.
- * @param appBins Default: dshAppBins(platform), asked only for DSH.
+ * Finds an agent's CLI without the app's downloads: its env variable (`AGENTHERD_PI`, …), then
+ * its command on `PATH`.
  * @returns The path, or `undefined` when it is not installed.
  */
 export function findAgent(
@@ -281,20 +209,12 @@ export function findAgent(
   env: NodeJS.ProcessEnv = process.env,
   exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
-  appBins: () => string[] = () => dshAppBins(platform),
 ): string | undefined {
   const def = agentDef(id);
   if (def === undefined) return undefined;
   const explicit = envValue(env, def.envVar);
   if (explicit !== undefined && explicit !== "") return explicit;
-  const app = () => (id === "dsh" ? appBins().find((p) => exists(p)) : undefined);
-  if (platform === "win32") {
-    const fromApp = app();
-    if (fromApp !== undefined) return fromApp;
-  }
-  const found = onPath(def.systemNames, envValue(env, "PATH"), exists, platform);
-  if (found !== undefined) return found;
-  return platform === "win32" ? undefined : app();
+  return onPath(def.systemNames, envValue(env, "PATH"), exists, platform);
 }
 
 /**

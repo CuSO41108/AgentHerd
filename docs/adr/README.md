@@ -27,14 +27,14 @@ Format and rules: [ADR 0001](0001-record-architecture-decisions.md).
 | [0021](0021-model-list-then-choose-per-role.md) | The owner keeps a list of model services, then chooses a model for each role | Accepted |
 | [0022](0022-pi-through-a-bundled-acp-bridge.md) | Pi joins through a bundled ACP bridge with an approval gate | Accepted |
 | [0023](0023-app-downloads-pinned-agent-clis.md) | The app downloads pinned agent CLIs; the owner does not install them | Superseded by 0024 |
-| [0024](0024-follow-latest-releases-six-agents.md) | Agent downloads follow upstream's latest release; six agents and a check button | Accepted |
+| [0024](0024-follow-latest-releases-six-agents.md) | Agent downloads follow upstream's latest release; six agents and a check button | Accepted; latest downloads superseded by 0066 |
 | [0025](0025-herder-picks-model-per-task.md) | The Herder picks the model of each task from the owner's list | Accepted |
 | [0026](0026-model-guide-for-the-herder.md) | A model guide tells the Herder which models are strong; the owner can edit it | Superseded by 0028 |
 | [0027](0027-import-model-services-from-pi-desktop.md) | Import model services and keys from PI-Desktop | Withdrawn |
 | [0028](0028-model-tiers-by-drag.md) | Model tiers the owner arranges by dragging, filled in by name | Accepted |
 | [0029](0029-only-mass-deletes-ask-the-owner.md) | Only a mass delete asks the owner; AgentHerd approves everything else | Superseded by 0056 |
 | [0030](0030-switch-model-when-a-turn-breaks-before-acting.md) | Switch the model and run again when a task's first turn breaks before it acts | Accepted |
-| [0031](0031-pick-the-agent-from-the-model.md) | No agent choice: GPT models run in Codex, the rest in Pi; DSH only when named; OpenCode, Gemini CLI, Claude Code removed | Accepted |
+| [0031](0031-pick-the-agent-from-the-model.md) | No agent choice: GPT models run in Codex, the rest in Pi; DSH only when named; OpenCode, Gemini CLI, Claude Code removed | Accepted; agent list superseded by 0066 |
 | [0032](0032-task-conversation-in-the-app.md) | Each task's conversation (prompts, replies, tool calls) opens from the 任务 page | Accepted |
 | [0033](0033-herder-does-not-repeat-reports.md) | Task reports and alarms start no Herder turn; they go with the owner's next message | Accepted |
 | [0034](0034-herder-names-tasks.md) | The Herder gives each task a short name instead of using the owner's first line | Accepted |
@@ -45,7 +45,7 @@ Format and rules: [ADR 0001](0001-record-architecture-decisions.md).
 | [0039](0039-tasks-kept-and-continued.md) | Tasks are kept in herd.db across restarts; an ended task can be continued (Pi reopens its own session) | Accepted |
 | [0040](0040-ask-before-continuing-cut-off-tasks.md) | After a restart the Herder asks whether to continue tasks the stop cut off | Accepted |
 | [0041](0041-agent-tools-through-a-local-mcp-gateway.md) | Agents get herd_report and the owner's Composio apps through a local stdio MCP gateway; app calls go through approvals | Accepted |
-| [0042](0042-dsh-runs-the-owners-models.md) | DSH runs the owner's models through a `--patch` overlay; `envFor` becomes `launchFor` | Accepted |
+| [0042](0042-dsh-runs-the-owners-models.md) | DSH runs the owner's models through a `--patch` overlay; `envFor` becomes `launchFor` | Superseded by 0066 |
 | [0043](0043-tasks-work-on-hidden-copies.md) | Tasks in a git project work on a hidden copy synced each turn; a project named once starts without asking; replies reach their task | Accepted |
 | [0044](0044-codex-runs-relay-models.md) | Codex runs any model of the owner's own OpenAI-compatible services, with its own CODEX_HOME | Accepted |
 | [0045](0045-herder-context-folded-by-the-model.md) | The Herder keeps its whole conversation and folds it itself with billion-context's kernel (copied into the repo) | Accepted |
@@ -69,3 +69,4 @@ Format and rules: [ADR 0001](0001-record-architecture-decisions.md).
 | [0063](0063-messages-reach-a-working-pi-task.md) | The owner's and the Herder's messages for a working task go into its running turn when the agent offers the `_agentherd/steer` ACP extension (Pi through pi-acp's `steer`); the agent reads them after the step it is on and the turn answers them with one report; a message the turn did not read is the next prompt or goes back like any unread message; pull request prompts still wait; Codex and DSH keep the queue | Accepted |
 | [0064](0064-permission-follows-the-work-and-intake-starts-on-trial.md) | A turn its pull request woke may only push to that pull request's branch, every other step that leaves the Mac asks again; `session_start` keeps an allowed step only when the owner's words or a decision they made name it; an automatic intake watch starts on a trial run that offers each item and says what it would have started, until the owner releases it | Accepted |
 | [0065](0065-one-herder-voice-and-a-trail-only-herder-page.md) | The Herder has one voice, the capable friend, with no style to pick: a switch muddled its tone with the older replies and rebuilt the prompt cache; the app's 主管 page shows only the Herder's action trail, and its model is chosen on the 模型 page, which no longer shows Pi's model | Accepted |
+| [0066](0066-pinned-agents-and-claude-code-for-hard-work.md) | Agents run one version AgentHerd adapted (Pi 1.5.0, codex-acp 2.5.0, claude-agent-acp 0.107.2), no 更新 button; DSH removed; Claude Code added for hard coding tasks on Anthropic-API models, simple tasks in Pi, GPT models in Codex | Accepted |

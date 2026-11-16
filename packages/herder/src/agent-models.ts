@@ -18,61 +18,29 @@ export function isGptModel(id: string): boolean {
 }
 
 /**
- * The agent for a model when the owner does not name one (ADR 0031): Codex for GPT models,
- * Pi for everything else. Falls back to Pi when Codex is not installed, and to the first agent
- * when Pi is not either.
+ * The agent for a model when the owner does not name one (ADR 0031, 0066): Codex for GPT models;
+ * Claude Code for a hard coding task when it can run the model (`runners`, the agents that can);
+ * Pi for everything else. Falls back to Pi when the chosen agent is not installed, and to the
+ * first agent when Pi is not either.
  */
-export function agentForModel(ref: string | undefined, agentIds: readonly string[]): string {
+export function agentForModel(
+  ref: string | undefined,
+  agentIds: readonly string[],
+  hard = false,
+  runners?: readonly string[],
+): string {
   const id = ref === undefined ? "" : ref.slice(ref.indexOf("/") + 1);
   if (ref !== undefined && isGptModel(id) && agentIds.includes("codex")) return "codex";
+  if (hard && agentIds.includes("claude") && runners?.includes("claude") === true) return "claude";
   if (agentIds.includes("pi")) return "pi";
-  const first = agentIds.find((a) => a !== "dsh") ?? agentIds[0];
+  const first = agentIds[0];
   if (first === undefined) throw new Error("no agent installed");
   return first;
 }
 
-/** DSH reads the key from this variable, named in the provider it gets through `--patch`. */
-export const DSH_KEY_ENV = "AGENTHERD_DSH_KEY";
-export const DSH_PROVIDER = "agentherd";
-/** The wire APIs DSH's pi-ai providers speak (dsh-llm-pi-ai config schema). */
-const DSH_APIS: readonly string[] = [
-  "openai-completions",
-  "openai-responses",
-  "anthropic-messages",
-];
-
-/**
- * The patch overlay (`dsh --patch <file>`) that makes `dsh acp` use the model: one provider named
- * "agentherd" in place of the profile's providers, and the ACP route pointed at it. It holds no
- * key; DSH reads that from `DSH_KEY_ENV`.
- */
-export function dshModelPatch(model: Model<Api>): unknown[] {
-  return [
-    {
-      id: "llm-pi-ai",
-      config: {
-        providers: {
-          [DSH_PROVIDER]: {
-            displayName: "AgentHerd",
-            apiKeyEnv: DSH_KEY_ENV,
-            api: model.api,
-            baseURL: model.baseUrl,
-            ...(model.headers === undefined ? {} : { headers: model.headers }),
-            models: [
-              {
-                id: model.id,
-                name: model.name,
-                input: model.input,
-                ...(model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
-                ...(model.maxTokens > 0 ? { maxTokens: model.maxTokens } : {}),
-              },
-            ],
-          },
-        },
-      },
-    },
-    { id: "acp", config: { provider: DSH_PROVIDER, model: model.id } },
-  ];
+/** Claude Code speaks only Anthropic's Messages API (ADR 0066). */
+export function claudeCanRun(model: Model<Api>): boolean {
+  return model.api === "anthropic-messages";
 }
 
 /**
@@ -95,7 +63,9 @@ export function codexCanRun(model: Model<Api>): boolean {
  * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0).
  * - codex: models `codexCanRun` accepts, as a custom provider in `CODEX_CONFIG` (read by
  *   codex-acp).
- * - dsh: OpenAI- and Anthropic-style models; the key goes in env, the model in `dshModelPatch`.
+ * - claude: Anthropic-style models (`claudeCanRun`), through the env Claude Code reads. Every
+ *   model alias (haiku, sonnet, opus and the background model) is the chosen model, so no call
+ *   goes to a model the service does not have.
  */
 export function agentModelEnv(
   agentId: string,
@@ -123,9 +93,24 @@ export function agentModelEnv(
         MODEL_PROVIDER: CODEX_PROVIDER,
         [CODEX_KEY_ENV]: key ?? "none",
       };
-    case "dsh":
-      if (!DSH_APIS.includes(model.api)) return undefined;
-      return { [DSH_KEY_ENV]: key ?? "none" };
+    case "claude": {
+      if (!claudeCanRun(model)) return undefined;
+      const headers = Object.entries(model.headers ?? {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\n");
+      return {
+        ANTHROPIC_BASE_URL: model.baseUrl,
+        ANTHROPIC_API_KEY: key ?? "none",
+        ANTHROPIC_MODEL: model.id,
+        ANTHROPIC_DEFAULT_OPUS_MODEL: model.id,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: model.id,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: model.id,
+        ANTHROPIC_SMALL_FAST_MODEL: model.id,
+        CLAUDE_CODE_SUBAGENT_MODEL: model.id,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        ...(headers === "" ? {} : { ANTHROPIC_CUSTOM_HEADERS: headers }),
+      };
+    }
     default:
       return undefined;
   }
@@ -177,8 +162,6 @@ export function modelEnvFor(
 
 export interface AgentLaunch {
   env: Record<string, string>;
-  /** For DSH: the `--patch` overlay that selects the model (`dshModelPatch`). */
-  dshPatch?: unknown[];
 }
 
 /**
@@ -204,5 +187,5 @@ export function modelLaunchFor(
   }
   const out = agentModelEnv(agentId, model, key);
   if (out === undefined) throw new Error(`agent "${agentId}" cannot run model "${ref}"`);
-  return agentId === "dsh" ? { env: out, dshPatch: dshModelPatch(model) } : { env: out };
+  return { env: out };
 }

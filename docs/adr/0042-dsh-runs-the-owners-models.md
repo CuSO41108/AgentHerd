@@ -1,6 +1,6 @@
 # ADR 0042: DSH runs the owner's models through a patch overlay
 
-- Status: Accepted
+- Status: Superseded by [ADR 0066](0066-pinned-agents-and-claude-code-for-hard-work.md)
 - Date: 2026-11-07
 
 ## Context

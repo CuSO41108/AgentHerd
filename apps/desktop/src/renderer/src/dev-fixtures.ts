@@ -65,7 +65,7 @@ const task = (
   id,
   title,
   project,
-  agent: "dsh",
+  agent: "pi",
   stage,
   lastReport,
   startedAt: minutesAgo(updated + 30),
@@ -212,7 +212,7 @@ export function sampleTasks(empty: boolean): TasksView {
             risk: "high",
             createdAt: minutesAgo(3),
             cwd: "/Users/me/code/web-portal",
-            profileId: "dsh",
+            profileId: "claude",
             taskTitle: "修复登录页在 Safari 上的白屏",
           },
           {
@@ -223,7 +223,7 @@ export function sampleTasks(empty: boolean): TasksView {
             risk: "medium",
             createdAt: minutesAgo(9),
             cwd: "/Users/me/code/scratch",
-            profileId: "dsh",
+            profileId: "claude",
           },
         ],
       };

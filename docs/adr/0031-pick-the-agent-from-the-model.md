@@ -1,6 +1,6 @@
 # ADR 0031: Pick the agent from the model: Codex for GPT models, Pi for the rest
 
-- Status: Accepted
+- Status: Accepted; partly superseded by [ADR 0066](0066-pinned-agents-and-claude-code-for-hard-work.md)
 - Date: 2026-11-05
 - Supersedes: the six-agent list of [ADR 0024](0024-follow-latest-releases-six-agents.md)
 
