@@ -90,6 +90,7 @@ export class Store {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     }
     this.db = new DatabaseSync(path);
+    this.db.exec("PRAGMA busy_timeout = 5000");
     this.secrets = options?.secrets;
 
     this.db.exec("CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL)");

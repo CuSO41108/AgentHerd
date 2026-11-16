@@ -160,6 +160,42 @@ describe("parseCommand", () => {
         usage: "/run <agent> <dir> <task>",
       });
     });
+
+    it("accepts quoted paths with spaces and CRLF line endings", () => {
+      expect(parseCommand('/run dsh "C:\\Users\\Alice Smith\\proj" fix the tests')).toEqual({
+        kind: "run",
+        agent: "dsh",
+        dir: "C:\\Users\\Alice Smith\\proj",
+        text: "fix the tests",
+      });
+      expect(parseCommand("/run dsh 'C:\\Users\\Alice Smith\\proj' fix")).toEqual({
+        kind: "run",
+        agent: "dsh",
+        dir: "C:\\Users\\Alice Smith\\proj",
+        text: "fix",
+      });
+      expect(
+        parseCommand('/run dsh "C:\\Users\\Alice Smith\\proj"  \r\n\r\n  line one\r\nline two  '),
+      ).toEqual({
+        kind: "run",
+        agent: "dsh",
+        dir: "C:\\Users\\Alice Smith\\proj",
+        text: "line one\r\nline two",
+      });
+    });
+
+    it("rejects empty or unclosed quoted paths", () => {
+      expect(parseCommand('/run dsh "" fix')).toEqual({
+        kind: "invalid",
+        command: "run",
+        usage: "/run <agent> <dir> <task>",
+      });
+      expect(parseCommand('/run dsh "C:\\Users\\Alice Smith fix')).toEqual({
+        kind: "invalid",
+        command: "run",
+        usage: "/run <agent> <dir> <task>",
+      });
+    });
   });
 
   describe("/relay, /interrupt and /herder", () => {

@@ -140,7 +140,7 @@ export const MEDIA_REFS_MARKER =
   "MEDIA REFS (verbatim re-access handles — preserve when distilling):";
 
 function stripMediaRefsSection(summary: string): string {
-  const lines = summary.split("\n");
+  const lines = summary.split(/\r?\n/);
   const idx = lines.findIndex((l) => l.trim() === MEDIA_REFS_MARKER);
   if (idx === -1) return summary;
   let end = idx + 1;
@@ -152,7 +152,7 @@ function stripMediaRefsSection(summary: string): string {
 /** Parse the mechanically-appended section back out (empty when absent —
  *  summaries written before #5620 carry none). */
 export function parseMediaRefsSection(summary: string): string[] {
-  const lines = summary.split("\n");
+  const lines = summary.split(/\r?\n/);
   const idx = lines.findIndex((l) => l.trim() === MEDIA_REFS_MARKER);
   if (idx === -1) return [];
   const out: string[] = [];
@@ -169,7 +169,7 @@ export function appendMediaRefsSection(
   refs: readonly string[],
 ): string {
   if (refs.length === 0) return summary;
-  const base = stripMediaRefsSection(summary).replace(/\n+$/, "");
+  const base = stripMediaRefsSection(summary).replace(/(?:\r?\n)+$/, "");
   const section = `${MEDIA_REFS_MARKER}\n${refs.map((r) => `- ${r}`).join("\n")}`;
   return base ? `${base}\n\n${section}` : section;
 }

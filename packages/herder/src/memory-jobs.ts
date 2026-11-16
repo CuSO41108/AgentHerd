@@ -223,7 +223,7 @@ export class MemoryWorker {
       taskId,
       `${lesson}${evidence === "" ? "" : `\n依据：${evidence}`}`,
       signature,
-      `project:${str(p.cwd)}`,
+      scopeKey(str(p.cwd)),
     );
   }
 
@@ -255,7 +255,7 @@ export class MemoryWorker {
       if (old === undefined) return;
       memory.write([{ op: "replace", id: old.id, abstract, body: details }], meta);
       // A lesson seen in two projects holds everywhere.
-      if (old.scope !== scope && old.scope !== "global") {
+      if (!sameScope(old.scope, scope) && old.scope !== "global") {
         const latest = memory.list({ kinds: ["experience"] }).find((r) => r.abstract === abstract);
         if (latest !== undefined) memory.setScope(latest.id, "global");
       }
@@ -335,4 +335,24 @@ export class MemoryWorker {
     }
     if (last !== undefined) memory.log("review.done", `through turn ${last}`, String(last));
   }
+}
+
+function normalizeScopeCwd(cwd: string): string {
+  return cwd.replace(/^[a-z]:/, (m) => m.toUpperCase());
+}
+
+function scopeKey(cwd: string): string {
+  return `project:${normalizeScopeCwd(cwd)}`;
+}
+
+function isWinScope(scope: string): boolean {
+  return /^project:(?:[A-Za-z]:|\\\\)/.test(scope);
+}
+
+function sameScope(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (isWinScope(a) && isWinScope(b)) {
+    return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+  }
+  return false;
 }

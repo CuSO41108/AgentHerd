@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { VoiceRequest } from "@agentherd/core";
 import type { HerderStyle } from "@agentherd/protocol";
 import {
@@ -280,7 +280,7 @@ describe("Herder", () => {
     await herder.idle();
     expect(rec.started).toEqual([]);
     expect(rec.audits.some((a) => a.type === "herder.guard")).toBe(true);
-    expect(rec.said[0]).toContain("/Users/me/.agentherd");
+    expect(rec.said[0]).toContain(resolve("/Users/me/.agentherd"));
     expect(rec.said[1]).toBe("被拦下了。");
   });
 

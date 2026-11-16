@@ -1215,3 +1215,29 @@ test("crushText: plugin returning non-string text fails open", () => {
     "non-string result skipped, built-in still applies",
   );
 });
+
+test("log-select: recognizes Windows backslash runtime frames and dedupes Windows paths", () => {
+  const infoLines = Array.from({ length: 28 }, (_, i) => `INFO step ${i} ok`);
+  const stackLines = Array.from({ length: 24 }, (_, i) =>
+    i < 2
+      ? `    at appWork (C:\\repo\\src\\handler${i}.ts:${10 + i}:5)`
+      : `    at libCall (C:\\repo\\node_modules\\pkg\\index${i}.js:${20 + i}:3)`,
+  );
+  const log = [
+    "WARN cache miss in C:\\repo\\cache\\a1\\entry.json",
+    ...infoLines.slice(0, 14),
+    "WARN cache miss in C:\\repo\\cache\\b2\\entry.json",
+    ...infoLines.slice(14),
+    "Error: request failed",
+    ...stackLines,
+    "    at tailApp (C:\\repo\\src\\entry.ts:1:1)",
+    "1 failed",
+  ].join("\r\n");
+  const out = logSelectPlugin.run(log, {});
+  assert.ok(out, "log-select crushes long Windows stack trace");
+  assert.ok(out!.text.includes("frames collapsed"), "collapses Windows node_modules frames");
+  assert.ok(
+    !out!.text.includes("WARN cache miss in C:\\repo\\cache\\b2\\entry.json"),
+    "dedupes Windows warn paths",
+  );
+});

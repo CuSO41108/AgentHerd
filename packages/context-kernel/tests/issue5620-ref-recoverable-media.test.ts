@@ -317,3 +317,10 @@ test("legacy BLOCKED ref on ref-based media migrates to a fresh number (#5620)",
   });
   assert.equal(res.map.byRaw["refimg"], "m00003", "fresh number — never a reuse");
 });
+
+test("media refs section tolerates CRLF line endings", () => {
+  const crlfSummary = `Summary body.\r\n\r\n${MEDIA_REFS_MARKER}\r\n- ${REMOTE_URL}\r\n- file-api-abc123\r\n`;
+  assert.deepEqual(parseMediaRefsSection(crlfSummary), [REMOTE_URL, "file-api-abc123"]);
+  const updated = appendMediaRefsSection(crlfSummary, [REMOTE_URL]);
+  assert.deepEqual(parseMediaRefsSection(updated), [REMOTE_URL]);
+});

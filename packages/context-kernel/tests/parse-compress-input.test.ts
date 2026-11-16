@@ -1386,3 +1386,12 @@ test("parseCompressArgs refuses to narrow a ref pair with an unrecognized separa
   assert.equal(single.ranges[0]?.startRef, "m00150");
   assert.equal(single.ranges[0]?.endRef, "m00150");
 });
+
+test("line-form entries tolerate CRLF line endings", () => {
+  const parsed = parseCompressArgs({
+    content: "m00001..m00003 first\r\n## Heading One\r\nbody\r\nm00004..m00007\r\nplain second line",
+  });
+  assert.equal(parsed.ranges.length, 2);
+  assert.equal(parsed.ranges[0]?.topic, "first");
+  assert.equal(parsed.ranges[1]?.topic, "plain second line");
+});
