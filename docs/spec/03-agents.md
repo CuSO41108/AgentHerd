@@ -124,15 +124,21 @@ Pi has no native ACP or MCP client and never asks before a tool call. AgentHerd'
 - Model: Pi's own login and settings, unless the owner chose a model for the `pi` role; then
   the host passes `AGENTHERD_PI_MODEL` (pi-ai model JSON) and `AGENTHERD_PI_KEY`, and
   `extension/model.ts` registers it as provider `agentherd`.
-- The host searches the login shell's `PATH` plus `~/.local/bin`, `/opt/homebrew/bin`,
-  `/usr/local/bin` so an app opened from Finder finds `dsh`, `pi` and `node`.
+- On macOS and Linux, the host searches the login shell's `PATH` plus `~/.local/bin`,
+  `~/.npm-global/bin`, `~/.bun/bin`, `/opt/homebrew/bin` and `/usr/local/bin` so an app opened
+  from Finder finds `dsh`, `pi` and `node`. On Windows, it appends `%APPDATA%\npm`,
+  `%LOCALAPPDATA%\pnpm`, `%LOCALAPPDATA%\Yarn\bin`, `%USERPROFILE%\.bun\bin`,
+  `%USERPROFILE%\.local\bin`, `%USERPROFILE%\scoop\shims`, `%USERPROFILE%\.cargo\bin` and
+  `%ProgramFiles%\nodejs`, resolves `.cmd`/`.exe` binaries via `PATHEXT`, unwraps npm/pnpm
+  `.cmd` shims to run Node directly, and falls back to `cmd.exe /d /s /c` with hidden consoles.
 
 ### Managed downloads
 
 The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md)):
 GPT models run in Codex, every other model in Pi, and DSH only when the owner names it. The host
 downloads Pi, and Codex when a GPT model is listed; the desktop **Agent** page shows the three and
-can download each one's latest release: DSH (DeepSeek's update feed), Pi (GitHub releases) and
+can download each one's latest release: DSH (DeepSeek's update feed, macOS only; Windows uses
+the desktop app or `PATH`), Pi (GitHub releases) and
 Codex (the ACP adapter on npm, installed with a downloaded npm). `packages/host/src/catalog.ts` has
 the sources and the env of each; `packages/host/src/runtimes.ts` checks the publisher's digest
 (and `--version`), installs into `<home>/runtimes/<id>/<version>/` and records it in

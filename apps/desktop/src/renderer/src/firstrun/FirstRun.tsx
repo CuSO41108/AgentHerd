@@ -11,6 +11,7 @@ import { ServiceChooser, ServiceForm } from "../components/ServiceForm";
 import { Button } from "../components/ui";
 import { devOpen } from "../dev-bridge";
 import { FIRST_HERDER_STYLE, type HerderStyle } from "../herder-styles";
+import { isMac } from "../platform";
 import { call, useApp } from "../store";
 import {
   DoneBody,
@@ -223,7 +224,11 @@ export function FirstRun() {
 
   return (
     <div className="app-no-drag ah-fr fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
-      <div className="app-drag flex h-12 shrink-0 items-center justify-end pr-[calc(1rem_+_var(--ah-titlebar-controls-width))] pl-4">
+      <div
+        className={`app-drag flex shrink-0 items-center justify-end pr-[calc(1rem_+_var(--ah-titlebar-controls-width))] pl-4 ${
+          isMac() ? "h-12" : "h-9"
+        }`}
+      >
         {step !== "done" && (
           <button
             type="button"
@@ -246,7 +251,7 @@ export function FirstRun() {
                 欢迎使用 AgentHerd
               </h1>
               <p className="max-w-[400px] text-base text-ink-muted leading-6">
-                在飞书里跟主管说要做什么，它在你的 Mac 上开 Agent
+                在飞书里跟主管说要做什么，它在你的电脑上开 Agent
                 去做，做完用自己的话告诉你；要推送、发消息这类出这台电脑的事，会先问你。
               </p>
             </div>

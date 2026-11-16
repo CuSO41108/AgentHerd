@@ -17,8 +17,10 @@ memory was involved: the folder stayed in the Herder's session history and in `r
 Rules:
 
 - A tool `project_find(name)` searches git repositories by folder name under the owner's home
-  (skips `Library`, `node_modules`, hidden folders; depth 4; result cached 60 s). Matching is
-  case-, `-`/`_`- and space-insensitive.
+  (skips `Library`, `node_modules`, hidden folders, and Windows folders such as `AppData`,
+  `OneDrive`, `$Recycle.Bin`, `System Volume Information`, `Saved Games`, `Contacts`, `Searches`,
+  `Links`; depth 4; result cached 60 s, case-insensitive on Windows). Matching is
+  case-, `-`/`_`- and space-insensitive, stripping `/` and `\` prefixes.
 - One exact match whose name is in the owner's own words this turn: the Herder starts there
   without asking (ADR 0043); `project_find` adds it to `TurnContext.pickedDirs`. Otherwise the
   Herder lets the owner pick with buttons. The owner never has to type a path, except after 「其他」.
@@ -101,7 +103,9 @@ Code checks (a rejected write is logged to `memory_log` with the reason):
 - `owner` needs `evidence` that occurs verbatim in text the owner typed in the source turn. Button
   answers do not count. Questions and hypotheticals (`吗？`, `如果`, `假如`, `what if`) do not count.
 - A preference needs a lasting marker in its evidence.
-- Temporary paths (`/tmp`, `/private/var/folders`) are never stored. Other paths, models and agents
+- Temporary paths (`/tmp`, `/private/var/folders`, `AppData\Local\Temp`, `C:\Windows\Temp`,
+  `%TEMP%`, `%TMP%`) are never stored. Windows drive letters in `project:` memory scopes are
+  normalized to uppercase. Other paths, models and agents
   only when they appear in the evidence. Values the Herder itself chose for `session_start` are
   rejected unless the owner typed them.
 - `decision` follows the same evidence rules; its evidence needs a lasting or settling marker.

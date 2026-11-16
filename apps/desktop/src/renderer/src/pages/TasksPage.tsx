@@ -8,6 +8,7 @@ import { TaskTranscript } from "../components/TaskTranscript";
 import { Badge, Dot, EmptyState, Group, Section, Segmented, type Tone } from "../components/ui";
 import { devOpen } from "../dev-bridge";
 import { plainText } from "../markdown";
+import { pathLeaf } from "../platform";
 import { type ItemSummary, type Task, useApp } from "../store";
 
 type Filter = "all" | "owner" | "active";
@@ -25,7 +26,7 @@ const FILTER_EMPTY: Record<Filter, string> = {
 };
 
 function projectOf(cwd: string): string {
-  return cwd.split("/").filter(Boolean).at(-1) ?? cwd;
+  return pathLeaf(cwd) ?? cwd;
 }
 
 /** A dot, a title with the time on the right, one line of details, and open requests below. */

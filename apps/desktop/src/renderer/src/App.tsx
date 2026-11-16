@@ -26,6 +26,7 @@ import { ModelsPage } from "./pages/ModelsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { isMac } from "./platform";
 import { type Page, startStore, useApp } from "./store";
 
 const NAV: { page: Page; label: string; icon: LucideIcon }[] = [
@@ -63,14 +64,16 @@ const HEADERS: Record<Page, { title: string; hint: string }> = {
 };
 
 function Sidebar() {
+  const mac = isMac();
   const page = useApp((s) => s.page);
   const setPage = useApp((s) => s.setPage);
   const waiting = useApp((s) => s.tasks?.items.length ?? 0);
   const herderOff = useApp((s) => s.status?.herder.on === false);
   return (
     <aside className="relative z-10 flex w-(--ah-sidebar-width) shrink-0 flex-col">
-      {/* The traffic lights of the hiddenInset title bar sit in this strip. */}
-      <div className="app-drag h-(--ah-titlebar-height) shrink-0" />
+      {/* The traffic lights of the hiddenInset title bar sit in this strip on macOS;
+          Windows/Linux reserve 36px to align with the top caption frame strip. */}
+      <div className={`app-drag shrink-0 ${mac ? "h-(--ah-titlebar-height)" : "h-9"}`} />
       <div className="app-drag flex items-center gap-2.5 px-4 pt-1 pb-5">
         <Logo size={28} />
         <div className="min-w-0">
@@ -164,6 +167,7 @@ function PageBody({ page }: { page: Page }) {
 }
 
 export function App() {
+  const mac = isMac();
   const page = useApp((s) => s.page);
   const firstRun = useApp((s) => s.firstRun);
   const loaded = useApp((s) => s.loaded);
@@ -179,7 +183,7 @@ export function App() {
       >
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col pr-2 pb-2">
-          <div className="app-drag h-2 shrink-0" />
+          <div className={`app-drag shrink-0 ${mac ? "h-2" : "h-9"}`} />
           <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-line bg-canvas">
             {/* Both reserve the scrollbar's width, so the title lines up with the content. */}
             <header className="app-drag flex min-h-[88px] shrink-0 flex-col justify-end overflow-hidden px-8 pb-5 [scrollbar-gutter:stable]">

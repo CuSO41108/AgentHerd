@@ -60,7 +60,7 @@ The flow for one permission request on the ACP path:
 
 | Process | What runs there | Notes |
 | --- | --- | --- |
-| Electron main | Window, tray, auto-update, OS keychain, keep-awake, starts the core | Thin. No business logic. |
+| Electron main | Window, tray (keeps running on Windows when the window closes), auto-update, OS keychain, keep-awake, starts the core | Thin. No business logic. |
 | Host (Electron `utilityProcess`, or `agentherd start`) | ACP client, registry, Herder, inbox, channels, exporters, store, local API | Plain Node code (`packages/host` composes `core`). Must also run without Electron (tests, CLI). One host per `AGENTHERD_HOME`; the app connects to a running one. |
 | Renderer | Desktop UI | Talks to main through a typed preload bridge only. No Node access. |
 | Agent processes | One per ACP session group, started from a profile command | Children of the core. |
@@ -102,7 +102,7 @@ Rules:
 - Transport: a Unix domain socket at `~/.agentherd/run/herd.sock`, file mode `600`, in a
   directory with mode `700`. No TCP port. On Windows, which has no socket files there, it is
   the named pipe `\\.\pipe\agentherd-<id>`, where `<id>` is the first 16 hex digits of the
-  SHA-256 of the lower-cased home path, so each home has its own host.
+  SHA-256 of the resolved, lower-cased home path, so each home has its own host.
 - Framing: newline-delimited JSON. Each message has `v` (protocol version), `id`, `type`.
 - Calls are `{v, id, type:"call", method, params}`, answers `{v, id, type:"result", ok,
   result|error}`, pushes `{v, type:"event", event:{topic, data}}` (`packages/host/src/api.ts`).
@@ -149,7 +149,10 @@ directly with type stripping; there is no build step for packages.
 
 ## 7. Keep running with the lid closed
 
-Applied ADR: [0011](../adr/0011-keep-running-with-lid-closed.md). macOS only in v1.
+Applied ADR: [0011](../adr/0011-keep-running-with-lid-closed.md). Lid-closed `disablesleep` is
+macOS only; on Windows, `keepAwake` uses Electron's `powerSaveBlocker`
+(`prevent-app-suspension`) to stop idle sleep while the system tray keeps the host running
+after the window closes (lid-close sleep follows Windows power settings).
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

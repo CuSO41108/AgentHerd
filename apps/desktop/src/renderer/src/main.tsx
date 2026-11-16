@@ -6,11 +6,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { initFontScale } from "./font-scale";
+import { isMac } from "./platform";
 
 initFontScale();
 
 // Electron on macOS draws the window with vibrancy; a plain browser preview does not.
-if (navigator.userAgent.includes("Mac") && navigator.userAgent.includes("Electron"))
+if (isMac() && navigator.userAgent.includes("Electron"))
   document.documentElement.classList.add("ah-vibrancy");
 
 const root = document.getElementById("root");
