@@ -4,7 +4,7 @@
 import type { Item, PathScope, Rule } from "@agentherd/protocol";
 import { globMatch } from "./glob.ts";
 import { normalizeCommand } from "./normalize.ts";
-import { isInside, pathCandidates, resolveWord } from "./paths.ts";
+import { isInside, isWinPath, pathCandidates, resolveWord } from "./paths.ts";
 import { type Segment, splitCommand, UnparsedCommandError } from "./shell.ts";
 
 export interface RuleHit {
@@ -40,34 +40,53 @@ function parseItemCommand(item: Item): ParsedCommand {
   }
 }
 
-function ruleMatches(rule: Rule, item: Item, parsed: ParsedCommand, home: string): boolean {
-  const m = rule.match;
-  if (m.profileId !== undefined && m.profileId !== item.profileId) return false;
-  if (m.eventType !== undefined && item.kind !== m.eventType) return false;
-  if (m.toolKind !== undefined && item.toolCall?.kind !== m.toolKind) return false;
-  if (m.command !== undefined && !commandMatches(m.command, rule.action, parsed)) return false;
-  if (m.pathScope !== undefined && !inScope(m.pathScope, item, parsed, home)) return false;
-  return true;
-}
-
-function commandMatches(glob: string, action: Rule["action"], parsed: ParsedCommand): boolean {
+function commandMatches(
+  glob: string,
+  action: Rule["action"],
+  parsed: ParsedCommand,
+  caseInsensitive: boolean,
+): boolean {
   if (parsed.kind === "none") return false;
   if (parsed.kind === "unparsed") {
     // An unreadable command can never be allowed by a rule. A deny rule cannot see inside it
     // either, so it does not match; the item goes on to the next tier.
     return false;
   }
+  const opts = caseInsensitive ? { caseInsensitive: true } : undefined;
   const segmentTexts = parsed.segments.map((s) => normalizeCommand(s.words.join(" ")));
   if (action === "allow") {
     // `pnpm test*` must not allow `pnpm test && git push`: compound commands never match an
     // allow rule.
-    return parsed.segments.length === 1 && globMatch(glob, parsed.normalized);
+    return parsed.segments.length === 1 && globMatch(glob, parsed.normalized, opts);
   }
-  return globMatch(glob, parsed.normalized) || segmentTexts.some((t) => globMatch(glob, t));
+  return (
+    globMatch(glob, parsed.normalized, opts) || segmentTexts.some((t) => globMatch(glob, t, opts))
+  );
+}
+
+function ruleMatches(rule: Rule, item: Item, parsed: ParsedCommand, home: string): boolean {
+  const m = rule.match;
+  if (m.profileId !== undefined && m.profileId !== item.profileId) return false;
+  if (m.eventType !== undefined && item.kind !== m.eventType) return false;
+  if (m.toolKind !== undefined && item.toolCall?.kind !== m.toolKind) return false;
+  if (m.command !== undefined) {
+    const winCommand = isWinPath(item.cwd) || isWinPath(home) || isWinPath(m.command);
+    if (!commandMatches(m.command, rule.action, parsed, winCommand)) return false;
+  }
+  if (m.pathScope !== undefined && !inScope(m.pathScope, item, parsed, home)) return false;
+  return true;
 }
 
 function looksLikePath(word: string): boolean {
-  return word.includes("/") || word.startsWith("~") || word.startsWith(".") || word.includes("$");
+  return (
+    word.includes("/") ||
+    word.includes("\\") ||
+    /^[A-Za-z]:/.test(word) ||
+    word.startsWith("~") ||
+    word.startsWith(".") ||
+    word.includes("$") ||
+    /%[^%\s]+%/.test(word)
+  );
 }
 
 function inScope(scope: PathScope, item: Item, parsed: ParsedCommand, home: string): boolean {

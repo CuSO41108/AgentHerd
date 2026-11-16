@@ -2,10 +2,16 @@
 // docs/spec/04-herder.md §3 "Guard list". It is intentionally coarse: a false hit costs one
 // tap, a miss can cost data. It never allows anything; it only says "ask the owner".
 
-import path from "node:path";
 import type { ToolCallInfo } from "@agentherd/protocol";
 import { globMatch } from "./glob.ts";
-import { isInside, type PathContext, pathCandidates, resolveWord } from "./paths.ts";
+import {
+  isInside,
+  isWinPath,
+  type PathContext,
+  pathCandidates,
+  pathModFor,
+  resolveWord,
+} from "./paths.ts";
 import {
   basename,
   programWords,
@@ -37,7 +43,16 @@ export const BUILT_IN_GUARDS = [
 
 type GuardId = (typeof BUILT_IN_GUARDS)[number]["id"];
 
-const DOWNLOADERS = new Set(["curl", "wget"]);
+const DOWNLOADERS = new Set([
+  "curl",
+  "wget",
+  "iwr",
+  "invoke-webrequest",
+  "irm",
+  "invoke-restmethod",
+  "certutil",
+  "bitsadmin",
+]);
 const INTERPRETERS = new Set([
   "sh",
   "bash",
@@ -50,9 +65,29 @@ const INTERPRETERS = new Set([
   "node",
   "perl",
   "ruby",
+  "cmd",
+  "powershell",
+  "pwsh",
+  "cscript",
+  "wscript",
+  "mshta",
+  "iex",
+  "invoke-expression",
 ]);
 const SECRET_DIRS = [".ssh", ".aws", ".gnupg"];
 const SELF_CONFIG_DIRS = [".agentherd", ".codex"];
+const CMD_STYLE_DELETERS = new Set(["rd", "rmdir", "del", "erase"]);
+const RECURSIVE_DELETE_PROGRAMS = new Set([
+  "rm",
+  "rd",
+  "rmdir",
+  "del",
+  "erase",
+  "remove-item",
+  "ri",
+]);
+const CMD_DELETE_SWITCH = /^\/(?:q|f|p|a(?::[A-Za-z-]+)?)$/i;
+const SUDO_WRAPPERS = new Set(["sudo", "doas", "runas", "gsudo"]);
 
 function hit(id: GuardId | string, reason?: string): GuardResult {
   const builtIn = BUILT_IN_GUARDS.find((g) => g.id === id);
@@ -98,12 +133,17 @@ export function guardCheck(
   return results.find((r) => r.hit) ?? { hit: false };
 }
 
-function isRecursiveFlag(word: string): boolean {
-  if (word === "--recursive") return true;
+function isRecursiveFlag(word: string, allowCmdSwitch = false): boolean {
+  if (allowCmdSwitch && /^\/s$/i.test(word)) return true;
+  if (word === "--recursive" || /^--?rec(?:urse)?$/i.test(word)) return true;
   return /^-[A-Za-z]*[rR][A-Za-z]*$/.test(word);
 }
 
-function rmTargetsEscape(args: readonly string[], ctx: PathContext): boolean {
+function rmTargetsEscape(
+  args: readonly string[],
+  ctx: PathContext,
+  allowCmdSwitches = false,
+): boolean {
   let recursive = false;
   const targets: string[] = [];
   let endOfOptions = false;
@@ -117,10 +157,17 @@ function rmTargetsEscape(args: readonly string[], ctx: PathContext): boolean {
       i += 1; // skip the redirection target
       continue;
     }
-    if (!endOfOptions && word.startsWith("-") && word !== "-") {
-      if (isRecursiveFlag(word)) recursive = true;
+    if (!endOfOptions && isRecursiveFlag(word, allowCmdSwitches)) {
+      recursive = true;
       continue;
     }
+    if (!endOfOptions && allowCmdSwitches && CMD_DELETE_SWITCH.test(word)) continue;
+    const psPath = !endOfOptions ? /^-(?:Literal)?Path[:=](.+)$/i.exec(word) : null;
+    if (psPath !== null) {
+      targets.push(psPath[1] as string);
+      continue;
+    }
+    if (!endOfOptions && word.startsWith("-") && word !== "-") continue;
     targets.push(word);
   }
   if (!recursive) return false;
@@ -142,18 +189,32 @@ function checkRm(
   for (const segment of segments) {
     const words = programWords(segment.words);
     const program = basename(words[0] ?? "");
-    if (program === "rm" && rmTargetsEscape(words.slice(1), ctx)) return hit("rm-outside-cwd");
+    if (
+      RECURSIVE_DELETE_PROGRAMS.has(program) &&
+      rmTargetsEscape(words.slice(1), ctx, CMD_STYLE_DELETERS.has(program))
+    ) {
+      return hit("rm-outside-cwd");
+    }
     // `xargs rm -r` and `find -exec rm -r`: the targets are unknown.
     if (program === "xargs") {
       const inner = programWords(words.slice(1).filter((w) => !w.startsWith("-")));
-      if (basename(inner[0] ?? "") === "rm" && words.some(isRecursiveFlag)) {
+      const innerProg = basename(inner[0] ?? "");
+      if (
+        RECURSIVE_DELETE_PROGRAMS.has(innerProg) &&
+        words.some((w) => isRecursiveFlag(w, CMD_STYLE_DELETERS.has(innerProg)))
+      ) {
         return hit("rm-outside-cwd");
       }
     }
     if (program === "find") {
       const exec = words.findIndex((w) => w === "-exec" || w === "-execdir");
-      if (exec !== -1 && basename(words[exec + 1] ?? "") === "rm") {
-        if (words.slice(exec + 2).some(isRecursiveFlag)) return hit("rm-outside-cwd");
+      const execProg = exec === -1 ? "" : basename(words[exec + 1] ?? "");
+      if (exec !== -1 && RECURSIVE_DELETE_PROGRAMS.has(execProg)) {
+        if (
+          words.slice(exec + 2).some((w) => isRecursiveFlag(w, CMD_STYLE_DELETERS.has(execProg)))
+        ) {
+          return hit("rm-outside-cwd");
+        }
       }
     }
   }
@@ -194,8 +255,9 @@ function checkPipeToShell(segments: readonly Segment[]): GuardResult {
 }
 
 function isSecretPath(p: string, ctx: PathContext): boolean {
-  if (SECRET_DIRS.some((d) => isInside(p, path.join(ctx.home, d)))) return true;
-  return /^\.env(\..+)?$/.test(path.basename(p));
+  const homePath = pathModFor(ctx.home);
+  if (SECRET_DIRS.some((d) => isInside(p, homePath.join(ctx.home, d)))) return true;
+  return /^\.env(\..+)?$/i.test(pathModFor(p).basename(p));
 }
 
 function checkSecrets(
@@ -206,21 +268,38 @@ function checkSecrets(
   if (paths.some((p) => isSecretPath(p, ctx))) return hit("secret-read");
   for (const segment of segments) {
     const words = programWords(segment.words);
-    if (basename(words[0] ?? "") !== "security") continue;
-    const sub = words[1] ?? "";
-    if (/^find-.*-password$/.test(sub) || sub === "dump-keychain") return hit("secret-read");
+    const program = basename(words[0] ?? "");
+    const args = words.slice(1);
+    if (program === "security") {
+      const sub = words[1] ?? "";
+      if (/^find-.*-password$/.test(sub) || sub === "dump-keychain") return hit("secret-read");
+    }
+    if ((program === "cmdkey" || program === "vaultcmd") && args.some((w) => /^\/list/i.test(w))) {
+      return hit("secret-read");
+    }
+    if (program === "reg") {
+      const sub = (args[0] ?? "").toLowerCase();
+      if (
+        (sub === "export" || sub === "save") &&
+        args.slice(1).some((w) => /(?:^|[\\/])(sam|security)(?:$|[\\/])/i.test(w))
+      ) {
+        return hit("secret-read");
+      }
+    }
   }
   return { hit: false };
 }
 
 function checkSelfConfig(paths: readonly string[], ctx: PathContext): GuardResult {
+  const homePath = pathModFor(ctx.home);
   for (const p of paths) {
-    if (SELF_CONFIG_DIRS.some((d) => isInside(p, path.join(ctx.home, d)))) {
+    if (SELF_CONFIG_DIRS.some((d) => isInside(p, homePath.join(ctx.home, d)))) {
       return hit("self-config");
     }
+    const pPath = pathModFor(p);
     if (
-      path.basename(path.dirname(p)) === ".claude" &&
-      /^settings.*\.json$/.test(path.basename(p))
+      pPath.basename(pPath.dirname(p)).toLowerCase() === ".claude" &&
+      /^settings.*\.json$/i.test(pPath.basename(p))
     ) {
       return hit("self-config");
     }
@@ -228,14 +307,24 @@ function checkSelfConfig(paths: readonly string[], ctx: PathContext): GuardResul
   return { hit: false };
 }
 
+function isElevatedStartProcess(words: readonly string[]): boolean {
+  if (basename(words[0] ?? "") !== "start-process") return false;
+  for (let i = 1; i < words.length; i++) {
+    const w = (words[i] as string).toLowerCase();
+    if (w === "-verb" && (words[i + 1] ?? "").toLowerCase() === "runas") return true;
+    if (/^-verb[:=]runas$/i.test(w)) return true;
+  }
+  return false;
+}
+
 function checkSudo(segments: readonly Segment[]): GuardResult {
   for (const segment of segments) {
     // Words before the real program: assignments and wrappers (`env`, `nohup`, `sudo`, ...).
-    const prefix = segment.words.slice(
-      0,
-      segment.words.length - programWords(segment.words).length,
-    );
-    if (prefix.some((w) => basename(w) === "sudo" || basename(w) === "doas")) return hit("sudo");
+    const words = programWords(segment.words);
+    const prefix = segment.words.slice(0, segment.words.length - words.length);
+    if (prefix.some((w) => SUDO_WRAPPERS.has(basename(w))) || isElevatedStartProcess(words)) {
+      return hit("sudo");
+    }
   }
   return { hit: false };
 }
@@ -246,9 +335,15 @@ function checkExtra(
   paths: readonly string[],
   ctx: PathContext,
 ): GuardResult {
+  const winCtx = isWinPath(ctx.cwd) || isWinPath(ctx.home);
   for (const guard of extra) {
     const command = guard.command;
-    if (command !== undefined && segments.some((s) => globMatch(command, s.words.join(" ")))) {
+    if (
+      command !== undefined &&
+      segments.some((s) =>
+        globMatch(command, s.words.join(" "), { caseInsensitive: winCtx || isWinPath(command) }),
+      )
+    ) {
       return hit(guard.id, guard.reason);
     }
     if (guard.pathPrefix !== undefined) {

@@ -96,6 +96,27 @@ describe("outboundCheck (ADR 0056)", () => {
     expect(appOutbound("XIAOHONGSHU_LIST_NOTIFICATIONS")).toBeUndefined();
     expect(appOutbound("ZHIHU_GET_FOLLOWERS")).toBeUndefined();
   });
+
+  it.each([
+    ["git.exe push", "push"],
+    ['"C:\\Program Files\\Git\\cmd\\git.exe" push --force origin main', "push"],
+    ["GIT.EXE -C C:\\work\\proj push", "push"],
+    ["gh.exe pr create --fill", "pull-request"],
+    ["npm.cmd publish", "publish"],
+    ["pnpm.cmd publish --access public", "publish"],
+    ["lark-cli.cmd im +send --chat x --text hi", "send"],
+    ["runas /user:Administrator git.exe push", "push"],
+    ["cd /d C:\\app && git.exe commit -am x && git.exe push", "push"],
+  ])("Windows %s → %s", (command, step) => {
+    expect(outboundCheck(run(command))?.step).toBe(step);
+  });
+
+  it.each(["git.exe commit -am wip", "pnpm.cmd test", "lark-cli.cmd docs +fetch --doc abc"])(
+    "Windows %s stays local",
+    (command) => {
+      expect(outboundCheck(run(command))).toBeUndefined();
+    },
+  );
 });
 
 describe("pushPlans (ADR 0064)", () => {
@@ -128,6 +149,25 @@ describe("pushPlans (ADR 0064)", () => {
     expect(pushPlans("git add . && git commit -m 'x' && git push origin fix", ctx)).toHaveLength(1);
     expect(pushPlans("git status", ctx)).toEqual([]);
     expect(pushPlans("git push $(git remote)", ctx)).toBeUndefined();
+  });
+
+  it("resolves Windows paths, cd /d, and %VAR% safely in pushPlans", () => {
+    const winCtx = { cwd: "C:\\p\\app", home: "C:\\Users\\me" };
+    expect(pushPlans("git.exe push", winCtx)).toEqual([
+      { dir: "C:\\p\\app", branches: [], current: true },
+    ]);
+    expect(pushPlans("cd /d ..\\other && git.exe push origin a b", winCtx)).toEqual([
+      { dir: "C:\\p\\other", branches: ["a", "b"], current: false },
+    ]);
+    expect(pushPlans('git -C "C:\\Users\\Alice Smith\\proj" push origin fix', winCtx)).toEqual([
+      { dir: "C:\\Users\\Alice Smith\\proj", branches: ["fix"], current: false },
+    ]);
+    expect(pushPlans("git -C ~\\repo push", winCtx)).toEqual([
+      { dir: "C:\\Users\\me\\repo", branches: [], current: true },
+    ]);
+    expect(pushPlans("cd /d %USERPROFILE%\\repo && git push", winCtx)).toEqual([
+      { dir: null, branches: [], current: true },
+    ]);
   });
 
   it("marks pushes that do more than update named branches", () => {

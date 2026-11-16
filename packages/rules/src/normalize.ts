@@ -1,6 +1,6 @@
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ENV_WORD = /^env\s+/;
-const CD_PREFIX = /^cd\s+\S+\s*&&\s*/;
+const CD_PREFIX = /^cd(?:\s+\/d)?\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*/i;
 
 function matchEnvAssignmentLength(input: string): number {
   const nameText = ENV_NAME.exec(input)?.[0];

@@ -171,4 +171,50 @@ describe("pathScope", () => {
     ).not.toBeNull();
     expect(matchRules([r], item({ kind: "edit", paths: ["/Users/me/other.md"] }), HOME)).toBeNull();
   });
+
+  it("allows files named ..foo inside cwd", () => {
+    expect(matchRules([inCwd], item({ command: "cat ..foo" }), HOME)).not.toBeNull();
+  });
+
+  it("checks Windows backslashes, drive letters, UNC, %VAR%, and case-insensitive paths", () => {
+    const winHome = "C:\\Users\\me";
+    const winCwd = "C:\\work\\proj";
+    const winItem = (toolCall: Partial<ToolCallInfo>) => item(toolCall, { cwd: winCwd });
+
+    expect(
+      matchRules(
+        [inCwd],
+        winItem({ kind: "edit", paths: ["src\\a.ts", "c:\\WORK\\PROJ\\b.ts"] }),
+        winHome,
+      ),
+    ).not.toBeNull();
+    expect(matchRules([inCwd], winItem({ command: "type src\\a.ts" }), winHome)).not.toBeNull();
+    expect(matchRules([inCwd], winItem({ command: "type ..\\secret.txt" }), winHome)).toBeNull();
+    expect(
+      matchRules(
+        [inCwd],
+        winItem({ command: 'type "C:\\Users\\Alice Smith\\secret.txt"' }),
+        winHome,
+      ),
+    ).toBeNull();
+    expect(matchRules([inCwd], winItem({ command: "type D:\\other\\a.txt" }), winHome)).toBeNull();
+    expect(
+      matchRules([inCwd], winItem({ command: "type \\\\server\\share\\a.txt" }), winHome),
+    ).toBeNull();
+    expect(
+      matchRules([inCwd], winItem({ command: "type %USERPROFILE%\\a.txt" }), winHome),
+    ).toBeNull();
+
+    const dirRule = rule("allow", { pathScope: { kind: "dir", path: "~\\notes" } });
+    expect(
+      matchRules(
+        [dirRule],
+        winItem({ kind: "edit", paths: ["c:\\users\\me\\NOTES\\a.md"] }),
+        winHome,
+      ),
+    ).not.toBeNull();
+    expect(
+      matchRules([dirRule], winItem({ kind: "edit", paths: ["C:\\Users\\me\\other.md"] }), winHome),
+    ).toBeNull();
+  });
 });

@@ -53,11 +53,19 @@ describe("normalizeCommand", () => {
   it("returns an empty string for empty input", () => {
     expect(normalizeCommand("")).toBe("");
   });
+
+  it("strips Windows cd /d prefixes and CRLF", () => {
+    expect(normalizeCommand("cd /d D:\\proj && pnpm test")).toBe("pnpm test");
+    expect(normalizeCommand('CD /D "C:\\My Projects\\app" && pnpm test')).toBe("pnpm test");
+    expect(normalizeCommand("FOO=1 cd /d C:\\dir && BAR=2 pnpm test")).toBe("pnpm test");
+    expect(normalizeCommand("pnpm\r\ntest")).toBe("pnpm test");
+  });
 });
 
 describe("commandHead", () => {
   it("returns the first two words after normalization", () => {
     expect(commandHead("FOO=1 cd d && pnpm test --watch")).toBe("pnpm test");
+    expect(commandHead("cd /d D:\\proj && pnpm test --watch")).toBe("pnpm test");
   });
 
   it("returns a single word when only one exists", () => {
