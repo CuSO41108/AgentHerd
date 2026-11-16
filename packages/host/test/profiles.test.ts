@@ -6,64 +6,62 @@ import {
   codexAppClis,
   codexPackageRoots,
   commandCandidates,
-  DSH_APP_BIN,
-  dshAppBins,
-  dshInstallDirs,
   findAgent,
   resolveProfile,
   searchPath,
 } from "../src/profiles.ts";
 
-describe("findAgent dsh", () => {
+describe("findAgent", () => {
   const has =
     (...paths: string[]) =>
     (p: string) =>
       paths.includes(p);
 
-  it("prefers AGENTHERD_DSH", () => {
+  it("prefers AGENTHERD_CLAUDE", () => {
     expect(
       findAgent(
-        "dsh",
-        { AGENTHERD_DSH: "/x/dsh", PATH: "/usr/bin" },
-        has("/usr/bin/dsh"),
+        "claude",
+        { AGENTHERD_CLAUDE: "/x/claude-agent-acp", PATH: "/usr/bin" },
+        has("/usr/bin/claude-agent-acp"),
         "darwin",
       ),
-    ).toBe("/x/dsh");
+    ).toBe("/x/claude-agent-acp");
   });
   it("reads Path case-insensitively from plain env objects on Windows", () => {
-    expect(
-      findAgent("pi", { Path: "C:\\Tools" }, has("C:\\Tools\\pi.cmd"), "win32", () => []),
-    ).toBe("C:\\Tools\\pi.cmd");
-  });
-  it("then searches PATH in order", () => {
-    expect(findAgent("dsh", { PATH: "/a:/b" }, has("/b/dsh", DSH_APP_BIN), "darwin")).toBe(
-      "/b/dsh",
+    expect(findAgent("pi", { Path: "C:\\Tools" }, has("C:\\Tools\\pi.cmd"), "win32")).toBe(
+      "C:\\Tools\\pi.cmd",
     );
   });
-  it("then falls back to the app bundle", () => {
-    expect(findAgent("dsh", { PATH: "/a" }, has(DSH_APP_BIN), "darwin")).toBe(DSH_APP_BIN);
+  it("then searches PATH in order", () => {
+    expect(findAgent("claude", { PATH: "/a:/b" }, has("/b/claude-agent-acp"), "darwin")).toBe(
+      "/b/claude-agent-acp",
+    );
   });
-  it("returns undefined when DSH is not installed", () => {
-    expect(findAgent("dsh", { PATH: "" }, has(), "darwin")).toBeUndefined();
+  it("returns undefined when it is not installed", () => {
+    expect(findAgent("claude", { PATH: "" }, has(), "darwin")).toBeUndefined();
+  });
+  it("knows no DSH any more (ADR 0066)", () => {
+    expect(findAgent("dsh", { PATH: "/b" }, has("/b/dsh"), "darwin")).toBeUndefined();
   });
 });
 
 describe("resolveProfile", () => {
-  it("builds the dsh profile in read-only mode", () => {
-    const p = resolveProfile("dsh", {
+  it("builds the Codex profile in read-only mode", () => {
+    const p = resolveProfile("codex", {
       configured: [],
-      find: (id) => (id === "dsh" ? "/x/dsh" : undefined),
+      find: (id) => (id === "codex" ? "/x/codex-acp" : undefined),
+      agentEnv: () => ({}),
     });
-    expect(p.command).toEqual(["/x/dsh", "acp"]);
-    expect(p.env).toEqual({ DSH_PERMISSION_MODE: "read-only" });
+    expect(p.command).toEqual(["/x/codex-acp"]);
+    expect(p.env).toEqual({ INITIAL_AGENT_MODE: "read-only", NO_BROWSER: "1" });
   });
   it("lets a config.json profile replace a built-in one", () => {
-    const mine = { id: "dsh", name: "Mine", command: ["dsh", "acp"], env: {}, exporter: null };
-    expect(resolveProfile("dsh", { configured: [mine], find: () => undefined })).toBe(mine);
+    const mine = { id: "codex", name: "Mine", command: ["codex-acp"], env: {}, exporter: null };
+    expect(resolveProfile("codex", { configured: [mine], find: () => undefined })).toBe(mine);
   });
-  it("explains how to install DSH when it is missing", () => {
-    expect(() => resolveProfile("dsh", { configured: [], find: () => undefined })).toThrow(
-      /AGENTHERD_DSH/,
+  it("explains how to install Claude Code when it is missing", () => {
+    expect(() => resolveProfile("claude", { configured: [], find: () => undefined })).toThrow(
+      /AGENTHERD_CLAUDE/,
     );
   });
   it("requires a script for the mock profile", () => {
@@ -73,30 +71,34 @@ describe("resolveProfile", () => {
     );
   });
   it("lists known profiles for an unknown id", () => {
-    expect(() => resolveProfile("nope", { configured: [] })).toThrow(/known: mock, dsh/);
+    expect(() => resolveProfile("dsh", { configured: [] })).toThrow(
+      /known: mock, pi, codex, claude/,
+    );
   });
 });
 
 describe("availableProfiles", () => {
-  it("lists configured profiles, then dsh when installed, then mock with a script", () => {
+  it("lists configured profiles, then installed agents, then mock with a script", () => {
     const custom = { id: "x", name: "X", command: ["x"], env: {}, exporter: null };
     const ids = availableProfiles({
       configured: [custom],
       script: "/s.yaml",
-      find: (id) => (id === "dsh" ? "/bin/dsh" : undefined),
+      find: (id) => (id === "claude" ? "/bin/claude-agent-acp" : undefined),
+      agentEnv: () => ({}),
     }).map((p) => p.id);
-    expect(ids).toEqual(["x", "dsh", "mock"]);
+    expect(ids).toEqual(["x", "claude", "mock"]);
   });
 
-  it("skips dsh when not installed and mock without a script", () => {
+  it("skips agents that are not installed and mock without a script", () => {
     expect(availableProfiles({ configured: [], find: () => undefined })).toEqual([]);
   });
 
-  it("a configured dsh profile wins over the built-in one", () => {
-    const mine = { id: "dsh", name: "My DSH", command: ["d"], env: {}, exporter: null };
+  it("a configured profile wins over the built-in one", () => {
+    const mine = { id: "codex", name: "My Codex", command: ["d"], env: {}, exporter: null };
     const list = availableProfiles({
       configured: [mine],
-      find: (id) => (id === "dsh" ? "/bin/dsh" : undefined),
+      find: (id) => (id === "codex" ? "/bin/codex-acp" : undefined),
+      agentEnv: () => ({}),
     });
     expect(list).toEqual([mine]);
   });
@@ -136,12 +138,14 @@ describe("pi", () => {
     );
   });
 
-  it("is listed after dsh when installed", () => {
+  it("is listed before Codex and Claude Code", () => {
     const ids = availableProfiles({
       configured: [],
-      find: (id) => ({ dsh: "/bin/dsh", pi: "/bin/pi" })[id],
+      find: (id) =>
+        ({ claude: "/bin/claude-agent-acp", codex: "/bin/codex-acp", pi: "/bin/pi" })[id],
+      agentEnv: () => ({}),
     }).map((p) => p.id);
-    expect(ids).toEqual(["dsh", "pi"]);
+    expect(ids).toEqual(["pi", "codex", "claude"]);
   });
 });
 
@@ -152,77 +156,17 @@ describe("findAgent on Windows", () => {
       paths.includes(p);
   const PATH = "C:\\a;C:\\nodejs";
 
-  const APP = "D:\\Apps\\DSH\\resources\\runtime\\cli\\bin\\dsh.cmd";
-  const noApp = () => [];
-
   it("finds npm's .cmd shim, not the shell script beside it", () => {
     const found = findAgent(
-      "dsh",
+      "claude",
       { PATH },
-      has("C:\\nodejs\\dsh", "C:\\nodejs\\dsh.cmd"),
+      has("C:\\nodejs\\claude-agent-acp", "C:\\nodejs\\claude-agent-acp.cmd"),
       "win32",
-      noApp,
     );
-    expect(found).toBe("C:\\nodejs\\dsh.cmd");
+    expect(found).toBe("C:\\nodejs\\claude-agent-acp.cmd");
   });
   it("finds an .exe", () => {
     expect(findAgent("pi", { PATH }, has("C:\\a\\pi.exe"), "win32")).toBe("C:\\a\\pi.exe");
-  });
-  it("prefers the installed DSH app over the npm launcher on PATH", () => {
-    const found = findAgent("dsh", { PATH }, has("C:\\nodejs\\dsh.cmd", APP), "win32", () => [APP]);
-    expect(found).toBe(APP);
-  });
-  it("still prefers AGENTHERD_DSH", () => {
-    expect(
-      findAgent("dsh", { AGENTHERD_DSH: "C:\\x\\dsh.cmd" }, has(APP), "win32", () => [APP]),
-    ).toBe("C:\\x\\dsh.cmd");
-  });
-  it("does not look for the macOS app bundle", () => {
-    expect(findAgent("dsh", { PATH: "" }, () => true, "win32", noApp)).toBeUndefined();
-    expect(dshAppBins("win32", () => "")).toEqual([]);
-  });
-});
-
-describe("DSH app on Windows", () => {
-  // `reg query HKCU\...\Uninstall /s /f "DeepSeek Harness" /d` on a per-user install.
-  const OUTPUT = [
-    "",
-    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\1bf39983-50d0-5fe0-9ef4-cece76f67c5e",
-    "    DisplayName    REG_SZ    DeepSeek Harness 0.2.1-rc.2",
-    '    UninstallString    REG_SZ    "G:\\Program File\\DSH\\Uninstall DeepSeek Harness.exe" /currentuser',
-    "    DisplayIcon    REG_SZ    G:\\Program File\\DSH\\DeepSeek Harness.exe,0",
-    "",
-    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\other",
-    "    DisplayName    REG_SZ    Notes about DeepSeek Harness",
-    "    DisplayIcon    REG_SZ    C:\\Notes\\notes.exe",
-    "",
-    "Search end: 3 match(es) found.",
-  ].join("\r\n");
-
-  it("reads install folders from DisplayIcon or InstallLocation", () => {
-    const withInstallLocation = [
-      "HKEY_LOCAL_MACHINE\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\dsh",
-      "    DisplayName    REG_SZ    DeepSeek Harness 0.2.1",
-      "    InstallLocation    REG_SZ    C:\\Program Files (x86)\\DeepSeek Harness",
-    ].join("\r\n");
-    expect(dshInstallDirs(OUTPUT)).toEqual(["G:\\Program File\\DSH"]);
-    expect(dshInstallDirs(withInstallLocation)).toEqual([
-      "C:\\Program Files (x86)\\DeepSeek Harness",
-    ]);
-  });
-  it("points at the CLI launcher in each folder, per-user then HKLM and WOW6432Node", () => {
-    const asked: string[] = [];
-    const bins = dshAppBins("win32", (args) => {
-      asked.push(args[1] ?? "");
-      if (args[1]?.startsWith("HKLM")) throw new Error("ERROR: no match");
-      return OUTPUT;
-    });
-    expect(asked).toEqual([
-      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-      "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-      "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-    ]);
-    expect(bins).toEqual(["G:\\Program File\\DSH\\resources\\runtime\\cli\\bin\\dsh.cmd"]);
   });
 });
 

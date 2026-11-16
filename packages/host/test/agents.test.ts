@@ -13,7 +13,14 @@ import { FakeChannel } from "@agentherd/channel-fake";
 import { afterEach, describe, expect, it } from "vitest";
 import { Agents } from "../src/agents.ts";
 import type { HostEvent } from "../src/api.ts";
-import { type AgentDef, agentProfile, parseDshFeed } from "../src/catalog.ts";
+import {
+  AGENTS,
+  type AgentDef,
+  agentProfile,
+  CLAUDE_ACP_VERSION,
+  CODEX_ACP_VERSION,
+  PI_VERSION,
+} from "../src/catalog.ts";
 import { writeConfig } from "../src/config.ts";
 import { Host } from "../src/host.ts";
 import { type ArchiveRelease, type Release, RuntimeStore, windowsTar } from "../src/runtimes.ts";
@@ -158,25 +165,46 @@ describe("RuntimeStore", () => {
 });
 
 describe("catalog", () => {
-  it("reads DeepSeek Harness's update feed with folded values", () => {
-    const feed = [
-      "version: 0.2.2-rc.1",
-      "files:",
-      "  - url: >-",
-      "      https://download.example/dsh/deepseek-harness-0.2.2-rc.1-mac-arm64.zip",
-      "    sha512: >-",
-      "      abc+/==",
-      "    size: 353501474",
-      "path: >-",
-      "  https://download.example/dsh/deepseek-harness-0.2.2-rc.1-mac-arm64.zip",
-      "releaseDate: '2026-11-04T09:24:35.800Z'",
-    ].join("\n");
-    expect(parseDshFeed(feed, "https://download.example/feeds/nightly-mac.yml")).toEqual({
-      version: "0.2.2-rc.1",
-      url: "https://download.example/dsh/deepseek-harness-0.2.2-rc.1-mac-arm64.zip",
-      sha512: "abc+/==",
-      size: 353501474,
-    });
+  it("downloads exactly the versions AgentHerd is adapted to, never upstream's latest (ADR 0066)", async () => {
+    expect(AGENTS.map((a) => [a.id, a.version])).toEqual([
+      ["pi", PI_VERSION],
+      ["codex", CODEX_ACP_VERSION],
+      ["claude", CLAUDE_ACP_VERSION],
+    ]);
+    const asked: string[] = [];
+    const fetchers = {
+      json: async (url: string) => {
+        asked.push(url);
+        if (url.includes("api.github.com")) {
+          return {
+            tag_name: `v${PI_VERSION}`,
+            assets: [
+              {
+                name: "pi-darwin-arm64.tar.gz",
+                browser_download_url: "https://dl/pi.tgz",
+                size: 1,
+                digest: "sha256:ab",
+              },
+            ],
+          };
+        }
+        const version = url.split("/").at(-1);
+        return { version, dist: { tarball: "t", integrity: "sha512-x" } };
+      },
+      text: async () => "",
+    };
+    const releases = await Promise.all(AGENTS.map((a) => a.release?.("darwin-arm64", fetchers)));
+    expect(releases.map((r) => r?.version)).toEqual([
+      PI_VERSION,
+      CODEX_ACP_VERSION,
+      CLAUDE_ACP_VERSION,
+    ]);
+    expect(asked).toEqual([
+      `https://api.github.com/repos/earendil-works/pi/releases/tags/v${PI_VERSION}`,
+      `https://registry.npmjs.org/@agentclientprotocol/codex-acp/${CODEX_ACP_VERSION}`,
+      `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/${CLAUDE_ACP_VERSION}`,
+    ]);
+    expect(asked.some((u) => u.endsWith("/latest"))).toBe(false);
   });
 
   it("runs scripts with Node and binaries directly, with the agent's ask-first env", () => {
@@ -199,18 +227,44 @@ describe("catalog", () => {
 
   it("hides download capability for agents whose targets exclude the current platform", () => {
     const store = { installed: () => undefined } as unknown as RuntimeStore;
+    const macOnly: AgentDef = {
+      id: "mac-only",
+      name: "Mac only",
+      envVar: "X_MAC",
+      systemNames: [],
+      acpArgs: [],
+      env: {},
+      version: "1.0.0",
+      release: async () => undefined,
+      targets: ["darwin-arm64"],
+    };
     const baseOpts = {
       store,
       env: { PATH: "" },
       exists: () => false,
-      dshApp: "C:\\missing\\dsh.cmd",
+      catalog: [macOnly, ...AGENTS],
       onChange() {},
     };
     const winAgents = new Agents({ ...baseOpts, platform: "win32", target: "win32-x64" });
-    expect(winAgents.views([], {}).find((v) => v.id === "dsh")?.canInstall).toBe(false);
+    expect(winAgents.views([], {}).find((v) => v.id === "mac-only")?.canInstall).toBe(false);
     expect(winAgents.views([], {}).find((v) => v.id === "pi")?.canInstall).toBe(true);
     const macAgents = new Agents({ ...baseOpts, platform: "darwin", target: "darwin-arm64" });
-    expect(macAgents.views([], {}).find((v) => v.id === "dsh")?.canInstall).toBe(true);
+    expect(macAgents.views([], {}).find((v) => v.id === "mac-only")?.canInstall).toBe(true);
+  });
+
+  it("finds downloads of another version than the adapted one", () => {
+    const store = {
+      installed: (id: string) =>
+        id === "pi" ? { id, version: "1.5.2", path: "/rt/pi" } : undefined,
+    } as unknown as RuntimeStore;
+    const agents = new Agents({ store, env: { PATH: "" }, exists: () => false, onChange() {} });
+    expect(agents.outdated()).toEqual(["pi"]);
+    expect(agents.views([], {}).find((v) => v.id === "pi")).toMatchObject({
+      state: "ready",
+      version: "1.5.2",
+      adapted: PI_VERSION,
+      canInstall: false,
+    });
   });
 });
 
@@ -223,7 +277,8 @@ describe("Codex with the Codex app's CLI", () => {
     systemNames: [],
     acpArgs: [],
     env: {},
-    latest: async () => ({
+    version: "2.5.0",
+    release: async () => ({
       kind: "npm",
       id: "codex",
       version: "2.5.0",
@@ -282,7 +337,8 @@ function testCatalog(rel: () => ArchiveRelease): AgentDef[] {
       systemNames: ["tool"],
       acpArgs: ["acp"],
       env: {},
-      latest: async () => rel(),
+      version: "9.9.9",
+      release: async () => rel(),
     },
     { id: "app-only", name: "App only", envVar: "X_APP", systemNames: [], acpArgs: [], env: {} },
   ];
@@ -303,7 +359,7 @@ function makeHost(home: string, catalog: AgentDef[], extra: { script?: string } 
 }
 
 describe("Host agents", () => {
-  it("downloads the latest release from the GUI; removing it takes it away", async () => {
+  it("downloads the adapted version from the GUI, offers no update; removing takes it away", async () => {
     const tgz = fakeArchive("tar.gz", "9.9.9");
     const base = await serve({ "/a.tar.gz": tgz });
     const home = mkdtempSync(join(tmpdir(), "ah-"));
@@ -326,9 +382,11 @@ describe("Host agents", () => {
         state: "ready",
         source: "managed",
         version: "9.9.9",
+        adapted: "9.9.9",
         canRemove: true,
-        canInstall: true,
+        canInstall: false,
       });
+      expect(() => host.installAgent("tool")).toThrow(/does not update agents/);
       expect(events.some((e) => e.topic === "agents")).toBe(true);
 
       host.removeAgent("tool");

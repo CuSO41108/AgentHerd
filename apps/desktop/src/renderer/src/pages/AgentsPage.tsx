@@ -1,5 +1,6 @@
-// Agent: the coding agents AgentHerd picks from (ADR 0031: Codex for GPT models, Pi for the rest). The app
-// downloads each one's latest release (digest checked); 验证 starts it once to prove it works.
+// Agent: the coding agents AgentHerd picks from (ADR 0066: Codex for GPT models, Claude Code for
+// hard coding tasks, Pi for the rest). The app downloads the version AgentHerd is adapted to
+// (digest checked) and never updates it; 验证 starts it once to prove it works.
 
 import type { AgentCheck, AgentView } from "@agentherd/host/api";
 import {
@@ -7,7 +8,6 @@ import {
   CircleCheck,
   Download,
   Loader2,
-  RefreshCw,
   ShieldCheck,
   SquareTerminal,
   Trash2,
@@ -19,9 +19,10 @@ import { isAgentSecurityBlock } from "../platform";
 import { call, useApp } from "../store";
 
 const DESCRIPTIONS: Record<string, string> = {
-  dsh: "DeepSeek 的编程 Agent，用它自己的模型设置。只有你点名要它时才用。",
-  pi: "轻量的开源编程 Agent。GPT 以外的模型都用它跑。",
+  pi: "轻量的开源编程 Agent。简单的任务用它跑。",
   codex: "OpenAI 的 Codex。模型列表里有 GPT 模型时自动下载，GPT 模型用它跑；跑不起来就换 Pi。",
+  claude:
+    "Anthropic 的 Claude Code。复杂的编程任务用它跑，要用 Anthropic 接口的模型；模型列表里有这种模型时自动下载，跑不起来就换 Pi。",
 };
 
 /** How to sign in, for agents that use their own account. */
@@ -30,7 +31,6 @@ const LOGIN: Record<string, string> = {};
 const SOURCES: Record<NonNullable<AgentView["source"]>, string> = {
   managed: "AgentHerd 下载的",
   system: "你电脑上装的",
-  app: "随 DeepSeek Harness 安装",
   config: "config.json 里配置的",
 };
 
@@ -84,24 +84,16 @@ function Actions({ agent }: { agent: AgentView }) {
       </Button>
     );
   }
-  const ready = agent.state === "ready";
   return (
     <>
-      {agent.canInstall && (
+      {agent.canInstall && agent.state === "missing" && (
         <Button
-          variant={ready ? "secondary" : "primary"}
+          variant="primary"
           disabled={busy}
-          title={ready ? "下载最新版本替换现在这份" : undefined}
           onClick={() => void act(() => call((h) => h.installAgent(agent.id)))}
         >
-          {busy ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : ready ? (
-            <RefreshCw size={13} />
-          ) : (
-            <Download size={13} />
-          )}
-          {ready ? "更新" : agent.error === undefined ? "下载" : "重新下载"}
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          {agent.error === undefined ? "下载" : "重新下载"}
         </Button>
       )}
       {agent.canRemove && (
@@ -122,12 +114,16 @@ function Actions({ agent }: { agent: AgentView }) {
 
 function detail(agent: AgentView): string {
   if (agent.state === "missing" && agent.canInstall) {
-    return agent.id === "dsh"
-      ? "从 DeepSeek 官方更新源下载最新版（约 350 MB）；装了桌面版就直接用它"
-      : "下载官方最新版";
+    return agent.adapted === undefined
+      ? "下载官方版本"
+      : `下载 AgentHerd 适配过的 ${agent.adapted} 版`;
   }
   if (agent.state === "ready" && agent.source !== undefined) {
-    return `${SOURCES[agent.source]}${agent.source === "managed" ? `，版本 ${agent.version ?? ""}` : ""}`;
+    if (agent.source !== "managed") return SOURCES[agent.source];
+    const version = `${SOURCES.managed}，版本 ${agent.version ?? ""}`;
+    return agent.adapted !== undefined && agent.adapted !== agent.version
+      ? `${version}；AgentHerd 适配的是 ${agent.adapted}，下次启动时换成这个版本`
+      : version;
   }
   return "";
 }
@@ -243,8 +239,8 @@ export function AgentsPage() {
         title="编程 Agent"
         hint={
           ready === 0
-            ? "不用选 Agent：AgentHerd 按任务的模型自动挑，GPT 模型用 Codex，其余用 Pi。"
-            : `${ready} 个可以用。不用选：GPT 模型用 Codex，其余用 Pi。`
+            ? "不用选 Agent：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。版本由 AgentHerd 固定，不在这里更新。"
+            : `${ready} 个可以用。不用选：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。版本由 AgentHerd 固定，不在这里更新。`
         }
       >
         <Group>

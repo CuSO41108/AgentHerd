@@ -1,11 +1,11 @@
-// The agents the owner can run, where each CLI comes from, and downloads of their latest releases
-// (catalog.ts, runtimes.ts). The host keeps one Agents and rebuilds profiles when it changes.
+// The agents the owner can run, where each CLI comes from, and downloads of the version AgentHerd
+// is adapted to (catalog.ts, runtimes.ts; ADR 0066). The host keeps one Agents and rebuilds profiles when it changes.
 
 import { existsSync } from "node:fs";
 import type { AgentProfile } from "@agentherd/protocol";
 import type { AgentSource, AgentView } from "./api.ts";
 import { AGENTS, type AgentDef, type Fetchers, httpFetchers, npmRuntime } from "./catalog.ts";
-import { agentEnv, codexAppClis, dshAppBins, envValue, onPath } from "./profiles.ts";
+import { agentEnv, codexAppClis, envValue, onPath } from "./profiles.ts";
 import { currentTarget, type InstallProgress, type RuntimeStore } from "./runtimes.ts";
 
 export interface AgentsOptions {
@@ -18,8 +18,6 @@ export interface AgentsOptions {
   exists?: (path: string) => boolean;
   /** Default: process.platform (decides how PATH is searched). */
   platform?: NodeJS.Platform;
-  /** The DeepSeek Harness desktop app's CLI, when installed. */
-  dshApp?: string;
   /** The Codex desktop app's CLI candidates. Default: codexAppClis(platform). */
   codexApps?: string[];
   onChange: () => void;
@@ -58,7 +56,7 @@ export class Agents {
     return (this.opts.exists ?? existsSync)(path);
   }
 
-  /** Where `id` runs from: its env variable, then the app's download, then PATH and the DSH app. */
+  /** Where `id` runs from: its env variable, then the app's download, then PATH. */
   find(id: string): AgentPath | undefined {
     const def = this.catalog.find((d) => d.id === id);
     if (def === undefined) return undefined;
@@ -68,35 +66,27 @@ export class Agents {
     if (managed !== undefined) {
       return { path: managed.path, source: "managed", version: managed.version };
     }
-    const platform = this.opts.platform ?? process.platform;
-    const app = (): AgentPath | undefined => {
-      if (id !== "dsh") return undefined;
-      const path = this.dshApps(platform).find((p) => this.exists(p));
-      return path === undefined ? undefined : { path, source: "app" };
-    };
-    // On Windows the app comes first: the `dsh` on PATH is usually the npm launcher, which
-    // lacks the `acp` profile unless installed separately (see findAgent).
-    if (platform === "win32") {
-      const fromApp = app();
-      if (fromApp !== undefined) return fromApp;
-    }
     const onSystem = onPath(
       def.systemNames,
       envValue(this.env, "PATH"),
       (p) => this.exists(p),
-      platform,
+      this.opts.platform ?? process.platform,
     );
-    if (onSystem !== undefined) return { path: onSystem, source: "system" };
-    return platform === "win32" ? undefined : app();
+    return onSystem === undefined ? undefined : { path: onSystem, source: "system" };
   }
 
-  private appBins: string[] | undefined;
-
-  /** The DSH app's CLI candidates; the registry is read once per host. */
-  private dshApps(platform: NodeJS.Platform): string[] {
-    if (this.opts.dshApp !== undefined) return [this.opts.dshApp];
-    this.appBins ??= dshAppBins(platform);
-    return this.appBins;
+  /**
+   * Agents whose download is not the version AgentHerd is adapted to (an older app's download):
+   * the host downloads the adapted one in its place (ADR 0066).
+   */
+  outdated(): string[] {
+    return this.catalog
+      .filter((def) => {
+        if (def.version === undefined || this.installs.has(def.id)) return false;
+        const found = this.find(def.id);
+        return found?.source === "managed" && found.version !== def.version;
+      })
+      .map((def) => def.id);
   }
 
   private codexClis: string[] | undefined;
@@ -145,7 +135,7 @@ export class Agents {
     const install = this.installs.get(def.id);
     const target = this.opts.target ?? currentTarget();
     const canInstall =
-      def.latest !== undefined && (def.targets === undefined || def.targets.includes(target));
+      def.release !== undefined && (def.targets === undefined || def.targets.includes(target));
     if (install !== undefined) {
       return {
         ...base,
@@ -157,7 +147,14 @@ export class Agents {
     }
     const found = this.find(def.id);
     if (found === undefined) {
-      return { ...base, state: "missing", canInstall, canRemove: false, ...withError };
+      return {
+        ...base,
+        state: "missing",
+        ...(def.version === undefined ? {} : { adapted: def.version }),
+        canInstall,
+        canRemove: false,
+        ...withError,
+      };
     }
     return {
       ...base,
@@ -165,17 +162,18 @@ export class Agents {
       source: found.source,
       path: found.path,
       ...(found.version === undefined ? {} : { version: found.version }),
-      // A download replaces the copy in use with the latest release.
-      canInstall: canInstall && found.source === "managed",
+      ...(def.version === undefined ? {} : { adapted: def.version }),
+      // No updates from the app: the version is the one in the catalog (ADR 0066).
+      canInstall: false,
       canRemove: found.source === "managed",
       ...withError,
     };
   }
 
-  /** Starts a download of the latest release; onChange fires on progress and at the end. */
+  /** Starts a download of the adapted version; onChange fires on progress and at the end. */
   install(id: string): void {
     const def = this.catalog.find((d) => d.id === id);
-    if (def?.latest === undefined) throw new Error(`AgentHerd cannot download "${id}"`);
+    if (def?.release === undefined) throw new Error(`AgentHerd cannot download "${id}"`);
     if (this.installs.has(id)) return;
     const install: Install = { progress: { received: 0, total: 0 }, abort: new AbortController() };
     this.installs.set(id, install);
@@ -206,7 +204,7 @@ export class Agents {
   ): Promise<string> {
     const fetchers = this.opts.fetchers ?? httpFetchers;
     const target = this.opts.target ?? currentTarget();
-    const release = await def.latest?.(target, fetchers);
+    const release = await def.release?.(target, fetchers);
     if (release === undefined) throw new Error(`${def.name} has no build for ${target}`);
     let npmCli: string | undefined;
     if (release.kind === "npm") {

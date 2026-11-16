@@ -29,7 +29,7 @@ Commands:
   setup feishu                 Create a Feishu bot with one QR scan and bind it to you
   model <command>              Model services and the model of each role (agentherd model help)
   run [options] <dir> <prompt> Run one task with an agent; approvals go to Feishu
-      --profile <id>           Agent: mock, dsh, pi, codex, or one from config.json (default: mock)
+      --profile <id>           Agent: mock, pi, codex, claude, or one from config.json (default: mock)
       --script <yaml>          Script for the mock profile
       --mode <observe|assist>  Mode (default: from config, else assist)
   start [options]              Stay connected; start and relay to tasks from chat (/help)
@@ -224,7 +224,7 @@ async function start(home: string, args: string[], out: Out): Promise<number> {
       : `[herder] off: ${status.herder.reason}. Only commands work.`,
   );
   if (status.profiles.length === 0) {
-    out("[herd] no agent profiles: install DeepSeek Harness, add profiles, or pass --script.");
+    out("[herd] no agent profiles: install Pi, add profiles, or pass --script.");
   }
   out("[herd] send /help to the bot. Ctrl-C to stop.");
   await new Promise<void>((done) => {

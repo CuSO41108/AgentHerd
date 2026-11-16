@@ -383,12 +383,12 @@ describe("tools", () => {
       { ownerText: "fix it" },
       {
         models: [
-          { ref: "anthropic/claude-opus-5", agents: ["dsh"] },
-          { ref: "relay/gpt-6.1-sol", agents: ["codex", "dsh"] },
+          { ref: "anthropic/claude-opus-5", agents: ["claude"] },
+          { ref: "relay/gpt-6.1-sol", agents: ["codex", "claude"] },
         ],
         profiles: [
           { id: "codex", name: "Codex" },
-          { id: "dsh", name: "DSH" },
+          { id: "claude", name: "Claude Code" },
         ],
       },
     );
@@ -403,19 +403,19 @@ describe("tools", () => {
       {
         models: [
           { ref: "site/gpt-6.1-sol", agents: ["pi", "codex"] },
-          { ref: "site/other", agents: ["dsh"] },
+          { ref: "site/other", agents: ["claude"] },
         ],
-        profiles: [{ id: "dsh", name: "DSH" }],
+        profiles: [{ id: "claude", name: "Claude Code" }],
       },
     );
     await call("session_start", {
       name: "修构建",
       project: tmpdir(),
       ownerText: "修一下构建",
-      profile: "dsh",
+      profile: "claude",
     });
     expect(rec.started[0]?.model).toBe("site/other");
-    expect(rec.started[0]?.profileId).toBe("dsh");
+    expect(rec.started[0]?.profileId).toBe("claude");
   });
 
   it.each([{ models: [] }, { models: [{ ref: "site/model", agents: [] }] }])(
@@ -462,21 +462,59 @@ describe("tools", () => {
     const dir = tmpdir();
     const models = [
       { ref: "site/gpt-6.1-sol", agents: ["pi", "codex"] },
-      { ref: "deepseek/deepseek-v4-pro", agents: ["pi", "dsh"] },
+      { ref: "deepseek/deepseek-v4-pro", agents: ["pi"] },
+      { ref: "anthropic/claude-opus-5-5", agents: ["pi", "claude"] },
     ];
     const profiles = [
-      { id: "dsh", name: "DeepSeek Harness" },
       { id: "pi", name: "Pi" },
       { id: "codex", name: "Codex" },
+      { id: "claude", name: "Claude Code" },
     ];
     const { call, rec } = tools({ ownerText: "修一下构建" }, { models, profiles });
     const base = { name: "修构建", project: dir, ownerText: "修一下构建" };
     expect(await call("session_start", { ...base, model: "gpt-6.1-sol" })).toContain("with codex");
     await call("session_start", { ...base, model: "deepseek-v4-pro" });
     await call("session_start", base);
-    await call("session_start", { ...base, profile: "dsh" });
-    expect(rec.started.map((s) => s.profileId)).toEqual(["codex", "pi", "codex", "dsh"]);
+    await call("session_start", { ...base, profile: "claude", model: "claude-opus-5-5" });
+    expect(rec.started.map((s) => s.profileId)).toEqual(["codex", "pi", "codex", "claude"]);
     expect(rec.started[0]?.model).toBe("site/gpt-6.1-sol");
+  });
+
+  it("gives hard coding tasks to Claude Code, simple ones to Pi, GPT models to Codex (ADR 0066)", async () => {
+    const dir = tmpdir();
+    const models = [
+      { ref: "site/gpt-6.1-sol", agents: ["pi", "codex"] },
+      { ref: "deepseek/deepseek-v4-pro", agents: ["pi"] },
+      { ref: "anthropic/claude-opus-5-5", agents: ["pi", "claude"] },
+    ];
+    const profiles = [
+      { id: "pi", name: "Pi" },
+      { id: "codex", name: "Codex" },
+      { id: "claude", name: "Claude Code" },
+    ];
+    const { call, rec } = tools({ ownerText: "重构登录模块" }, { models, profiles });
+    const base = { name: "重构登录", project: dir, ownerText: "重构登录模块" };
+    // Hard, no model named: a model Claude Code runs, in Claude Code.
+    expect(await call("session_start", { ...base, hard: true })).toContain("with claude");
+    // Hard with a model only Pi runs: Pi.
+    await call("session_start", { ...base, hard: true, model: "deepseek-v4-pro" });
+    // Hard with a GPT model: still Codex.
+    await call("session_start", { ...base, hard: true, model: "gpt-6.1-sol" });
+    // Simple with the Anthropic model: Pi.
+    await call("session_start", { ...base, model: "claude-opus-5-5" });
+    expect(rec.started.map((s) => [s.profileId, s.model])).toEqual([
+      ["claude", "anthropic/claude-opus-5-5"],
+      ["pi", "deepseek/deepseek-v4-pro"],
+      ["codex", "site/gpt-6.1-sol"],
+      ["pi", "anthropic/claude-opus-5-5"],
+    ]);
+    // Without Claude Code installed, a hard task goes the usual way.
+    const noClaude = tools(
+      { ownerText: "重构登录模块" },
+      { models, profiles: profiles.filter((p) => p.id !== "claude") },
+    );
+    await noClaude.call("session_start", { ...base, hard: true, model: "claude-opus-5-5" });
+    expect(noClaude.rec.started[0]?.profileId).toBe("pi");
   });
 
   it("swaps a model that does not answer for the next in its tier, then other tiers", async () => {

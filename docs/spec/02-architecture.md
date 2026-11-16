@@ -22,7 +22,7 @@ flowchart TB
     DB[("herd.db")]
   end
   subgraph Bottom["Agents (bottom)"]
-    A1["dsh acp"]
+    A1["pi-acp (Pi)"]
     A2["claude-agent-acp"]
     A3["codex-acp"]
     A4["any ACP agent"]

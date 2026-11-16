@@ -23,7 +23,7 @@ export interface RunningHost {
 export async function runHost(opts: RunHostOptions): Promise<RunningHost> {
   const log = opts.log ?? ((line: string) => console.log(line));
   applySystemProxy(process.env);
-  // An app opened from Finder gets a short PATH; find dsh/pi and let agents find `node` like a
+  // An app opened from Finder gets a short PATH; find agents and let agents find `node` like a
   // terminal would.
   process.env.PATH = searchPath(process.env);
   const mcpSocket = mcpSocketPath(opts.home);

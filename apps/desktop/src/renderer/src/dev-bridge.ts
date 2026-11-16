@@ -98,7 +98,7 @@ function installFakeBridge(): void {
     mode: "observe",
     locale: "zh-CN",
     keepAwake: true,
-    profiles: sim === "no-agent" ? [] : ["dsh"],
+    profiles: sim === "no-agent" || sim === "pi-failed" ? [] : ["pi"],
   };
 
   const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
@@ -186,23 +186,27 @@ function installFakeBridge(): void {
     ...extra,
   });
   let agents: AgentView[] = [
-    sim === "no-agent"
-      ? missing("dsh", "DeepSeek Harness")
+    sim === "no-agent" || sim === "pi-failed"
+      ? missing(
+          "pi",
+          "Pi",
+          sim === "pi-failed"
+            ? { error: "download failed: HTTP 503 for https://github.com/…" }
+            : {},
+        )
       : {
-          id: "dsh",
-          name: "DeepSeek Harness",
+          id: "pi",
+          name: "Pi",
           state: "ready",
-          source: "app",
-          path: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+          source: "managed",
+          version: "1.5.0",
+          adapted: "1.5.0",
+          path: "~/.agentherd/runtimes/pi/1.5.0/pi/pi",
           canInstall: false,
-          canRemove: false,
+          canRemove: true,
         },
-    missing(
-      "pi",
-      "Pi",
-      sim === "pi-failed" ? { error: "download failed: HTTP 503 for https://github.com/…" } : {},
-    ),
-    missing("codex", "Codex"),
+    missing("codex", "Codex", { adapted: "2.5.0" }),
+    missing("claude", "Claude Code", { adapted: "0.107.2" }),
   ];
   let installTimer: ReturnType<typeof setInterval> | undefined;
   const setAgents = (next: AgentView[]): AgentView[] => {

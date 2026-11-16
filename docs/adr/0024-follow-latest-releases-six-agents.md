@@ -1,6 +1,6 @@
 # ADR 0024: Agent downloads follow upstream's latest release; six agents and a check button
 
-- Status: Accepted
+- Status: Accepted; partly superseded by [ADR 0066](0066-pinned-agents-and-claude-code-for-hard-work.md)
 - Date: 2026-11-05
 - Supersedes: [ADR 0023](0023-app-downloads-pinned-agent-clis.md) (the pin; the download flow stays)
 - Related: [ADR 0022](0022-pi-through-a-bundled-acp-bridge.md), [03-agents.md](../spec/03-agents.md#managed-downloads)
