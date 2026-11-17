@@ -24,6 +24,12 @@ export interface ModelService {
   api?: CustomApi;
   /** Model ids turned on for this service. */
   models: string[];
+  /**
+   * "subscription": the owner signed in with an account of `provider` (ChatGPT, Claude, Copilot…)
+   * instead of giving a key (ADR 0068). The credential is in the SecretStore under
+   * modelLoginAccount(); only the host reads it, and agents get short-lived tokens per request.
+   */
+  auth?: "key" | "subscription";
 }
 
 export type CustomApi = "openai-completions" | "anthropic-messages";
@@ -55,6 +61,15 @@ export function modelKeyAccount(serviceId: string): string {
   return `model:${serviceId}`;
 }
 
+/** Where a subscription service's sign-in (OAuth credential JSON) is kept. */
+export function modelLoginAccount(serviceId: string): string {
+  return `model-login:${serviceId}`;
+}
+
+export function isSubscription(service: ModelService): boolean {
+  return service.auth === "subscription";
+}
+
 /** "service/model"; the model id may itself contain "/" (e.g. "anthropic/claude-x" on OpenRouter). */
 export function parseModelRef(text: string): ModelRef {
   const slash = text.indexOf("/");
@@ -78,10 +93,15 @@ function checkService(service: ModelService): void {
     throw new Error(`service "${service.id}" lists a model twice`);
   }
   if (service.models.some((m) => m.trim() === "")) throw new Error("empty model id");
+  if (service.auth !== undefined && service.auth !== "key" && service.auth !== "subscription") {
+    throw new Error(`service "${service.id}" has an unknown auth "${String(service.auth)}"`);
+  }
   if (service.kind === "builtin") {
     if (service.provider === undefined || service.provider === "") {
       throw new Error(`builtin service "${service.id}" needs a provider`);
     }
+  } else if (isSubscription(service)) {
+    throw new Error(`subscription service "${service.id}" must be a built-in provider`);
   } else {
     let url: URL;
     try {

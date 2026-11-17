@@ -5,6 +5,8 @@
 export const PI_PROVIDER = "agentherd";
 export const MODEL_ENV = "AGENTHERD_PI_MODEL";
 export const KEY_ENV = "AGENTHERD_PI_KEY";
+/** Set on a model reached through a subscription; login.ts registers that one instead (ADR 0068). */
+export const LOGIN_FIELD = "agentherdLogin";
 
 export interface PiModel {
   id: string;
@@ -35,7 +37,7 @@ export function modelFromEnv(env: NodeJS.ProcessEnv): PiModel | undefined {
 
 export default function model(pi: ModelApi): void {
   const m = modelFromEnv(process.env);
-  if (m === undefined) return;
+  if (m === undefined || typeof m[LOGIN_FIELD] === "string") return;
   const { provider: _provider, ...config } = m;
   pi.registerProvider(PI_PROVIDER, {
     name: "AgentHerd",

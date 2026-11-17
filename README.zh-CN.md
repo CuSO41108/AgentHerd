@@ -39,7 +39,7 @@
   Notion 通过 Composio 连接，Obsidian 笔记库会交给每个任务。
 - **一句话建定时任务。** 「工作日每天 9 点看看有没有新 issue」，主管就建好；Mac 睡着时错过的，醒来只补跑一次。
 - **记忆有用不啰嗦。** 整段对话都保留，旧的部分由主管自己折叠。只有任务出了问题才记一条经验，以前的结果去任务记录里查。
-- **只在本机运行。** 没有 AgentHerd 服务器，Key 存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
+- **只在本机运行。** 没有 AgentHerd 服务器，Key 和订阅登录凭据存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
 
 ## 怎么工作
 
@@ -57,7 +57,7 @@ pnpm install
 pnpm --filter @agentherd/desktop start
 ```
 
-第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key，给主管选模型。Pi 和 Codex 随 App
+第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key（也可以用 ChatGPT、Claude、Copilot 等订阅账号登录），给主管选模型。Pi 和 Codex 随 App
 自带，在「Agent」页点「验证」确认能启动。开发时先运行一次 `pnpm --filter @agentherd/desktop fetch-agents`，
 把它们放到开发版找得到的地方；`pnpm --filter @agentherd/desktop package:mac` 打出 `AgentHerd.app` 和 `.dmg`（暂未签名）。然后在飞书里给主管发条消息就行。
 

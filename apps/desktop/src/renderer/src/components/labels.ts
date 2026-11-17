@@ -109,6 +109,8 @@ export function herderReasonLabel(reason: string | undefined): string | undefine
   if (reason === "no model chosen for the Herder") return "还没给主管选模型";
   const key = /^no key for service "(.+)"$/.exec(reason);
   if (key) return `服务「${key[1]}」没有 Key`;
+  const login = /^service "(.+)" is not signed in$/.exec(reason);
+  if (login) return `服务「${login[1]}」没有登录`;
   return reason;
 }
 
