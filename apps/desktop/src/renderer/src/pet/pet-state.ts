@@ -106,3 +106,61 @@ export function clockOf(at: string, now = new Date()): string {
     ? time
     : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
 }
+
+/** Size of the conversation: the panel's width and the height of its messages. */
+export interface ChatSize {
+  width: number;
+  list: number;
+}
+
+export const CHAT_DEFAULT: ChatSize = { width: 360, list: 420 };
+export const CHAT_MIN: ChatSize = { width: 280, list: 240 };
+
+/** Which edges a grip moves: the panel grows from the figure's corner up and to the left. */
+export type Grip = "left" | "top" | "corner";
+
+/** The size within the minimum and the room on the screen (the room wins when it is smaller). */
+export function fitChat(size: ChatSize, room: ChatSize): ChatSize {
+  return {
+    width: Math.round(Math.min(room.width, Math.max(CHAT_MIN.width, size.width))),
+    list: Math.round(Math.min(room.list, Math.max(CHAT_MIN.list, size.list))),
+  };
+}
+
+/** The size after dragging a grip by (dx, dy) screen pixels from where it started. */
+export function dragChat(
+  start: ChatSize,
+  grip: Grip,
+  dx: number,
+  dy: number,
+  room: ChatSize,
+): ChatSize {
+  return fitChat(
+    {
+      width: grip === "top" ? start.width : start.width - dx,
+      list: grip === "left" ? start.list : start.list - dy,
+    },
+    room,
+  );
+}
+
+/** A saved size, or the default when there is none or it is broken. */
+export function readChatSize(saved: string | null): ChatSize {
+  if (saved === null) return CHAT_DEFAULT;
+  try {
+    const v = JSON.parse(saved) as Partial<ChatSize>;
+    if (typeof v.width === "number" && typeof v.list === "number")
+      return fitChat({ width: v.width, list: v.list }, { width: Infinity, list: Infinity });
+  } catch {
+    // broken: the default
+  }
+  return CHAT_DEFAULT;
+}
+
+/**
+ * Where the conversation scrolls to: the start of its newest message, or the bottom when that
+ * message fits, so a long answer is read from its first line.
+ */
+export function newestScroll(newestTop: number, maxScroll: number): number {
+  return Math.max(0, Math.min(maxScroll, newestTop));
+}

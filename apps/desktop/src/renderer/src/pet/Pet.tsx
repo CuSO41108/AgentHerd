@@ -1,8 +1,8 @@
 // The desktop pet (ADR 0070): a small figure floating over other windows. It moves with what
 // AgentHerd is doing, says in a bubble what AgentHerd just told the owner (the same as Feishu),
 // shows the buttons of whatever waits for the owner, and passes what the owner types to the
-// Herder. A double click opens the conversation both ways. Drag it anywhere; the small button
-// folds it into a dot.
+// Herder. A double click opens the conversation both ways; its top-left corner and edges resize
+// it. Drag the figure anywhere; the small button folds it into a dot.
 
 import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
@@ -16,17 +16,24 @@ import {
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
 import {
+  CHAT_DEFAULT,
+  type ChatSize,
   cannedLine,
   clickPlan,
   clockOf,
   cut,
   DOUBLE_CLICK_MS,
+  dragChat,
   FLASH_MS,
+  fitChat,
   flashOf,
+  type Grip,
   historyHead,
   lineText,
   type Mood,
   moodOf,
+  newestScroll,
+  readChatSize,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
@@ -37,6 +44,17 @@ const H = Math.round(CELL.height * SCALE);
 const DOT = 46;
 const DOT_SCALE = 0.5;
 const COLLAPSED_KEY = "agentherd.pet.collapsed";
+/** The size the owner gave the conversation (ADR 0070). */
+const CHAT_KEY = "agentherd.pet.chat";
+/** Room on the screen before the pet has measured itself: the figure, input and margins. */
+const CHAT_CHROME = { width: 60, height: 280 };
+
+function screenRoom(): ChatSize {
+  return {
+    width: window.screen.availWidth - CHAT_CHROME.width,
+    list: window.screen.availHeight - CHAT_CHROME.height,
+  };
+}
 
 function errorText(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
@@ -71,6 +89,9 @@ export function Pet() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>();
   const [hello, setHello] = useState(false);
+  const [chat, setChat] = useState<ChatSize>(() => readChatSize(localStorage.getItem(CHAT_KEY)));
+  /** The largest conversation that fits on this screen next to the rest of the pet. */
+  const [room, setRoom] = useState<ChatSize>(screenRoom);
   const lastId = useRef<number | undefined>(undefined);
   const lastCanned = useRef<string | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null);
@@ -78,6 +99,12 @@ export function Pet() {
   const figureEl = useRef<HTMLButtonElement>(null);
   const inputEl = useRef<HTMLInputElement>(null);
   const listEl = useRef<HTMLDivElement>(null);
+  const panelEl = useRef<HTMLDivElement>(null);
+  /** How far the conversation is scrolled up from its bottom, kept while it is resized. */
+  const fromBottom = useRef(0);
+  const resizing = useRef<{ grip: Grip; x: number; y: number; start: ChatSize } | undefined>(
+    undefined,
+  );
   const clickAt = useRef(0);
   const closing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -176,13 +203,40 @@ export function Pet() {
     return () => window.removeEventListener("focus", toInput);
   }, [open]);
 
-  // The conversation starts at its newest line and follows new ones.
+  // The conversation opens at its newest message, from its first line, and follows new ones.
   const shown = open && expanded && !collapsed;
   const historyLength = view.history.length;
   useLayoutEffect(() => {
     const el = listEl.current;
-    if (shown && el !== null && historyLength >= 0) el.scrollTop = el.scrollHeight;
+    if (!shown || el === null || historyLength < 0) return;
+    const newest = el.lastElementChild;
+    const top = newest instanceof HTMLElement ? newest.offsetTop - 4 : el.scrollHeight;
+    el.scrollTop = newestScroll(top, el.scrollHeight - el.clientHeight);
+    fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
   }, [shown, historyLength]);
+
+  // Measures how big the conversation may get: the screen less the rest of the pet.
+  const size = fitChat(chat, room);
+  // A new size keeps what was at the bottom in place; growing shows more of what came before.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the size changes
+  useLayoutEffect(() => {
+    const el = listEl.current;
+    if (el === null) return;
+    el.scrollTop = el.scrollHeight - el.clientHeight - fromBottom.current;
+  }, [size.width, size.list]);
+  useLayoutEffect(() => {
+    const r = root.current;
+    const p = panelEl.current;
+    const l = listEl.current;
+    if (!shown || r === null || p === null || l === null) return;
+    const next = {
+      width: window.screen.availWidth - (r.offsetWidth - p.offsetWidth),
+      list: window.screen.availHeight - (r.offsetHeight - l.offsetHeight),
+    };
+    setRoom((current) =>
+      current.width === next.width && current.list === next.list ? current : next,
+    );
+  });
 
   // The window is as big as the pet; it grows up and to the left when the bubble opens.
   useLayoutEffect(() => {
@@ -249,6 +303,49 @@ export function Pet() {
       closing.current = setTimeout(close, DOUBLE_CLICK_MS);
     }
   };
+
+  const onGripDown = (grip: Grip) => (e: PointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // a synthetic event without a live pointer: no capture needed
+    }
+    resizing.current = { grip, x: e.screenX, y: e.screenY, start: size };
+  };
+  const draggedTo = (e: PointerEvent<HTMLElement>): ChatSize | undefined => {
+    const r = resizing.current;
+    return r === undefined
+      ? undefined
+      : dragChat(r.start, r.grip, e.screenX - r.x, e.screenY - r.y, room);
+  };
+  const onGripMove = (e: PointerEvent<HTMLElement>) => {
+    const next = draggedTo(e);
+    if (next !== undefined) setChat(next);
+  };
+  const onGripUp = (e: PointerEvent<HTMLElement>) => {
+    const next = draggedTo(e);
+    resizing.current = undefined;
+    if (next === undefined) return;
+    setChat(next);
+    localStorage.setItem(CHAT_KEY, JSON.stringify(next));
+  };
+  const resetChat = () => {
+    setChat(CHAT_DEFAULT);
+    localStorage.removeItem(CHAT_KEY);
+  };
+  const grip = (where: Grip) => (
+    <div
+      className={`pet-grip ${where}`}
+      title="拖动改大小，双击恢复默认"
+      aria-hidden="true"
+      onPointerDown={onGripDown(where)}
+      onPointerMove={onGripMove}
+      onPointerUp={onGripUp}
+      onDoubleClick={resetChat}
+    />
+  );
 
   const fold = (value: boolean) => {
     setCollapsed(value);
@@ -390,7 +487,10 @@ export function Pet() {
     >
       {showBubble &&
         (open && expanded ? (
-          <div className="pet-bubble pet-chat">
+          <div className="pet-bubble pet-chat" ref={panelEl} style={{ width: size.width }}>
+            {grip("top")}
+            {grip("left")}
+            {grip("corner")}
             <div className="pet-chat-head">
               <span>和主管的对话</span>
               <span className="pet-chat-tools">
@@ -402,7 +502,15 @@ export function Pet() {
                 </button>
               </span>
             </div>
-            <div className="pet-chat-list" ref={listEl}>
+            <div
+              className="pet-chat-list"
+              ref={listEl}
+              style={{ height: size.list }}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
+              }}
+            >
               {view.history.length === 0 ? (
                 <div className="pet-note">
                   还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。

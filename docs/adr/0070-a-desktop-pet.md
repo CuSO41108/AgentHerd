@@ -68,6 +68,13 @@
    version kept only the lines since the host started, in memory; the owner rejected that
    (「肯定不是按照这次启动算起啊」). The window grows up and left from the figure's corner and
    moves in rather than leave the screen.
+5b. **Its size.** The owner sizes the conversation: handles on its top-left corner and its left
+   and top edges (away from the figure) change the panel's width and the height of the messages,
+   from 280×240 up to what fits on the screen; the size is kept for the next time and a double
+   click on a handle goes back to 360×420. It opens at the start of the newest message, so a long
+   answer is read from its first line. The window has no frame and is transparent, so the
+   system's own resizing (invisible edges, growing from the bottom-right with the figure in tow)
+   was not used; 小/中/大 in the settings was less direct than dragging.
 6. **Settings.** 设置 → 桌宠: 显示桌宠 (on by default) and 形象 (大肥鱼 default, Claude 娘), saved
    in `config.json` as `pet: {on, figure}`. The figure credit is shown under the choice.
 7. **License of the art.** The two strips are not under AgentHerd's MIT license:

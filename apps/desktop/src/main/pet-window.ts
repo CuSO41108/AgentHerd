@@ -9,8 +9,6 @@ import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen } from "electron
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
 const MIN = 40;
-/** Room for the expanded pet: the conversation above the figure. */
-const MAX = { width: 480, height: 700 };
 /** Gap to the screen edge the first time. */
 const MARGIN = 24;
 
@@ -66,9 +64,10 @@ export class PetWindow {
         x: anchor.right - 1,
         y: anchor.bottom - 1,
       }).workArea;
+      // As big as the pet asks, up to the screen: the owner sizes the conversation (ADR 0070).
       const next = {
-        width: clamp(Math.ceil(width), MIN, Math.min(MAX.width, area.width)),
-        height: clamp(Math.ceil(height), MIN, Math.min(MAX.height, area.height)),
+        width: clamp(Math.ceil(width), MIN, area.width),
+        height: clamp(Math.ceil(height), MIN, area.height),
       };
       // Near the top or left edge the window moves in rather than grow off the screen.
       const bounds = {

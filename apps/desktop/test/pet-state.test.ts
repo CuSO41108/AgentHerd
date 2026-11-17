@@ -1,14 +1,20 @@
 import type { PetView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
+  CHAT_DEFAULT,
+  CHAT_MIN,
   cannedLine,
   clickPlan,
   clockOf,
+  dragChat,
   FLASH_MS,
+  fitChat,
   flashOf,
   historyHead,
   lineText,
   moodOf,
+  newestScroll,
+  readChatSize,
   SLEEP_AFTER_MS,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
@@ -131,5 +137,41 @@ describe("the expanded pet (ADR 0070)", () => {
     expect(clockOf(new Date(2026, 10, 17, 9, 5).toISOString(), now)).toBe("09:05");
     expect(clockOf(new Date(2026, 10, 16, 21, 30).toISOString(), now)).toBe("11-16 21:30");
     expect(clockOf("not a date", now)).toBe("");
+  });
+});
+
+describe("sizing the conversation (ADR 0070)", () => {
+  const room = { width: 900, list: 700 };
+
+  it("grows up and to the left from the figure: dragging left or up makes it bigger", () => {
+    const start = { width: 360, list: 420 };
+    expect(dragChat(start, "corner", -100, -80, room)).toEqual({ width: 460, list: 500 });
+    expect(dragChat(start, "left", -100, -80, room)).toEqual({ width: 460, list: 420 });
+    expect(dragChat(start, "top", -100, -80, room)).toEqual({ width: 360, list: 500 });
+    expect(dragChat(start, "corner", 30, 20, room)).toEqual({ width: 330, list: 400 });
+  });
+
+  it("stays between the minimum and what fits on the screen", () => {
+    const start = { width: 360, list: 420 };
+    expect(dragChat(start, "corner", 500, 500, room)).toEqual(CHAT_MIN);
+    expect(dragChat(start, "corner", -2000, -2000, room)).toEqual(room);
+    // A small screen wins over the minimum: the pet never leaves the screen.
+    expect(fitChat(CHAT_DEFAULT, { width: 250, list: 200 })).toEqual({ width: 250, list: 200 });
+  });
+
+  it("keeps the owner's size, and falls back to the default", () => {
+    expect(readChatSize(null)).toEqual(CHAT_DEFAULT);
+    expect(readChatSize("{broken")).toEqual(CHAT_DEFAULT);
+    expect(readChatSize('{"width":"wide"}')).toEqual(CHAT_DEFAULT);
+    expect(readChatSize('{"width":520,"list":610}')).toEqual({ width: 520, list: 610 });
+    expect(readChatSize('{"width":10,"list":10}')).toEqual(CHAT_MIN);
+  });
+
+  it("opens a long newest message at its first line, a short one at the bottom", () => {
+    // newest message starts at 3247 in a list that scrolls to 3448: show its start
+    expect(newestScroll(3247, 3448)).toBe(3247);
+    // newest message starts below the last screenful: just the bottom
+    expect(newestScroll(900, 640)).toBe(640);
+    expect(newestScroll(-4, 0)).toBe(0);
   });
 });

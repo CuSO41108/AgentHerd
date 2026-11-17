@@ -194,8 +194,58 @@ body {
 
 /* The expanded pet: the conversation both ways, newest at the bottom. */
 .pet-chat {
-  width: 320px;
+  width: 360px;
   padding: 8px 10px 10px;
+}
+
+/* Handles on the top-left corner and the left and top edges: the panel grows away from the
+   figure. Double click one for the default size. */
+.pet-grip {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.pet-grip.top {
+  top: -4px;
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.pet-grip.left {
+  left: -4px;
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.pet-grip.corner {
+  left: -4px;
+  top: -4px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+.pet-grip.corner::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-left: 2px solid var(--pet-muted);
+  border-top: 2px solid var(--pet-muted);
+  border-top-left-radius: 4px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+.pet-chat:hover .pet-grip.corner::before {
+  opacity: 0.7;
 }
 
 .pet-chat-head {
@@ -225,10 +275,12 @@ body {
 }
 
 .pet-chat-list {
+  position: relative;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 300px;
+  height: 420px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 2px 2px 6px;
