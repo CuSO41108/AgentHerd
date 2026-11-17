@@ -170,7 +170,13 @@ export class RuntimeStore {
    */
   async install(release: Release, opts: InstallOptions = {}): Promise<Installed> {
     const current = this.installed(release.id);
-    if (current?.version === release.version) return current;
+    const complete =
+      release.kind !== "npm" ||
+      (release.requires ?? []).every((file) =>
+        existsSync(join(this.dir(release.id, release.version), file)),
+      );
+    // The same version again only when its download lacks a required file.
+    if (current?.version === release.version && complete) return current;
     const parent = join(this.root, release.id);
     mkdirSync(parent, { recursive: true, mode: 0o700 });
     const staging = join(parent, `.installing-${randomUUID()}`);
