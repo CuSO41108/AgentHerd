@@ -71,6 +71,11 @@ export interface NpmRelease {
   executable: string;
   /** Leave out optional dependencies (an agent's platform build the machine already has). */
   omitOptional?: boolean;
+  /**
+   * Files that must exist after the install, e.g. a platform build npm fetches as an optional
+   * dependency: npm skips a failed optional download without an error.
+   */
+  requires?: readonly string[];
 }
 
 export type Release = ArchiveRelease | NpmRelease;
@@ -286,6 +291,12 @@ async function npmInstall(release: NpmRelease, staging: string, opts: InstallOpt
   }
   if (!existsSync(join(staging, release.executable))) {
     throw new Error(`${release.package} has no ${release.executable}`);
+  }
+  if (release.omitOptional === true) return;
+  for (const file of release.requires ?? []) {
+    if (!existsSync(join(staging, file))) {
+      throw new Error(`${release.package}: npm did not install ${file}; download it again`);
+    }
   }
 }
 

@@ -2,6 +2,7 @@
 // is adapted to (catalog.ts, runtimes.ts; ADR 0066). The host keeps one Agents and rebuilds profiles when it changes.
 
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentProfile } from "@agentherd/protocol";
 import type { AgentSource, AgentView } from "./api.ts";
 import { AGENTS, type AgentDef, type Fetchers, httpFetchers, npmRuntime } from "./catalog.ts";
@@ -35,6 +36,9 @@ export interface AgentPath {
   version?: string;
 }
 
+/** Start of the error of a download that lacks a required file; the host downloads it again. */
+export const INCOMPLETE_DOWNLOAD = "the download is incomplete";
+
 export class Agents {
   private readonly opts: AgentsOptions;
   private readonly installs = new Map<string, Install>();
@@ -63,7 +67,8 @@ export class Agents {
     const explicit = envValue(this.env, def.envVar);
     if (explicit !== undefined && explicit !== "") return { path: explicit, source: "system" };
     const managed = this.opts.store.installed(id);
-    if (managed !== undefined) {
+    // A download without a required file (a skipped platform build) counts as missing.
+    if (managed !== undefined && this.missingFiles(def, managed.version).length === 0) {
       return { path: managed.path, source: "managed", version: managed.version };
     }
     const onSystem = onPath(
@@ -87,6 +92,14 @@ export class Agents {
         return found?.source === "managed" && found.version !== def.version;
       })
       .map((def) => def.id);
+  }
+
+  /** Required files (AgentDef.requires) absent from the download of `version`. */
+  private missingFiles(def: AgentDef, version: string | undefined): string[] {
+    if (def.requires === undefined || version === undefined) return [];
+    const root = this.opts.store.dir(def.id, version);
+    const target = this.opts.target ?? currentTarget();
+    return def.requires(target).filter((file) => !this.exists(join(root, file)));
   }
 
   private codexClis: string[] | undefined;
@@ -147,6 +160,12 @@ export class Agents {
     }
     const found = this.find(def.id);
     if (found === undefined) {
+      const managed = this.opts.store.installed(def.id);
+      const lacking = managed === undefined ? [] : this.missingFiles(def, managed.version);
+      const incomplete =
+        error === undefined && lacking.length > 0
+          ? { error: `${INCOMPLETE_DOWNLOAD}: ${lacking.join(", ")} is missing` }
+          : {};
       return {
         ...base,
         state: "missing",
@@ -154,6 +173,7 @@ export class Agents {
         canInstall,
         canRemove: false,
         ...withError,
+        ...incomplete,
       };
     }
     return {
@@ -214,7 +234,11 @@ export class Agents {
     // With the Codex app's CLI at hand, skip the CLI build npm would add (over 100 MB).
     const local = release.kind === "npm" && "CODEX_PATH" in this.extraEnv(def.id);
     const installed = await this.opts.store.install(
-      local ? { ...release, omitOptional: true } : release,
+      local
+        ? { ...release, omitOptional: true }
+        : release.kind === "npm" && def.requires !== undefined
+          ? { ...release, requires: def.requires(target) }
+          : release,
       {
         onProgress,
         signal,
