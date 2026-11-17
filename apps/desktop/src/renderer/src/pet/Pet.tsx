@@ -404,7 +404,9 @@ export function Pet() {
             </div>
             <div className="pet-chat-list" ref={listEl}>
               {view.history.length === 0 ? (
-                <div className="pet-note">这里是你和主管的对话，从 AgentHerd 这次启动算起。</div>
+                <div className="pet-note">
+                  还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。
+                </div>
               ) : (
                 view.history.map((line) => {
                   const head = historyHead(line);

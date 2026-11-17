@@ -62,10 +62,12 @@
 5a. **The conversation.** The owner asked for 「双击还是什么操作，可以展开对话框」: a double click on
    the figure (or 展开对话 in the bubble) opens the conversation both ways, newest at the bottom,
    with the open card and the input under it; 缩小 or another double click goes back to the small
-   bubble. `PetFeed` also hears what the owner writes in Feishu (the sink it hands the channel
-   records the owner's messages, not button presses), so both sides show. It keeps the last 80
-   lines in memory since the host started; older talk is in Feishu. The window grows up and left
-   from the figure's corner and moves in rather than leave the screen.
+   bubble. It is the Herder's conversation as herd.db keeps it (`herder_turns`: the owner's
+   messages and answers, the Herder's replies, questions and the reports it passed on), the last
+   80 lines, so it reaches back past restarts and holds what was said in Feishu too. A first
+   version kept only the lines since the host started, in memory; the owner rejected that
+   (「肯定不是按照这次启动算起啊」). The window grows up and left from the figure's corner and
+   moves in rather than leave the screen.
 6. **Settings.** 设置 → 桌宠: 显示桌宠 (on by default) and 形象 (大肥鱼 default, Claude 娘), saved
    in `config.json` as `pet: {on, figure}`. The figure credit is shown under the choice.
 7. **License of the art.** The two strips are not under AgentHerd's MIT license:

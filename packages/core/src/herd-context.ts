@@ -112,6 +112,8 @@ export interface HerdOptions {
   socialPollMinutes?: number;
   /** Called when watched things change, for the app. */
   watchesChanged?: () => void;
+  /** Called after a line of the Herder's conversation is kept in `herder_turns` (the desktop pet). */
+  herderTurnAdded?: () => void;
   /** A watched source failing this long is told to the owner (default 30, ADR 0050). */
   sourceDownMinutes?: number;
   /**

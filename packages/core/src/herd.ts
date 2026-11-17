@@ -343,7 +343,10 @@ export class Herd {
       noticeLevels: () => noticeLevels(this.store),
       setNoticeLevel: (kind, level) => setNoticeLevel(this.store, kind, level),
       audit: (type, data) => this.store.audit(type, data),
-      recordTurn: (role, text, taskId) => this.store.addHerderTurn(role, text, taskId),
+      recordTurn: (role, text, taskId) => {
+        this.store.addHerderTurn(role, text, taskId);
+        this.opts.herderTurnAdded?.();
+      },
       memory: this.store.memory,
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(this.opts.memoryComplete === undefined

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeChannel } from "@agentherd/channel-fake";
-import type { Herd, SecretStore } from "@agentherd/core";
+import { type Herd, type SecretStore, Store } from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostEvent } from "../src/api.ts";
 import { readConfig, writeConfig } from "../src/config.ts";
@@ -190,10 +190,17 @@ describe("Host", () => {
     // No Herder here, so the herd answers by itself; the pet shows that answer.
     await until(() => (t.host.pet().last?.id ?? 0) > 0);
     expect(t.events.some((e) => e.topic === "pet")).toBe(true);
-    // The expanded pet shows both sides: the owner's words, then the answer.
-    const history = t.host.pet().history;
-    expect(history[0]).toMatchObject({ kind: "owner", text: "在吗" });
-    expect(history.at(-1)?.id).toBe(t.host.pet().last?.id);
+    // The expanded pet shows the Herder's conversation as herd.db keeps it, from before this
+    // start too (none here: no Herder).
+    expect(t.host.pet().history).toEqual([]);
+    const db = Store.open(join(t.home, "herd.db"));
+    db.addHerderTurn("owner", "昨天的话");
+    db.addHerderTurn("herder", "昨天的回答");
+    db.close();
+    expect(t.host.pet().history.map((l) => [l.kind, l.text])).toEqual([
+      ["owner", "昨天的话"],
+      ["say", "昨天的回答"],
+    ]);
     await expect(t.host.petPress("nothing", "allow")).rejects.toThrow("这件事已经处理过了");
   });
 
