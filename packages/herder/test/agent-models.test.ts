@@ -8,6 +8,7 @@ import {
   isGptModel,
   modelChoices,
   modelEnvFor,
+  modelLaunchFor,
 } from "../src/agent-models.ts";
 import { PI_KEY_ENV, PI_MODEL_ENV, resolveModel } from "../src/models.ts";
 
@@ -44,10 +45,10 @@ function secrets(values: Record<string, string>): SecretStore {
 
 describe("agent models", () => {
   it("lists which agents can run each model", () => {
-    const choices = modelChoices(settings, ["pi", "codex"]);
+    const choices = modelChoices(settings, ["pi", "codex", "claude"]);
     expect(choices).toEqual([
       { ref: "deepseek/deepseek-v4-pro", agents: ["pi"] },
-      { ref: "anthropic/claude-sonnet-4-5", agents: ["pi"] },
+      { ref: "anthropic/claude-sonnet-4-5", agents: ["pi", "claude"] },
       { ref: "gw/m1", agents: ["pi", "codex"] },
       { ref: "gw/gpt-6.1-sol", agents: ["pi", "codex"] },
     ]);
@@ -65,6 +66,17 @@ describe("agent models", () => {
     expect(agentForModel("deepseek/deepseek-v4-pro", ["pi", "codex"])).toBe("pi");
     expect(agentForModel(undefined, ["pi", "codex"])).toBe("pi");
     expect(() => agentForModel(undefined, [])).toThrow(/no agent/);
+  });
+
+  it("gives hard coding tasks to Claude Code when it runs the model; GPT still goes to Codex (ADR 0066)", () => {
+    const ids = ["pi", "codex", "claude"];
+    const ref = "anthropic/claude-sonnet-4-5";
+    expect(agentForModel(ref, ids, true, ["pi", "claude"])).toBe("claude");
+    expect(agentForModel(ref, ids, false, ["pi", "claude"])).toBe("pi");
+    // Claude Code cannot run it, or is not installed: Pi.
+    expect(agentForModel("deepseek/deepseek-v4-pro", ids, true, ["pi"])).toBe("pi");
+    expect(agentForModel(ref, ["pi", "codex"], true, ["pi", "claude"])).toBe("pi");
+    expect(agentForModel("gw/gpt-6.1-sol", ids, true, ["pi", "codex", "claude"])).toBe("codex");
   });
 
   it("builds the env of each agent, with the key in its own variable", () => {
@@ -92,7 +104,22 @@ describe("agent models", () => {
     expect(codex?.MODEL_PROVIDER).toBe("agentherd");
     expect(codex?.CODEX_CONFIG).not.toContain("k1");
     expect(codex?.[CODEX_KEY_ENV]).toBe("k1");
+    // Claude Code only takes Anthropic-style models.
     expect(agentModelEnv("claude", model, "k1")).toBeUndefined();
+  });
+
+  it("hands Claude Code the model, the key and every model alias in env (ADR 0066)", () => {
+    const store = secrets({ "model:anthropic": "sk-ant" });
+    const launch = modelLaunchFor(settings, store, "claude", "anthropic/claude-sonnet-4-5", {});
+    expect(launch.env).toMatchObject({
+      ANTHROPIC_API_KEY: "sk-ant",
+      ANTHROPIC_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_SMALL_FAST_MODEL: "claude-sonnet-4-5",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    });
+    expect(launch.env.ANTHROPIC_BASE_URL).toMatch(/^https:\/\/api\.anthropic\.com/);
+    expect(() => modelLaunchFor(settings, store, "claude", "gw/m1", {})).toThrow(/cannot run/);
   });
 
   it("Codex runs any model of the owner's own services, but not built-ins without Responses", () => {

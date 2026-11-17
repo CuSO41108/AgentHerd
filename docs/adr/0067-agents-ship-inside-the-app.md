@@ -1,6 +1,7 @@
 # ADR 0067: Pi and Codex ship inside the app; Claude Code removed
 
-- Status: Accepted
+- Status: Accepted; Claude Code's removal superseded by
+  [ADR 0069](0069-claude-code-the-owners-own-or-downloaded.md)
 - Date: 2026-11-17
 - Supersedes: the downloads (start-up install, 下载 button) of
   [ADR 0024](0024-follow-latest-releases-six-agents.md) and

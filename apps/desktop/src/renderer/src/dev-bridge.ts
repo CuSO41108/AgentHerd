@@ -199,6 +199,7 @@ function installFakeBridge(): void {
     id,
     name,
     state: "missing",
+    canInstall: false,
     canRemove: false,
     ...extra,
   });
@@ -210,12 +211,23 @@ function installFakeBridge(): void {
     version,
     adapted: version,
     path: `/Applications/AgentHerd.app/Contents/Resources/agents/${id}/${version}`,
+    canInstall: false,
     canRemove: false,
+  });
+  const claudeMissing = missing("claude", "Claude Code", {
+    adapted: "0.107.2",
+    onRequest: true,
+    canInstall: true,
+    ...(sim === "no-agent" ? {} : { ownCli: "/Users/me/.local/bin/claude" }),
   });
   let agents: AgentView[] =
     sim === "no-agent"
-      ? [missing("pi", "Pi", { adapted: "1.5.0" }), missing("codex", "Codex", { adapted: "2.5.0" })]
-      : [bundled("pi", "Pi", "1.5.0"), bundled("codex", "Codex", "2.5.0")];
+      ? [
+          missing("pi", "Pi", { adapted: "1.5.0" }),
+          missing("codex", "Codex", { adapted: "2.5.0" }),
+          claudeMissing,
+        ]
+      : [bundled("pi", "Pi", "1.5.0"), bundled("codex", "Codex", "2.5.0"), claudeMissing];
   const setAgents = (next: AgentView[]): AgentView[] => {
     agents = next;
     const ids = agents.filter((a) => a.state === "ready").map((a) => a.id);
@@ -226,7 +238,8 @@ function installFakeBridge(): void {
   };
   const patch = (id: string, change: Partial<AgentView>): AgentView[] =>
     setAgents(agents.map((a) => (a.id === id ? ({ ...a, ...change } as AgentView) : a)));
-  const reset = (a: AgentView): AgentView => missing(a.id, a.name);
+  const reset = (a: AgentView): AgentView =>
+    a.id === "claude" ? claudeMissing : missing(a.id, a.name);
 
   // The fake places models by a few names; the real rules are in packages/herder/src/model-guide.ts.
   let placed: Record<Tier, string[]> | null = null;
@@ -381,6 +394,30 @@ function installFakeBridge(): void {
       return delay(apps);
     },
     agents: () => delay(agents),
+    installAgent: (id) => {
+      const total = 87 * 1024 * 1024;
+      let received = 0;
+      const tick = setInterval(() => {
+        received += total / 8;
+        if (agents.find((a) => a.id === id)?.state !== "installing") return clearInterval(tick);
+        if (received < total) {
+          patch(id, { progress: { received, total } });
+          return;
+        }
+        clearInterval(tick);
+        patch(id, {
+          state: "ready",
+          source: "managed",
+          version: "0.107.2",
+          path: `~/.agentherd/runtimes/${id}/0.107.2`,
+          progress: undefined,
+          canInstall: false,
+          canRemove: true,
+        });
+      }, 400);
+      return delay(patch(id, { state: "installing", progress: { received: 0, total } }));
+    },
+    cancelInstall: (id) => delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a)))),
     removeAgent: (id) => delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a)))),
     verifyAgent: (id) => {
       const loginNeeded = false;

@@ -89,7 +89,8 @@ import type {
   WatchView,
 } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
-import type { AgentDef } from "./catalog.ts";
+import type { AgentDef, Fetchers } from "./catalog.ts";
+import { withClaudeHome } from "./claude-home.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
 import { LocalEmbedder } from "./embedder.ts";
@@ -137,6 +138,8 @@ export interface HostOptions {
   runtimes?: RuntimeStore;
   /** Agent definitions (tests). Default: catalog.ts. */
   catalog?: AgentDef[];
+  /** Release lookups for agents downloaded on request (tests). Default: catalog.ts. */
+  fetchers?: Fetchers;
   /** HTTP for probeModels (tests). Default: global fetch. */
   fetch?: typeof fetch;
   /** Runs `gh` for following pull requests tasks open (tests replace it). */
@@ -204,7 +207,11 @@ export class Host implements HostApi {
       ...(opts.env === undefined ? {} : { env: { ...process.env, ...opts.env } }),
       ...(opts.catalog === undefined ? {} : { catalog: opts.catalog }),
       ...(opts.exists === undefined ? {} : { exists: opts.exists }),
+      ...(opts.fetchers === undefined ? {} : { fetchers: opts.fetchers }),
+      ...(opts.target === undefined ? {} : { target: opts.target }),
+      ...(opts.userHome === undefined ? {} : { userHome: opts.userHome }),
       onChange: () => this.agentsChanged(),
+      log: (line) => this.log(line),
     });
     this.appList = new Apps({
       secrets: opts.secrets,
@@ -438,6 +445,7 @@ export class Host implements HostApi {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.agentList.stop();
     this.socialList.stop();
     this.setupRun++;
     await this.stopHerd();
@@ -509,6 +517,7 @@ export class Host implements HostApi {
             this.opts.env,
           );
           if (profileId === "codex") return { env: withCodexHome(this.opts.home, launch.env) };
+          if (profileId === "claude") return { env: withClaudeHome(this.opts.home, launch.env) };
           return { env: this.withModelGrant(launch.env) };
         },
         check: (ref) => this.checkModel(ref),
@@ -613,6 +622,21 @@ export class Host implements HostApi {
   agents(): AgentView[] {
     const pi = piModelEnv(this.settings(), this.opts.secrets, this.opts.env);
     return this.agentList.views(this.config().profiles ?? [], "ref" in pi ? { pi: pi.ref } : {});
+  }
+
+  installAgent(id: string): AgentView[] {
+    this.agentList.install(id);
+    return this.agents();
+  }
+
+  cancelInstall(id: string): AgentView[] {
+    this.agentList.cancel(id);
+    return this.agents();
+  }
+
+  /** Waits for agent downloads (tests). */
+  agentsIdle(): Promise<void> {
+    return this.agentList.idle();
   }
 
   removeAgent(id: string): AgentView[] {
@@ -1093,7 +1117,8 @@ export class Host implements HostApi {
   }
 
   /**
-   * After `failed` broke a task before it acted: Codex hands the same model to Pi (ADR 0031);
+   * After `failed` broke a task before it acted: Codex and Claude Code hand the same model to Pi
+   * (ADR 0031, 0069);
    * otherwise the next model in fallback order that answers (ADR 0030), in the agent that model
    * gets.
    */
@@ -1103,7 +1128,7 @@ export class Host implements HostApi {
     tried: readonly string[],
   ): Promise<{ profileId: string; model: string } | undefined> {
     const ids = this.profileList.map((p) => p.id);
-    if (profileId === "codex" && ids.includes("pi")) {
+    if ((profileId === "codex" || profileId === "claude") && ids.includes("pi")) {
       this.agentDown(profileId);
       return { profileId: "pi", model: failed };
     }
@@ -1112,7 +1137,7 @@ export class Host implements HostApi {
       until: Date.now() + 120_000,
     });
     const choices = modelChoices(this.settings(), ids);
-    const auto = profileId === "pi" || profileId === "codex";
+    const auto = profileId === "pi" || profileId === "codex" || profileId === "claude";
     for (const ref of fallbackOrder(
       choices,
       failed,
@@ -1121,7 +1146,11 @@ export class Host implements HostApi {
     )) {
       if (tried.includes(ref)) continue;
       if ((await this.checkModel(ref)).ok) {
-        return { profileId: auto ? agentForModel(ref, ids) : profileId, model: ref };
+        const runners = choices.find((c) => c.ref === ref)?.agents;
+        return {
+          profileId: auto ? agentForModel(ref, ids, profileId === "claude", runners) : profileId,
+          model: ref,
+        };
       }
     }
     return undefined;

@@ -16,7 +16,9 @@ import {
   AGENTS,
   type AgentDef,
   agentProfile,
+  CLAUDE_ACP_VERSION,
   CODEX_ACP_VERSION,
+  claudeNativeBinary,
   codexNativeBinary,
   PI_VERSION,
 } from "../src/catalog.ts";
@@ -202,7 +204,10 @@ describe("catalog", () => {
     expect(AGENTS.map((a) => [a.id, a.version])).toEqual([
       ["pi", PI_VERSION],
       ["codex", CODEX_ACP_VERSION],
+      ["claude", CLAUDE_ACP_VERSION],
     ]);
+    // Claude Code is never in the app (ADR 0069).
+    expect(AGENTS.filter((a) => a.onRequest === true).map((a) => a.id)).toEqual(["claude"]);
     const asked: string[] = [];
     const fetchers = {
       json: async (url: string) => {
@@ -226,10 +231,15 @@ describe("catalog", () => {
       text: async () => "",
     };
     const releases = await Promise.all(AGENTS.map((a) => a.release?.("darwin-arm64", fetchers)));
-    expect(releases.map((r) => r?.version)).toEqual([PI_VERSION, CODEX_ACP_VERSION]);
+    expect(releases.map((r) => r?.version)).toEqual([
+      PI_VERSION,
+      CODEX_ACP_VERSION,
+      CLAUDE_ACP_VERSION,
+    ]);
     expect(asked).toEqual([
       `https://api.github.com/repos/earendil-works/pi/releases/tags/v${PI_VERSION}`,
       `https://registry.npmjs.org/@agentclientprotocol/codex-acp/${CODEX_ACP_VERSION}`,
+      `https://registry.npmjs.org/@agentclientprotocol/claude-agent-acp/${CLAUDE_ACP_VERSION}`,
     ]);
     expect(asked.some((u) => u.endsWith("/latest"))).toBe(false);
   });
@@ -276,6 +286,86 @@ function storeWith(root: string, copies: Record<string, string>): RuntimeStore {
 }
 
 describe("Agents (ADR 0067)", () => {
+  it("runs Claude Code with the owner's own claude, or needs a download with the CLI (ADR 0069)", () => {
+    const own = "/Users/me/.local/bin/claude";
+    const target = "darwin-arm64";
+    const native = join("/home/runtimes/claude", claudeNativeBinary(target)[0] ?? "");
+    const make = (files: string[]) =>
+      new Agents({
+        downloaded: {
+          ...storeWith("/home/runtimes", { claude: CLAUDE_ACP_VERSION }),
+          dir: (id: string) => `/home/runtimes/${id}`,
+        } as unknown as RuntimeStore,
+        env: { PATH: "" },
+        exists: (p) => files.includes(p),
+        platform: "darwin",
+        userHome: "/Users/me",
+        target,
+        onChange() {},
+      });
+    // The adapter alone, with the owner's claude: ready, and claude-agent-acp is told where it is.
+    const withOwn = make([own]);
+    expect(withOwn.find("claude")).toMatchObject({ source: "managed" });
+    expect(withOwn.extraEnv("claude")).toEqual({ CLAUDE_CODE_EXECUTABLE: own });
+    expect(withOwn.views([], {}).find((v) => v.id === "claude")).toMatchObject({
+      state: "ready",
+      ownCli: own,
+      canInstall: false,
+    });
+    // The adapter alone, no claude anywhere: not runnable.
+    expect(make([]).find("claude")).toBeUndefined();
+    // The download with its CLI build runs without one.
+    expect(make([native]).find("claude")).toMatchObject({ source: "managed" });
+  });
+
+  it("downloads Claude Code only when asked: the adapter alone next to the owner's claude, else with the CLI (ADR 0069)", async () => {
+    const own = "/Users/me/.local/bin/claude";
+    const claude = AGENTS.find((d) => d.id === "claude");
+    if (claude === undefined) throw new Error("no claude");
+    const def: AgentDef = {
+      ...claude,
+      release: async () => ({
+        kind: "npm",
+        id: "claude",
+        version: CLAUDE_ACP_VERSION,
+        package: "@agentclientprotocol/claude-agent-acp",
+        executable: "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js",
+      }),
+    };
+    const fetchers = {
+      json: async () => ({ version: "12.0.0", dist: { tarball: "t", integrity: "sha512-x" } }),
+      text: async () => "",
+    };
+    async function installWith(files: string[]) {
+      const installed: Release[] = [];
+      const store = {
+        installed: () => undefined,
+        install: async (r: Release) => {
+          installed.push(r);
+          return { id: r.id, version: r.version, path: r.id };
+        },
+      } as unknown as RuntimeStore;
+      const agents = new Agents({
+        downloaded: store,
+        env: { PATH: "" },
+        catalog: [def],
+        fetchers,
+        platform: "darwin",
+        target: "darwin-arm64",
+        userHome: "/Users/me",
+        exists: (p) => files.includes(p),
+        onChange() {},
+      });
+      agents.install("claude");
+      await agents.idle();
+      return installed.find((r) => r.id === "claude");
+    }
+    expect(await installWith([own])).toMatchObject({ omitOptional: true });
+    const full = await installWith([]);
+    expect(full).not.toHaveProperty("omitOptional");
+    expect(full).toMatchObject({ requires: claudeNativeBinary("darwin-arm64") });
+  });
+
   it("runs the copy in the app first, then an older app's download, then PATH", () => {
     const sep = process.platform === "win32" ? ";" : ":";
     const onPath = join("/usr/bin", process.platform === "win32" ? "codex-acp.exe" : "codex-acp");
@@ -297,6 +387,7 @@ describe("Agents (ADR 0067)", () => {
     ).toEqual([
       ["pi", "bundled", PI_VERSION, PI_VERSION, false],
       ["codex", "managed", "2.4.0", CODEX_ACP_VERSION, true],
+      ["claude", undefined, undefined, CLAUDE_ACP_VERSION, false],
     ]);
     agents.remove("codex");
     expect(agents.find("codex")).toMatchObject({ source: "system" });
@@ -304,7 +395,7 @@ describe("Agents (ADR 0067)", () => {
     expect(agents.find("pi")).toMatchObject({ source: "bundled" });
     expect(() => agents.remove("pi")).toThrow(/not downloaded/);
     const none = new Agents({ env: { PATH: "" }, exists: () => false, onChange() {} });
-    expect(none.views([], {}).map((v) => v.state)).toEqual(["missing", "missing"]);
+    expect(none.views([], {}).map((v) => v.state)).toEqual(["missing", "missing", "missing"]);
     // An explicit CLI wins over the copy in the app.
     const named = new Agents({
       bundled: storeWith("/app/agents", { pi: PI_VERSION }),
@@ -363,10 +454,17 @@ describe("Host agents", () => {
       expect(host.agents().map((a) => [a.id, a.state, a.source, a.version])).toEqual([
         ["pi", "ready", "bundled", PI_VERSION],
         ["codex", "missing", undefined, undefined],
+        ["claude", "missing", undefined, undefined],
       ]);
       expect(host.status().profiles).toEqual(["pi"]);
       expect(() => host.removeAgent("pi")).toThrow(/not downloaded/);
-      expect("installAgent" in host).toBe(false);
+      // Only Claude Code downloads, and only when asked (ADR 0069).
+      expect(host.agents().map((a) => [a.id, a.canInstall])).toEqual([
+        ["pi", false],
+        ["codex", false],
+        ["claude", true],
+      ]);
+      expect(() => host.installAgent("codex")).toThrow(/comes with the app/);
     } finally {
       await host.stop();
     }
