@@ -212,7 +212,7 @@ export function sampleTasks(empty: boolean): TasksView {
             risk: "high",
             createdAt: minutesAgo(3),
             cwd: "/Users/me/code/web-portal",
-            profileId: "claude",
+            profileId: "codex",
             taskTitle: "修复登录页在 Safari 上的白屏",
           },
           {
@@ -223,7 +223,7 @@ export function sampleTasks(empty: boolean): TasksView {
             risk: "medium",
             createdAt: minutesAgo(9),
             cwd: "/Users/me/code/scratch",
-            profileId: "claude",
+            profileId: "codex",
           },
         ],
       };

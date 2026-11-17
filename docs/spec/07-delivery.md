@@ -9,7 +9,7 @@
 | M2 | DSH + Herder + desktop shell | DSH profile (`dsh acp`), the Herder (light model: start tasks from Feishu, relay, verbatim rule), board and completion reports, `herd_report`, watchdog, desktop app with onboarding (QR, two models), sessions list, read-only inbox, mode switch, keep-awake switch | A DSH task started from a Feishu message asks for approval, is approved from Feishu, and ends with a report; the board shows each stage |
 | M3 | Reviewer + rule export | "Always do this", Reviewer (strongest model, project snapshot), observe metrics, decision memory, Herder compaction and restore; exporters for Claude Code and Codex, with export status per rule | Observe mode reports agreement on a replayed item set; exported Claude Code config passes `plan()` tests for every rule shape |
 | M4 | More agents | Built-in profiles for Claude Code (`claude-agent-acp`), Codex (`codex-acp`), Gemini CLI, OpenCode; exporters for Gemini CLI and OpenCode | Verified on a machine where these agents can run |
-| M5 | Release | Signed and notarized macOS build, auto-update, README with GIF | Fresh-machine install to first card in < 5 minutes |
+| M5 | Release | Signed and notarized macOS build (an unsigned `.dmg` with Pi and Codex inside is built by `apps/desktop/scripts/package-mac.ts` since ADR 0067), auto-update, README with GIF | Fresh-machine install to first card in < 5 minutes |
 
 Each milestone is split into plans under [`plans/`](../../plans/README.md).
 

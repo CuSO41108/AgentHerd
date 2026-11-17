@@ -47,27 +47,24 @@ export interface HostStatus {
   profiles: string[];
 }
 
-/** Where an agent's CLI comes from. */
-export type AgentSource = "managed" | "system" | "config";
+/**
+ * Where an agent's CLI comes from: inside the app (ADR 0067), a download by an older app, a CLI
+ * the owner installed, or a profile in config.json.
+ */
+export type AgentSource = "bundled" | "managed" | "system" | "config";
 
 export interface AgentView {
   id: string;
   name: string;
-  /** ready: can run tasks. missing: not found and can be downloaded or needs its app. */
-  state: "ready" | "missing" | "installing" | "unsupported";
+  /** ready: can run tasks. missing: not in this app and not installed on the computer. */
+  state: "ready" | "missing";
   source?: AgentSource;
   path?: string;
-  /** Version of the copy in use, when the app downloaded it. */
+  /** Version of the copy in use, when it ships with the app or an older app downloaded it. */
   version?: string;
-  /** The version AgentHerd is adapted to and downloads (ADR 0066). */
+  /** The version AgentHerd is adapted to and ships (ADR 0067). */
   adapted?: string;
-  /** Bytes, while installing. */
-  progress?: { received: number; total: number };
-  /** Last install error. */
-  error?: string;
-  /** The app can download it (only when missing: no updates from the app, ADR 0066). */
-  canInstall: boolean;
-  /** A downloaded copy the owner can remove. */
+  /** A copy an older app downloaded, which the owner can remove. */
   canRemove: boolean;
   /** Model passed to it ("service/model"), when it uses one from the model list. */
   modelRef?: string;
@@ -407,8 +404,6 @@ export interface HostApi {
   reconnect(): Promise<HostStatus>;
   agents(): AgentView[];
   /** Starts downloading an agent's CLI; progress comes as "agents" events. */
-  installAgent(id: string): AgentView[];
-  cancelInstall(id: string): AgentView[];
   /** Removes a downloaded CLI. */
   removeAgent(id: string): AgentView[];
   /** Starts the agent in an empty folder, opens a session and closes it. */
@@ -478,8 +473,6 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "setModelTiers",
   "reconnect",
   "agents",
-  "installAgent",
-  "cancelInstall",
   "removeAgent",
   "verifyAgent",
   "apps",

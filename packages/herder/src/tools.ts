@@ -532,7 +532,7 @@ const sessionStartSchema = obj({
   profile: opt(
     str({
       description:
-        "Only when the owner names an agent (pi, codex, claude for Claude Code). Omit otherwise: AgentHerd picks the agent from the model and `hard`.",
+        "Only when the owner names an agent (pi, codex). Omit otherwise: AgentHerd picks the agent from the model.",
     }),
   ),
   name: str({
@@ -541,12 +541,6 @@ const sessionStartSchema = obj({
   }),
   ownerText: str({ description: "The owner's request, copied exactly from their message" }),
   addedContext: opt(str({ description: "Anything you add, sent below the owner's words" })),
-  hard: opt(
-    bool({
-      description:
-        "true for a hard coding task: a large change across files, design work, a bug nobody has found yet. It goes to Claude Code with an Anthropic-style model when there is one. Omit for simple tasks (small fixes, looking things up, writing text, running commands): Pi does those. GPT models always go to Codex.",
-    }),
-  ),
   model: opt(
     str({
       description:
@@ -737,7 +731,7 @@ export function herderTools(
           ...(open.length === 0 ? ["(none)"] : open.map(taskLine)),
           "Ended tasks, newest first (kept across restarts; session_prompt continues one in the same folder and model):",
           ...(ended.length === 0 ? ["(none)"] : ended.map(taskLine)),
-          `Agents: AgentHerd picks one (GPT models run in Codex; hard coding tasks, session_start hard, in Claude Code with an Anthropic-style model; the rest in Pi). Installed: ${host
+          `Agents: AgentHerd picks one (GPT models run in Codex, the rest in Pi). Installed: ${host
             .profiles()
             .map((p) => `${p.id} (${p.name})`)
             .join(", ")}`,
@@ -795,13 +789,11 @@ export function herderTools(
           ownerText: string;
           addedContext?: string;
           model?: string;
-          hard?: boolean;
           allowed?: OutboundStep[];
         },
       ) => {
         const t = turn();
         if (t.kind === "event") throw new Error("tasks start only when the owner asks");
-        const hard = args.hard === true;
         if (!isVerbatim(args.ownerText, t.ownerText)) {
           throw new Error("ownerText must be the owner's words copied exactly from their message");
         }
@@ -813,9 +805,7 @@ export function herderTools(
         const models = host
           .models()
           .filter((m) =>
-            named === undefined
-              ? m.agents.includes(agentForModel(m.ref, ids, hard, m.agents))
-              : true,
+            named === undefined ? m.agents.includes(agentForModel(m.ref, ids)) : true,
           );
         const tiers = modelTiers?.() ?? placeModels(modelsByName(models).map((m) => m.name));
         const runs = (entry: { model: string }, agent?: string) =>
@@ -825,19 +815,14 @@ export function herderTools(
               (agent === undefined ? m.agents.length > 0 : m.agents.includes(agent)),
           );
         const order = TIERS.flatMap((tier) => tiers[tier]);
-        // A hard task prefers a model Claude Code runs (ADR 0066); without one, the usual order.
-        const preferred =
-          (named === undefined && hard && ids.includes("claude")
-            ? order.find((entry) => runs(entry, "claude"))
-            : undefined) ?? order.find((entry) => runs(entry, named));
+        const preferred = order.find((entry) => runs(entry, named));
         const asked = args.model?.trim() || preferred?.model;
         if (asked === undefined) {
           throw new Error("no configured model can run this task; configure models in AgentHerd");
         }
         const picked = await pickService(host, asked, named, tiers, models);
         const model = picked.ref;
-        const profile =
-          named ?? agentForModel(model, ids, hard, models.find((m) => m.ref === model)?.agents);
+        const profile = named ?? agentForModel(model, ids);
         const given = args.project?.trim() || undefined;
         const cwd = given === undefined ? undefined : resolveProject(host, given);
         if (cwd !== undefined && !t.pickedDirs.some((d) => samePath(d, cwd))) {

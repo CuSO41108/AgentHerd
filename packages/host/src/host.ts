@@ -46,7 +46,7 @@ import {
 import type { AgentProfile, Channel, Locale, Mode, SetupUI } from "@agentherd/protocol";
 import { DEFAULT_LOCALE } from "@agentherd/protocol";
 import QRCode from "qrcode";
-import { Agents, INCOMPLETE_DOWNLOAD } from "./agents.ts";
+import { Agents } from "./agents.ts";
 import type {
   AgentCheck,
   AgentView,
@@ -82,7 +82,6 @@ import type {
 } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
-import { withClaudeHome } from "./claude-home.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
 import { LocalEmbedder } from "./embedder.ts";
@@ -110,11 +109,6 @@ export const AGENT_DOWN_MS = 30 * 60_000;
 
 export interface HostOptions {
   home: string;
-  /**
-   * Download the agents the model list needs (ADR 0031): Pi always, Codex when a GPT model is in
-   * the list. Off in tests.
-   */
-  autoInstallAgents?: boolean;
   /** Run background memory jobs (task cases, reviews) with a cheap model. Off in tests. */
   memoryJobs?: boolean;
   userHome?: string;
@@ -128,11 +122,12 @@ export interface HostOptions {
   /** Profiles override (tests). Default: availableProfiles(). */
   profiles?: () => AgentProfile[];
   log?: (line: string) => void;
-  /** Where downloaded agent CLIs go. Default: <home>/runtimes. */
+  /** The agents that ship with the app (ADR 0067), in RuntimeStore layout. */
+  agentsDir?: string;
+  /** Agent copies an older app downloaded. Default: <home>/runtimes. */
   runtimes?: RuntimeStore;
-  /** Agent definitions and release lookups (tests). Default: catalog.ts. */
+  /** Agent definitions (tests). Default: catalog.ts. */
   catalog?: AgentDef[];
-  fetchers?: Fetchers;
   /** HTTP for probeModels (tests). Default: global fetch. */
   fetch?: typeof fetch;
   /** Runs `gh` for following pull requests tasks open (tests replace it). */
@@ -186,14 +181,12 @@ export class Host implements HostApi {
   constructor(opts: HostOptions) {
     this.opts = opts;
     this.agentList = new Agents({
-      store: opts.runtimes ?? new RuntimeStore(join(opts.home, "runtimes")),
+      ...(opts.agentsDir === undefined ? {} : { bundled: new RuntimeStore(opts.agentsDir) }),
+      downloaded: opts.runtimes ?? new RuntimeStore(join(opts.home, "runtimes")),
       ...(opts.env === undefined ? {} : { env: { ...process.env, ...opts.env } }),
       ...(opts.catalog === undefined ? {} : { catalog: opts.catalog }),
-      ...(opts.fetchers === undefined ? {} : { fetchers: opts.fetchers }),
-      ...(opts.target === undefined ? {} : { target: opts.target }),
       ...(opts.exists === undefined ? {} : { exists: opts.exists }),
       onChange: () => this.agentsChanged(),
-      log: (line) => this.log(line),
     });
     this.appList = new Apps({
       secrets: opts.secrets,
@@ -382,48 +375,10 @@ export class Host implements HostApi {
 
   private saveSettings(models: ModelSettings): void {
     writeConfig(this.opts.home, { ...this.config(), models });
-    this.installNeededAgents();
-  }
-
-  /**
-   * Agents the model list needs: Pi always, Codex when a GPT model is listed (ADR 0031), Claude
-   * Code when a model has an Anthropic-style API (ADR 0066).
-   */
-  neededAgents(): string[] {
-    const settings = this.settings();
-    const gpt = settings.services.some((s) => s.models.some((m) => isGptModel(m)));
-    const claude = modelChoices(settings, ["claude"]).some((c) => c.agents.length > 0);
-    return ["pi", ...(gpt ? ["codex"] : []), ...(claude ? ["claude"] : [])];
-  }
-
-  private installNeededAgents(): void {
-    if (this.opts.autoInstallAgents !== true || this.stopped) return;
-    // A download of another version than the adapted one (from an older app) is replaced.
-    for (const id of this.agentList.outdated()) {
-      this.log(`[agents] downloading the adapted version of ${id}`);
-      try {
-        this.agentList.install(id);
-      } catch (error) {
-        this.log(`[agents] could not download ${id}: ${(error as Error).message}`);
-      }
-    }
-    const views = this.agentList.views([], {});
-    for (const id of this.neededAgents()) {
-      const view = views.find((v) => v.id === id);
-      const failed = view?.error !== undefined && !view.error.startsWith(INCOMPLETE_DOWNLOAD);
-      if (view?.state !== "missing" || !view.canInstall || failed) continue;
-      this.log(`[agents] downloading ${id}, which the model list needs`);
-      try {
-        this.agentList.install(id);
-      } catch (error) {
-        this.log(`[agents] could not download ${id}: ${(error as Error).message}`);
-      }
-    }
   }
 
   /** Starts following tasks if a channel is bound. */
   async start(): Promise<void> {
-    this.installNeededAgents();
     void this.appList.load();
     this.socialList.start();
     await this.restartHerd();
@@ -437,7 +392,6 @@ export class Host implements HostApi {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    this.agentList.stop();
     this.socialList.stop();
     this.setupRun++;
     await this.stopHerd();
@@ -509,7 +463,6 @@ export class Host implements HostApi {
             this.opts.env,
           );
           if (profileId === "codex") return { env: withCodexHome(this.opts.home, launch.env) };
-          if (profileId === "claude") return { env: withClaudeHome(this.opts.home, launch.env) };
           return { env: launch.env };
         },
         check: (ref) => this.checkModel(ref),
@@ -616,20 +569,6 @@ export class Host implements HostApi {
     return this.agentList.views(this.config().profiles ?? [], "ref" in pi ? { pi: pi.ref } : {});
   }
 
-  installAgent(id: string): AgentView[] {
-    const view = this.agentList.views([], {}).find((v) => v.id === id);
-    if (view !== undefined && view.state === "ready") {
-      throw new Error(`${view.name} is installed; AgentHerd does not update agents (ADR 0066)`);
-    }
-    this.agentList.install(id);
-    return this.agents();
-  }
-
-  cancelInstall(id: string): AgentView[] {
-    this.agentList.cancel(id);
-    return this.agents();
-  }
-
   removeAgent(id: string): AgentView[] {
     this.agentList.remove(id);
     return this.agents();
@@ -643,11 +582,6 @@ export class Host implements HostApi {
     const check = await verifyProfile(profile, this.opts.verify ?? {});
     this.log(`[agents] check ${id}: ${check.ok ? "ok" : check.error}`);
     return check;
-  }
-
-  /** Waits for agent downloads (tests). */
-  agentsIdle(): Promise<void> {
-    return this.agentList.idle();
   }
 
   private herderFactory() {
@@ -1035,8 +969,8 @@ export class Host implements HostApi {
   }
 
   /**
-   * After `failed` broke a task before it acted: Codex and Claude Code hand the same model to Pi
-   * (ADR 0031, 0066); otherwise the next model in fallback order that answers (ADR 0030), in the agent that model
+   * After `failed` broke a task before it acted: Codex hands the same model to Pi (ADR 0031);
+   * otherwise the next model in fallback order that answers (ADR 0030), in the agent that model
    * gets.
    */
   private async nextModel(
@@ -1045,7 +979,7 @@ export class Host implements HostApi {
     tried: readonly string[],
   ): Promise<{ profileId: string; model: string } | undefined> {
     const ids = this.profileList.map((p) => p.id);
-    if ((profileId === "codex" || profileId === "claude") && ids.includes("pi")) {
+    if (profileId === "codex" && ids.includes("pi")) {
       this.agentDown(profileId);
       return { profileId: "pi", model: failed };
     }
@@ -1054,7 +988,7 @@ export class Host implements HostApi {
       until: Date.now() + 120_000,
     });
     const choices = modelChoices(this.settings(), ids);
-    const auto = profileId === "pi" || profileId === "codex" || profileId === "claude";
+    const auto = profileId === "pi" || profileId === "codex";
     for (const ref of fallbackOrder(
       choices,
       failed,
@@ -1063,11 +997,7 @@ export class Host implements HostApi {
     )) {
       if (tried.includes(ref)) continue;
       if ((await this.checkModel(ref)).ok) {
-        const runners = choices.find((c) => c.ref === ref)?.agents;
-        return {
-          profileId: auto ? agentForModel(ref, ids, profileId === "claude", runners) : profileId,
-          model: ref,
-        };
+        return { profileId: auto ? agentForModel(ref, ids) : profileId, model: ref };
       }
     }
     return undefined;

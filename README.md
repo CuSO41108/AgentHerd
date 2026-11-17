@@ -9,7 +9,7 @@ English · [简体中文](README.zh-CN.md)
 ### Your coding agents, run from Feishu.<br>Tell the Herder what you want. It starts the agents on your Mac, follows them, and tells you what they did.
 
 [![macOS](https://img.shields.io/badge/macOS-only-111?logo=apple)](docs/adr/0013-macos-only-for-v1.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
-[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/agentclientprotocol/claude-agent-acp)
+[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex)
 
 [Features](#features) · [How it works](#how-it-works) · [Get started](#get-started) · [Docs](#docs)
 
@@ -27,7 +27,7 @@ English · [简体中文](README.zh-CN.md)
   messages, starts and follows tasks, and tells you each result in its own words, with the
   agent's own reply one tap away. It talks like a capable friend. The app's 「主管」 page shows
   every step it took and why.
-- **The right agent and model for each task.** Pi (simple tasks), Codex (GPT models) and Claude Code (hard coding) run through the
+- **The right agent and model for each task.** Pi and Codex (for GPT models) come inside the app and run through the
   [Agent Client Protocol](https://agentclientprotocol.com), on your own model services. The
   Herder picks the model, the agent follows from it, and a broken first turn switches to the
   next model.
@@ -71,8 +71,11 @@ pnpm --filter @agentherd/desktop start
 ```
 
 The first run walks you through it: scan a QR code to connect Feishu, add a model service and
-its key, pick the Herder's model and how it talks. On the **Agent** page, download Pi or Codex
-and press 验证 to check that it starts. Then send the Herder a message in Feishu.
+its key, pick the Herder's model and how it talks. Pi and Codex come with the app; on the **Agent**
+page, press 验证 to check that one starts. In development, run
+`pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks.
+`pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and a `.dmg` (not signed
+yet). Then send the Herder a message in Feishu.
 
 <details>
 <summary>Command line, without the app</summary>

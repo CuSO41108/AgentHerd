@@ -5,7 +5,7 @@ answer and the evidence (link, command output, date) and, if it changes a decisi
 
 | ID | Question | Blocks | Status |
 | --- | --- | --- | --- |
-| Q01 | Do `claude-agent-acp` (0.107.2, ADR 0066) and `codex-acp` work with `@agentclientprotocol/sdk` 2.x: permission options offered, `session/load`, cancel? | M4 Claude Code / Codex profiles | Open |
+| Q01 | Do `codex-acp` (2.5.0) and, for config.json profiles, `claude-agent-acp` work with `@agentclientprotocol/sdk` 2.x: permission options offered, `session/load`, cancel? | M4 Claude Code / Codex profiles | Open |
 | Q02 | Which other agent CLIs have a working ACP mode today (Gemini CLI, OpenCode, Qwen Code, Goose, Kimi), and the exact command for each | M4 built-in profiles | Open |
 | Q03 | How does each agent ask the user a question over ACP: a permission request, a message that ends the turn, or something else? | M2 (`answer`) | Open |
 | Q04 | Claude Code permission rule syntax and precedence in `settings.json` (`allow` / `deny` / `ask`, `Bash(prefix:*)`, path rules); can a separate file hold AgentHerd's entries? | M3 exporter-claude-code | Open |

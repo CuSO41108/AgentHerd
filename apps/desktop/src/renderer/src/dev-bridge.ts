@@ -8,7 +8,6 @@
 //   empty            like ready, with no tasks
 //   no-agent         like empty, with no agent profiles
 //   offline          like ready, then the connection to the host drops
-//   pi-failed        like empty, and the last Pi download failed
 // `?open=` opens a dialog at once, for screenshots (see `devOpen`):
 //   add-service      the 添加服务 chooser
 //   add-builtin      the 添加服务 form of OpenRouter, with a few models chosen
@@ -52,16 +51,7 @@ import {
 
 type Listener<T> = (value: T) => void;
 
-const SIMS = [
-  "fresh",
-  "bound",
-  "network",
-  "ready",
-  "empty",
-  "no-agent",
-  "offline",
-  "pi-failed",
-] as const;
+const SIMS = ["fresh", "bound", "network", "ready", "empty", "no-agent", "offline"] as const;
 
 type Sim = (typeof SIMS)[number];
 
@@ -98,7 +88,7 @@ function installFakeBridge(): void {
     mode: "observe",
     locale: "zh-CN",
     keepAwake: true,
-    profiles: sim === "no-agent" || sim === "pi-failed" ? [] : ["pi"],
+    profiles: sim === "no-agent" ? [] : ["pi"],
   };
 
   const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
@@ -181,34 +171,23 @@ function installFakeBridge(): void {
     id,
     name,
     state: "missing",
-    canInstall: true,
     canRemove: false,
     ...extra,
   });
-  let agents: AgentView[] = [
-    sim === "no-agent" || sim === "pi-failed"
-      ? missing(
-          "pi",
-          "Pi",
-          sim === "pi-failed"
-            ? { error: "download failed: HTTP 503 for https://github.com/…" }
-            : {},
-        )
-      : {
-          id: "pi",
-          name: "Pi",
-          state: "ready",
-          source: "managed",
-          version: "1.5.0",
-          adapted: "1.5.0",
-          path: "~/.agentherd/runtimes/pi/1.5.0/pi/pi",
-          canInstall: false,
-          canRemove: true,
-        },
-    missing("codex", "Codex", { adapted: "2.5.0" }),
-    missing("claude", "Claude Code", { adapted: "0.107.2" }),
-  ];
-  let installTimer: ReturnType<typeof setInterval> | undefined;
+  const bundled = (id: string, name: string, version: string): AgentView => ({
+    id,
+    name,
+    state: "ready",
+    source: "bundled",
+    version,
+    adapted: version,
+    path: `/Applications/AgentHerd.app/Contents/Resources/agents/${id}/${version}`,
+    canRemove: false,
+  });
+  let agents: AgentView[] =
+    sim === "no-agent"
+      ? [missing("pi", "Pi", { adapted: "1.5.0" }), missing("codex", "Codex", { adapted: "2.5.0" })]
+      : [bundled("pi", "Pi", "1.5.0"), bundled("codex", "Codex", "2.5.0")];
   const setAgents = (next: AgentView[]): AgentView[] => {
     agents = next;
     const ids = agents.filter((a) => a.state === "ready").map((a) => a.id);
@@ -374,41 +353,6 @@ function installFakeBridge(): void {
       return delay(apps);
     },
     agents: () => delay(agents),
-    installAgent: (id) => {
-      const npm = id === "codex";
-      const total = npm ? 0 : 48_027_930;
-      let received = 0;
-      const current = agents.find((a) => a.id === id) as AgentView;
-      patch(id, { ...reset(current), state: "installing", progress: { received, total } });
-      installTimer = setInterval(() => {
-        received = npm ? received + 1 : Math.min(total, received + 4_000_000);
-        if (npm ? received < 8 : received < total) {
-          patch(id, { progress: { received: npm ? 0 : received, total } });
-          return;
-        }
-        clearInterval(installTimer);
-        setAgents(
-          agents.map((a) =>
-            a.id === id
-              ? {
-                  id,
-                  name: a.name,
-                  state: "ready",
-                  source: "managed",
-                  version: "1.0.0",
-                  canInstall: true,
-                  canRemove: true,
-                }
-              : a,
-          ),
-        );
-      }, 300);
-      return delay(agents);
-    },
-    cancelInstall: (id) => {
-      clearInterval(installTimer);
-      return delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a))));
-    },
     removeAgent: (id) => delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a)))),
     verifyAgent: (id) => {
       const loginNeeded = false;

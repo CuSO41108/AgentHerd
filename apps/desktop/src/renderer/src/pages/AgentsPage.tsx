@@ -1,17 +1,15 @@
-// Agent: the coding agents AgentHerd picks from (ADR 0066: Codex for GPT models, Claude Code for
-// hard coding tasks, Pi for the rest). The app downloads the version AgentHerd is adapted to
-// (digest checked) and never updates it; 验证 starts it once to prove it works.
+// Agent: the coding agents AgentHerd picks from (Codex for GPT models, Pi for the rest). They ship
+// inside the app at the version AgentHerd is adapted to (ADR 0067); nothing is downloaded or
+// updated here. 验证 starts one once to prove it works.
 
 import type { AgentCheck, AgentView } from "@agentherd/host/api";
 import {
   CircleAlert,
   CircleCheck,
-  Download,
   Loader2,
   ShieldCheck,
   SquareTerminal,
   Trash2,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Group, IconTile, Section } from "../components/ui";
@@ -20,52 +18,26 @@ import { call, useApp } from "../store";
 
 const DESCRIPTIONS: Record<string, string> = {
   pi: "轻量的开源编程 Agent。简单的任务用它跑。",
-  codex: "OpenAI 的 Codex。模型列表里有 GPT 模型时自动下载，GPT 模型用它跑；跑不起来就换 Pi。",
-  claude:
-    "Anthropic 的 Claude Code。复杂的编程任务用它跑，要用 Anthropic 接口的模型；模型列表里有这种模型时自动下载，跑不起来就换 Pi。",
+  codex: "OpenAI 的 Codex。GPT 模型用它跑；跑不起来就换 Pi。",
 };
 
 /** How to sign in, for agents that use their own account. */
 const LOGIN: Record<string, string> = {};
 
 const SOURCES: Record<NonNullable<AgentView["source"]>, string> = {
-  managed: "AgentHerd 下载的",
+  bundled: "App 自带",
+  managed: "旧版 App 下载的",
   system: "你电脑上装的",
   config: "config.json 里配置的",
 };
-
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-}
 
 function StateBadge({ agent }: { agent: AgentView }) {
   switch (agent.state) {
     case "ready":
       return <Badge tone="green">可以用</Badge>;
-    case "installing":
-      return <Badge tone="blue">正在下载</Badge>;
-    case "unsupported":
-      return <Badge tone="gray">这台电脑不支持</Badge>;
     case "missing":
-      return <Badge tone="amber">{agent.canInstall ? "未下载" : "未安装"}</Badge>;
+      return <Badge tone="amber">没有</Badge>;
   }
-}
-
-function Progress({ agent }: { agent: AgentView }) {
-  const p = agent.progress;
-  const percent = p !== undefined && p.total > 0 ? Math.round((p.received / p.total) * 100) : 0;
-  return (
-    <div className="flex flex-col gap-1.5 pt-1">
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-control-hover">
-        <div className="h-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
-      </div>
-      <span className="text-ink-muted text-sm">
-        {p === undefined || p.total === 0
-          ? "正在下载和安装…"
-          : `${megabytes(p.received)} / ${megabytes(p.total)}（${percent}%）`}
-      </span>
-    </div>
-  );
 }
 
 function Actions({ agent }: { agent: AgentView }) {
@@ -76,56 +48,33 @@ function Actions({ agent }: { agent: AgentView }) {
     if (agents !== undefined) useApp.setState({ agents });
     setBusy(false);
   };
-  if (agent.state === "installing") {
-    return (
-      <Button onClick={() => void act(() => call((h) => h.cancelInstall(agent.id)))}>
-        <X size={13} />
-        取消
-      </Button>
-    );
-  }
+  if (!agent.canRemove) return null;
   return (
-    <>
-      {agent.canInstall && agent.state === "missing" && (
-        <Button
-          variant="primary"
-          disabled={busy}
-          onClick={() => void act(() => call((h) => h.installAgent(agent.id)))}
-        >
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-          {agent.error === undefined ? "下载" : "重新下载"}
-        </Button>
-      )}
-      {agent.canRemove && (
-        <Button
-          disabled={busy}
-          onClick={() => {
-            if (window.confirm(`移除下载的 ${agent.name}？正在跑的任务不受影响，以后可以再下载。`))
-              void act(() => call((h) => h.removeAgent(agent.id)));
-          }}
-        >
-          <Trash2 size={13} />
-          移除
-        </Button>
-      )}
-    </>
+    <Button
+      disabled={busy}
+      title="旧版 App 下载的一份；移除后改用 App 自带的"
+      onClick={() => {
+        if (window.confirm(`移除旧版 App 下载的 ${agent.name}？之后用 App 自带的那份。`))
+          void act(() => call((h) => h.removeAgent(agent.id)));
+      }}
+    >
+      <Trash2 size={13} />
+      移除
+    </Button>
   );
 }
 
 function detail(agent: AgentView): string {
-  if (agent.state === "missing" && agent.canInstall) {
-    return agent.adapted === undefined
-      ? "下载官方版本"
-      : `下载 AgentHerd 适配过的 ${agent.adapted} 版`;
+  if (agent.state === "missing") {
+    return "这个 App 里没带，你电脑上也没装。用安装包装的 App 自带它。";
   }
-  if (agent.state === "ready" && agent.source !== undefined) {
-    if (agent.source !== "managed") return SOURCES[agent.source];
-    const version = `${SOURCES.managed}，版本 ${agent.version ?? ""}`;
-    return agent.adapted !== undefined && agent.adapted !== agent.version
-      ? `${version}；AgentHerd 适配的是 ${agent.adapted}，下次启动时换成这个版本`
-      : version;
-  }
-  return "";
+  if (agent.source === undefined) return "";
+  const from = SOURCES[agent.source];
+  if (agent.version === undefined) return from;
+  const version = `${from}，版本 ${agent.version}`;
+  return agent.adapted !== undefined && agent.adapted !== agent.version
+    ? `${version}（AgentHerd 适配的是 ${agent.adapted}）`
+    : version;
 }
 
 function CheckButton({ agent, onResult }: { agent: AgentView; onResult: (c: AgentCheck) => void }) {
@@ -202,23 +151,19 @@ function AgentRow({ agent }: { agent: AgentView }) {
             <div className="mt-0.5 text-ink-2 text-sm">{description}</div>
           )}
           <div className="mt-0.5 text-ink-muted text-sm">{detail(agent)}</div>
-          {agent.state === "ready" && agent.path !== undefined && agent.source !== "managed" && (
-            <div className="selectable mt-0.5 truncate font-mono text-ink-muted text-xs">
-              {agent.path}
-            </div>
-          )}
+          {agent.state === "ready" &&
+            agent.path !== undefined &&
+            agent.source !== "managed" &&
+            agent.source !== "bundled" && (
+              <div className="selectable mt-0.5 truncate font-mono text-ink-muted text-xs">
+                {agent.path}
+              </div>
+            )}
           {LOGIN[agent.id] !== undefined && agent.state === "ready" && check === undefined && (
             <div className="mt-0.5 text-ink-muted text-sm">{LOGIN[agent.id]}</div>
           )}
-          {agent.state === "installing" && <Progress agent={agent} />}
           {check !== undefined && agent.state === "ready" && (
             <CheckResult check={check} agent={agent} />
-          )}
-          {agent.error !== undefined && agent.state !== "installing" && (
-            <div className="mt-1 flex items-center gap-1.5 text-danger-text text-sm">
-              <CircleAlert size={13} />
-              下载失败：{agent.error}
-            </div>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -239,8 +184,8 @@ export function AgentsPage() {
         title="编程 Agent"
         hint={
           ready === 0
-            ? "不用选 Agent：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。版本由 AgentHerd 固定，不在这里更新。"
-            : `${ready} 个可以用。不用选：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。版本由 AgentHerd 固定，不在这里更新。`
+            ? "不用选 Agent：GPT 模型用 Codex，其余用 Pi。它们跟着 App 一起装好，版本随 App 更新。"
+            : `${ready} 个可以用。不用选：GPT 模型用 Codex，其余用 Pi。它们跟着 App 一起装好，版本随 App 更新。`
         }
       >
         <Group>

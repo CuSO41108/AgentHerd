@@ -9,7 +9,7 @@
 ### 在飞书里指挥你的 Coding Agent。<br>跟主管说你要什么，它在你的 Mac 上启动 Agent、盯着进度，做完用自己的话告诉你。
 
 [![macOS](https://img.shields.io/badge/macOS-only-111?logo=apple)](docs/adr/0013-macos-only-for-v1.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
-[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/agentclientprotocol/claude-agent-acp)
+[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex)
 
 [主要功能](#主要功能) · [怎么工作](#怎么工作) · [开始使用](#开始使用) · [文档](#文档)
 
@@ -25,7 +25,7 @@
 - **会说人话的主管。** 主管是一个用轻量模型的 Agent：接你的消息，启动并跟进任务，每个结果都用自己的话告诉你，
   Agent 的原话点一下就能看。它说话像个能干的朋友。
   它每一步做了什么、为什么做，在 App 的「主管」页都看得到。
-- **每个任务用对的 Agent 和模型。** Pi（简单任务）、Codex（GPT 模型）、Claude Code（复杂的编程任务）通过
+- **每个任务用对的 Agent 和模型。** Pi 和 Codex（GPT 模型用它）随 App 一起装好，通过
   [Agent Client Protocol](https://agentclientprotocol.com) 运行，用你自己的模型服务。主管选模型，Agent 跟着模型走；
   第一轮就出错时自动换下一个模型。
 - **任务能一直接着做。** 每个任务在项目的隐藏副本里干活，结束后保留，之后还能继续。App 里能看到每个任务的完整对话。
@@ -57,8 +57,9 @@ pnpm install
 pnpm --filter @agentherd/desktop start
 ```
 
-第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key，给主管选模型。在「Agent」页下载 Pi 或 Codex，
-点「验证」确认能启动。然后在飞书里给主管发条消息就行。
+第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key，给主管选模型。Pi 和 Codex 随 App
+自带，在「Agent」页点「验证」确认能启动。开发时先运行一次 `pnpm --filter @agentherd/desktop fetch-agents`，
+把它们放到开发版找得到的地方；`pnpm --filter @agentherd/desktop package:mac` 打出 `AgentHerd.app` 和 `.dmg`（暂未签名）。然后在飞书里给主管发条消息就行。
 
 <details>
 <summary>不用 App，用命令行</summary>

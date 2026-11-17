@@ -10,3 +10,6 @@ desktop.ini
 .env.*
 coverage/
 *.tsbuildinfo
+
+# Agents fetched for the app (apps/desktop/scripts/fetch-agents.ts)
+apps/desktop/agents/

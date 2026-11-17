@@ -200,6 +200,9 @@ importers:
       '@agentherd/herder':
         specifier: workspace:*
         version: link:../herder
+      '@agentherd/pi-acp':
+        specifier: workspace:*
+        version: link:../pi-acp
       '@agentherd/protocol':
         specifier: workspace:*
         version: link:../protocol
