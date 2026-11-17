@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeChannel } from "@agentherd/channel-fake";
 import { afterEach, describe, expect, it } from "vitest";
-import { Agents } from "../src/agents.ts";
+import { Agents, INCOMPLETE_DOWNLOAD } from "../src/agents.ts";
 import type { HostEvent } from "../src/api.ts";
 import {
   AGENTS,
@@ -19,6 +19,7 @@ import {
   agentProfile,
   CLAUDE_ACP_VERSION,
   CODEX_ACP_VERSION,
+  claudeNativeBinary,
   PI_VERSION,
 } from "../src/catalog.ts";
 import { writeConfig } from "../src/config.ts";
@@ -162,6 +163,38 @@ describe("RuntimeStore", () => {
       store.install({ kind: "npm", id: "x", version: "1.0.0", package: "x", executable: "i.js" }),
     ).rejects.toThrow(/npm is not available/);
   });
+
+  it("refuses an npm install that skipped a required file (a failed optional download)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "npm-"));
+    const npmCli = join(dir, "fake-npm.js");
+    writeFileSync(
+      npmCli,
+      [
+        'const { mkdirSync, writeFileSync } = require("node:fs");',
+        'const { join } = require("node:path");',
+        'const prefix = process.argv[process.argv.indexOf("--prefix") + 1];',
+        'const pkg = join(prefix, "node_modules", "x");',
+        "mkdirSync(pkg, { recursive: true });",
+        'writeFileSync(join(pkg, "package.json"), JSON.stringify({ version: "1.0.0" }));',
+        'writeFileSync(join(pkg, "i.js"), "");',
+      ].join("\n"),
+    );
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ type: "commonjs" }));
+    const store = new RuntimeStore(join(dir, "rt"));
+    const release: Release = {
+      kind: "npm",
+      id: "x",
+      version: "1.0.0",
+      package: "x",
+      executable: "node_modules/x/i.js",
+      requires: ["node_modules/x-native/bin"],
+    };
+    await expect(store.install(release, { npmCli })).rejects.toThrow(
+      /npm did not install node_modules\/x-native\/bin/,
+    );
+    const { requires: _, ...plain } = release;
+    await expect(store.install(plain, { npmCli })).resolves.toMatchObject({ version: "1.0.0" });
+  });
 });
 
 describe("catalog", () => {
@@ -265,6 +298,53 @@ describe("catalog", () => {
       adapted: PI_VERSION,
       canInstall: false,
     });
+  });
+
+  it("treats a Claude Code download without its native CLI as missing, ready to download again", async () => {
+    const root = "/rt/claude/0.107.2";
+    const native = `${root}/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`;
+    expect(`${root}/${claudeNativeBinary("darwin-arm64")}`).toBe(native);
+    expect(claudeNativeBinary("win32-x64")).toMatch(/claude-agent-sdk-win32-x64\/claude\.exe$/);
+    const installed: Release[] = [];
+    const store = {
+      installed: (id: string) =>
+        id === "claude" ? { id, version: CLAUDE_ACP_VERSION, path: `${root}/index.js` } : undefined,
+      dir: (id: string, version: string) => `/rt/${id}/${version}`,
+      install: async (r: Release) => {
+        installed.push(r);
+        return { id: r.id, version: r.version, path: "x" };
+      },
+    } as unknown as RuntimeStore;
+    const fetchers = {
+      json: async () => ({
+        version: CLAUDE_ACP_VERSION,
+        dist: { tarball: "t", integrity: "sha512-x" },
+      }),
+      text: async () => "",
+    };
+    let hasNative = false;
+    const agents = new Agents({
+      store,
+      env: { PATH: "" },
+      exists: (p) => hasNative && p === native,
+      target: "darwin-arm64",
+      fetchers,
+      onChange() {},
+    });
+    expect(agents.find("claude")).toBeUndefined();
+    const view = agents.views([], {}).find((v) => v.id === "claude");
+    expect(view).toMatchObject({ state: "missing", canInstall: true });
+    expect(view?.error).toMatch(
+      new RegExp(`^${INCOMPLETE_DOWNLOAD}: .*darwin-arm64/claude is missing`),
+    );
+    agents.install("claude");
+    await agents.idle();
+    expect(installed.find((r) => r.id === "claude")).toMatchObject({
+      kind: "npm",
+      requires: [claudeNativeBinary("darwin-arm64")],
+    });
+    hasNative = true;
+    expect(agents.find("claude")).toMatchObject({ source: "managed", version: CLAUDE_ACP_VERSION });
   });
 });
 

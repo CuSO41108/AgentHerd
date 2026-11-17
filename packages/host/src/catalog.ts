@@ -34,6 +34,11 @@ export interface AgentDef {
   targets?: readonly string[];
   /** npm releases need npm itself, downloaded as the `npm` runtime. */
   npm?: boolean;
+  /**
+   * Files inside the install folder the agent cannot run without, e.g. a platform build npm
+   * fetches as an optional dependency and skips without an error when its download fails.
+   */
+  requires?: (target: string) => readonly string[];
 }
 
 const GITHUB = "https://api.github.com/repos";
@@ -133,6 +138,15 @@ function npmAgent(id: string, pkg: string, pinned: string, bin: string) {
   };
 }
 
+/**
+ * Claude Code's native CLI, an optional dependency of the Agent SDK per platform
+ * (`@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`, about 350 MB).
+ */
+export function claudeNativeBinary(target: string): string {
+  const exe = target.startsWith("win32-") ? "claude.exe" : "claude";
+  return `node_modules/@anthropic-ai/claude-agent-sdk-${target}/${exe}`;
+}
+
 /** npm itself, used to install npm-published agents. */
 export async function npmRuntime(fetch: Fetchers): Promise<ArchiveRelease> {
   const npm = await npmVersion(fetch, "npm");
@@ -204,6 +218,7 @@ export const AGENTS: AgentDef[] = [
       CLAUDE_ACP_VERSION,
       "dist/index.js",
     ),
+    requires: (target) => [claudeNativeBinary(target)],
     npm: true,
   },
 ];

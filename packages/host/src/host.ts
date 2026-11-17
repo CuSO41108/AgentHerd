@@ -46,7 +46,7 @@ import {
 import type { AgentProfile, Channel, Locale, Mode, SetupUI } from "@agentherd/protocol";
 import { DEFAULT_LOCALE } from "@agentherd/protocol";
 import QRCode from "qrcode";
-import { Agents } from "./agents.ts";
+import { Agents, INCOMPLETE_DOWNLOAD } from "./agents.ts";
 import type {
   AgentCheck,
   AgentView,
@@ -410,7 +410,8 @@ export class Host implements HostApi {
     const views = this.agentList.views([], {});
     for (const id of this.neededAgents()) {
       const view = views.find((v) => v.id === id);
-      if (view?.state !== "missing" || !view.canInstall || view.error !== undefined) continue;
+      const failed = view?.error !== undefined && !view.error.startsWith(INCOMPLETE_DOWNLOAD);
+      if (view?.state !== "missing" || !view.canInstall || failed) continue;
       this.log(`[agents] downloading ${id}, which the model list needs`);
       try {
         this.agentList.install(id);
