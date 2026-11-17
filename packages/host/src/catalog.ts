@@ -1,7 +1,7 @@
-// The agents AgentHerd knows how to download and start (ADR 0066: Pi, Codex for GPT models,
-// Claude Code for hard coding work), each at the version the maintainers adapted AgentHerd to.
-// Downloads fetch exactly that version; the digest comes from the publisher (GitHub asset digest,
-// npm integrity). Moving to a newer version is a code change, tested before release.
+// The agents AgentHerd starts (ADR 0067: Pi, and Codex for GPT models), each at the version the
+// maintainers adapted AgentHerd to. They ship inside the app: scripts/fetch-agents.ts fetches
+// exactly that version when the app is built, checking the publisher's digest (GitHub asset
+// digest, npm integrity). Moving to a newer version is a code change, tested before release.
 
 import type { AgentProfile } from "@agentherd/protocol";
 import type { ArchiveRelease, Digest, NpmRelease, Release } from "./runtimes.ts";
@@ -26,12 +26,10 @@ export interface AgentDef {
   acpArgs: string[];
   /** Env the agent runs with so that writes and commands ask the owner. */
   env: Record<string, string>;
-  /** The version AgentHerd is adapted to and downloads (ADR 0066). */
+  /** The version AgentHerd is adapted to and ships (ADR 0066, 0067). */
   version?: string;
   /** The release of `version` for a target (`darwin-arm64`, …); undefined when there is no build. */
   release?: (target: string, fetch: Fetchers) => Promise<Release | undefined>;
-  /** Supported targets for downloads; omitted means all targets. */
-  targets?: readonly string[];
   /** npm releases need npm itself, downloaded as the `npm` runtime. */
   npm?: boolean;
   /**
@@ -106,8 +104,6 @@ function split(target: string): { os: string; arch: string } {
 export const PI_VERSION = "1.5.0";
 /** codex-acp, Codex's ACP adapter (ADR 0031, 0066). */
 export const CODEX_ACP_VERSION = "2.5.0";
-/** claude-agent-acp, Claude Code's ACP adapter (ADR 0066). */
-export const CLAUDE_ACP_VERSION = "0.107.2";
 
 async function piRelease(target: string, fetch: Fetchers) {
   const tag = `v${PI_VERSION}`;
@@ -125,6 +121,26 @@ async function piRelease(target: string, fetch: Fetchers) {
   return archive("pi", asset, "tar.gz", "pi/pi", "exec");
 }
 
+const CODEX_TRIPLES: Record<string, string> = {
+  "darwin-arm64": "aarch64-apple-darwin",
+  "darwin-x64": "x86_64-apple-darwin",
+  "linux-arm64": "aarch64-unknown-linux-musl",
+  "linux-x64": "x86_64-unknown-linux-musl",
+  "win32-arm64": "aarch64-pc-windows-msvc",
+  "win32-x64": "x86_64-pc-windows-msvc",
+};
+
+/**
+ * The Codex CLI inside a codex-acp install: an optional dependency per platform, which npm skips
+ * without an error when its download fails (checked for 2.5.0, CLI 0.165.0).
+ */
+export function codexNativeBinary(target: string): readonly string[] {
+  const triple = CODEX_TRIPLES[target];
+  if (triple === undefined) return [];
+  const exe = target.startsWith("win32-") ? "codex.exe" : "codex";
+  return [`node_modules/@openai/codex-${target}/vendor/${triple}/bin/${exe}`];
+}
+
 function npmAgent(id: string, pkg: string, pinned: string, bin: string) {
   return async (_target: string, fetch: Fetchers): Promise<NpmRelease> => {
     const { version } = await npmVersion(fetch, pkg, pinned);
@@ -136,15 +152,6 @@ function npmAgent(id: string, pkg: string, pinned: string, bin: string) {
       executable: `node_modules/${pkg}/${bin}`,
     };
   };
-}
-
-/**
- * Claude Code's native CLI, an optional dependency of the Agent SDK per platform
- * (`@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`, about 350 MB).
- */
-export function claudeNativeBinary(target: string): string {
-  const exe = target.startsWith("win32-") ? "claude.exe" : "claude";
-  return `node_modules/@anthropic-ai/claude-agent-sdk-${target}/${exe}`;
 }
 
 /** npm itself, used to install npm-published agents. */
@@ -200,25 +207,7 @@ export const AGENTS: AgentDef[] = [
       CODEX_ACP_VERSION,
       "dist/index.js",
     ),
-    npm: true,
-  },
-  {
-    id: "claude",
-    name: "Claude Code",
-    envVar: "AGENTHERD_CLAUDE",
-    systemNames: ["claude-agent-acp"],
-    acpArgs: [],
-    // Asking before edits and commands comes from the settings in its CLAUDE_CONFIG_DIR
-    // (claude-home.ts); no browser login, the owner's Anthropic-style service supplies the key.
-    env: { NO_BROWSER: "1" },
-    version: CLAUDE_ACP_VERSION,
-    release: npmAgent(
-      "claude",
-      "@agentclientprotocol/claude-agent-acp",
-      CLAUDE_ACP_VERSION,
-      "dist/index.js",
-    ),
-    requires: (target) => [claudeNativeBinary(target)],
+    requires: codexNativeBinary,
     npm: true,
   },
 ];

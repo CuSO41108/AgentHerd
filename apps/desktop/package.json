@@ -9,7 +9,9 @@
     "build": "electron-vite build",
     "start": "node scripts/brand-dev-electron.ts && electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "brand": "node scripts/brand-dev-electron.ts"
+    "brand": "node scripts/brand-dev-electron.ts",
+    "fetch-agents": "node scripts/fetch-agents.ts",
+    "package:mac": "node scripts/package-mac.ts"
   },
   "dependencies": {
     "@agentherd/host": "workspace:*"

@@ -25,9 +25,9 @@ An agent is a profile in configuration, not a package:
 
 ```json
 {
-  "id": "claude",
-  "name": "Claude Code",
-  "command": ["claude-agent-acp"],
+  "id": "qwen",
+  "name": "Qwen Code",
+  "command": ["qwen", "--acp"],
   "env": { "NO_BROWSER": "1" },
   "exporter": null
 }
@@ -38,12 +38,14 @@ server ([09-agent-tools.md](09-agent-tools.md)).
 
 | Agent | Command | Status |
 | --- | --- | --- |
-| Pi | `node packages/pi-acp/bin/pi-acp.ts --pi <pi>` (bridge to `pi --mode rpc`) | Tested 2026-11-04 with Pi 1.5.0 and DeepSeek: allow writes the file, deny blocks it. Steering tested 2026-11-14 with Pi 1.5.0 and `deepseek-flash`: a message sent during a `sleep 8` command was read after it and answered in the same turn; one sent during the final reply was read too; a cancelled turn answered `false` and Pi did not act on the message. Built-in profile `pi` (found via `AGENTHERD_PI`, the copy the app downloaded, or `PATH`); see [Pi](#pi) and ADR 0022 |
-| Codex | `node …/codex-acp/dist/index.js` (npm `@agentclientprotocol/codex-acp`), env `INITIAL_AGENT_MODE=read-only`, `NO_BROWSER=1`, the model in `CODEX_CONFIG` (ADR 0031) | Installs with npm 2026-11-05 (2.5.0); 验证 reports "Codex process was killed by SIGKILL" on this Mac (endpoint security); prompt run not tried **(verify, Q01)** |
-| Claude Code | `node …/claude-agent-acp/dist/index.js` (npm `@agentclientprotocol/claude-agent-acp` 0.107.2), the model in `ANTHROPIC_*` env, `CLAUDE_CONFIG_DIR` = `<home>/run/claude` with `permissions.defaultMode: "default"` and auto mode off ([ADR 0066](../adr/0066-pinned-agents-and-claude-code-for-hard-work.md)) | Only `anthropic-messages` models. Its native CLI comes from npm as the optional dependency `@anthropic-ai/claude-agent-sdk-<platform>` (about 350 MB); npm skips a failed optional download silently, so the host checks that file after the install and treats a download without it as missing (downloaded again at start). Not run on the development Mac: endpoint security kills Claude Code (`Killed: 9`); tested with the mock agent only **(verify, Q01)** |
+| Pi | `node packages/pi-acp/bin/pi-acp.ts --pi <pi>` (bridge to `pi --mode rpc`) | Tested 2026-11-04 with Pi 1.5.0 and DeepSeek: allow writes the file, deny blocks it. Steering tested 2026-11-14 with Pi 1.5.0 and `deepseek-flash`: a message sent during a `sleep 8` command was read after it and answered in the same turn; one sent during the final reply was read too; a cancelled turn answered `false` and Pi did not act on the message. Built-in profile `pi` (found via `AGENTHERD_PI`, the copy inside the app, or `PATH`); see [Pi](#pi) and ADR 0022 |
+| Codex | `node …/codex-acp/dist/index.js` (npm `@agentclientprotocol/codex-acp`), env `INITIAL_AGENT_MODE=read-only`, `NO_BROWSER=1`, the model in `CODEX_CONFIG` (ADR 0031) | Ships inside the app (2.5.0, with the Codex CLI for the build's platform); 验证 reports "Codex process was killed by SIGKILL" on this Mac (endpoint security); prompt run not tried **(verify, Q01)** |
 | Qwen Code, others | Their ACP mode, as a config.json profile | **(verify, Q02)** |
 
-The desktop app ships built-in profiles for these and lets the user add any ACP command.
+The desktop app has built-in profiles for Pi and Codex and lets the user add any ACP command.
+Claude Code was a built-in profile for a day (ADR 0066) and was removed: its CLI is not open
+source and cannot ship inside the app ([ADR 0067](../adr/0067-agents-ship-inside-the-app.md)); it
+can still be added as a config.json profile.
 
 ### Mapping ACP to AgentHerd
 
@@ -108,28 +110,29 @@ Pi has no native ACP or MCP client and never asks before a tool call. AgentHerd'
   `%ProgramFiles%\nodejs`, resolves `.cmd`/`.exe` binaries via `PATHEXT`, unwraps npm/pnpm
   `.cmd` shims to run Node directly, and falls back to `cmd.exe /d /s /c` with hidden consoles.
 
-### Managed downloads
+### Agents inside the app
 
-The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md),
-[ADR 0066](../adr/0066-pinned-agents-and-claude-code-for-hard-work.md)): GPT models run in Codex;
-a hard coding task (`session_start` with `hard: true`) runs in Claude Code when an
-`anthropic-messages` model is listed; every other task runs in Pi. DSH is no longer an agent.
+The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md)):
+GPT models run in Codex, every other task runs in Pi.
 
-Each agent has one version AgentHerd was adapted to (`packages/host/src/catalog.ts`: Pi
-`1.5.0` from GitHub release tag `v1.5.0`, `@agentclientprotocol/codex-acp` `2.5.0`,
-`@agentclientprotocol/claude-agent-acp` `0.107.2`, installed with a downloaded npm). The host
-downloads Pi, Codex when a GPT model is listed, and Claude Code when an `anthropic-messages`
-model is listed; a managed copy of another version is replaced by the adapted one at start.
-The **Agent** page has no 更新 button: 下载 appears only when an agent is missing, and it fetches
-the adapted version. Moving to a new upstream version is a code change by the maintainer.
-`packages/host/src/runtimes.ts` checks the publisher's digest (and `--version`), installs into
-`<home>/runtimes/<id>/<version>/` and records it in `current.json`. Lookup: `AGENTHERD_<ID>`,
-the download, then `PATH`.
+Pi and Codex ship inside the app ([ADR 0067](../adr/0067-agents-ship-inside-the-app.md)), each at
+the one version AgentHerd was adapted to (`packages/host/src/catalog.ts`: Pi `1.5.0` from GitHub
+release tag `v1.5.0`, `@agentclientprotocol/codex-acp` `2.5.0` with the Codex CLI npm installs for
+the platform). `apps/desktop/scripts/fetch-agents.ts` fetches them at build time (publisher's
+digest checked; an npm install that skipped the platform CLI fails) into
+`AgentHerd.app/Contents/Resources/agents/<id>/<version>/` with `current.json`, and
+`apps/desktop/scripts/package-mac.ts` builds the `.app` and `.dmg` (macOS, this Mac's
+architecture, signed ad hoc until M5). The desktop main process passes that folder to the host as
+`AGENTHERD_AGENTS`; in development `pnpm --filter @agentherd/desktop fetch-agents` fills
+`apps/desktop/agents/`, which the dev app reads.
+
+The app downloads nothing at run time: no download at start, no 下载 or 更新 button. A new agent
+version comes with a new app. Lookup: `AGENTHERD_<ID>`, the copy inside the app, a copy an older
+app downloaded into `<home>/runtimes` (read only; 移除 deletes it), then `PATH`. A missing agent
+shows on the **Agent** page as 没有.
 On Windows, when OpenAI's Codex (ChatGPT) desktop app is installed (package folder from
 `HKCU\...\AppModel\Repository\Packages\OpenAI.Codex_*`, `app\resources\codex.exe`, newest first),
-Codex runs with `CODEX_PATH` naming that CLI, and its download leaves out npm's optional
-dependencies (the platform CLI build, over 100 MB). An owner's own `CODEX_PATH` wins.
-移除 deletes the download.
+Codex runs with `CODEX_PATH` naming that CLI. An owner's own `CODEX_PATH` wins.
 
 A task runs with a model from the owner's list: the Herder picks it and the agent gets it through
 env (Pi, Codex; see [ADR 0025](../adr/0025-herder-picks-model-per-task.md)). When Codex does not

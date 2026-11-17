@@ -23,9 +23,8 @@ flowchart TB
   end
   subgraph Bottom["Agents (bottom)"]
     A1["pi-acp (Pi)"]
-    A2["claude-agent-acp"]
-    A3["codex-acp"]
-    A4["any ACP agent"]
+    A2["codex-acp"]
+    A3["any ACP agent"]
     CFG["Agents' own permission configs<br/>(for terminal sessions)"]
   end
   UI["Desktop app (manage only)"]
@@ -33,7 +32,7 @@ flowchart TB
   INB <--> HD
   HD --> RULES
   HD <--> REG <--> ACPC
-  ACPC <-- "ACP over stdio" --> A1 & A2 & A3 & A4
+  ACPC <-- "ACP over stdio" --> A1 & A2 & A3
   RULES --> EXP -- "write own block" --> CFG
   UI <-- "local API" --> REG & RULES & INB
   REG & HD & INB --> DB

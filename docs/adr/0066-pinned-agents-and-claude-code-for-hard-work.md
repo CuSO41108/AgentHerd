@@ -1,6 +1,6 @@
 # ADR 0066: Pinned agent versions, no DSH, Claude Code for hard coding work
 
-- Status: Accepted
+- Status: Accepted; downloads and Claude Code superseded by [ADR 0067](0067-agents-ship-inside-the-app.md)
 - Date: 2026-11-16
 - Supersedes: the latest-release downloads and the 更新 button of
   [ADR 0024](0024-follow-latest-releases-six-agents.md); DSH and the agent list of

@@ -30,7 +30,7 @@ export async function runHost(opts: RunHostOptions): Promise<RunningHost> {
   const host = new Host({
     home: opts.home,
     mcpSocket,
-    autoInstallAgents: true,
+    ...(process.env.AGENTHERD_AGENTS ? { agentsDir: process.env.AGENTHERD_AGENTS } : {}),
     memoryJobs: true,
     secrets: secretFile(opts.home),
     createChannel: (locale) =>

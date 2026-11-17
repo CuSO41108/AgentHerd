@@ -17,15 +17,15 @@ describe("findAgent", () => {
     (p: string) =>
       paths.includes(p);
 
-  it("prefers AGENTHERD_CLAUDE", () => {
+  it("prefers AGENTHERD_CODEX", () => {
     expect(
       findAgent(
-        "claude",
-        { AGENTHERD_CLAUDE: "/x/claude-agent-acp", PATH: "/usr/bin" },
-        has("/usr/bin/claude-agent-acp"),
+        "codex",
+        { AGENTHERD_CODEX: "/x/codex-acp", PATH: "/usr/bin" },
+        has("/usr/bin/codex-acp"),
         "darwin",
       ),
-    ).toBe("/x/claude-agent-acp");
+    ).toBe("/x/codex-acp");
   });
   it("reads Path case-insensitively from plain env objects on Windows", () => {
     expect(findAgent("pi", { Path: "C:\\Tools" }, has("C:\\Tools\\pi.cmd"), "win32")).toBe(
@@ -33,14 +33,17 @@ describe("findAgent", () => {
     );
   });
   it("then searches PATH in order", () => {
-    expect(findAgent("claude", { PATH: "/a:/b" }, has("/b/claude-agent-acp"), "darwin")).toBe(
-      "/b/claude-agent-acp",
+    expect(findAgent("codex", { PATH: "/a:/b" }, has("/b/codex-acp"), "darwin")).toBe(
+      "/b/codex-acp",
     );
   });
   it("returns undefined when it is not installed", () => {
-    expect(findAgent("claude", { PATH: "" }, has(), "darwin")).toBeUndefined();
+    expect(findAgent("codex", { PATH: "" }, has(), "darwin")).toBeUndefined();
   });
-  it("knows no DSH any more (ADR 0066)", () => {
+  it("knows no DSH or Claude Code any more (ADR 0066, 0067)", () => {
+    expect(
+      findAgent("claude", { PATH: "/b" }, has("/b/claude-agent-acp"), "darwin"),
+    ).toBeUndefined();
     expect(findAgent("dsh", { PATH: "/b" }, has("/b/dsh"), "darwin")).toBeUndefined();
   });
 });
@@ -59,9 +62,9 @@ describe("resolveProfile", () => {
     const mine = { id: "codex", name: "Mine", command: ["codex-acp"], env: {}, exporter: null };
     expect(resolveProfile("codex", { configured: [mine], find: () => undefined })).toBe(mine);
   });
-  it("explains how to install Claude Code when it is missing", () => {
-    expect(() => resolveProfile("claude", { configured: [], find: () => undefined })).toThrow(
-      /AGENTHERD_CLAUDE/,
+  it("explains how to get Codex when it is missing", () => {
+    expect(() => resolveProfile("codex", { configured: [], find: () => undefined })).toThrow(
+      /AGENTHERD_CODEX/,
     );
   });
   it("requires a script for the mock profile", () => {
@@ -71,9 +74,7 @@ describe("resolveProfile", () => {
     );
   });
   it("lists known profiles for an unknown id", () => {
-    expect(() => resolveProfile("dsh", { configured: [] })).toThrow(
-      /known: mock, pi, codex, claude/,
-    );
+    expect(() => resolveProfile("dsh", { configured: [] })).toThrow(/known: mock, pi, codex\)/);
   });
 });
 
@@ -83,10 +84,10 @@ describe("availableProfiles", () => {
     const ids = availableProfiles({
       configured: [custom],
       script: "/s.yaml",
-      find: (id) => (id === "claude" ? "/bin/claude-agent-acp" : undefined),
+      find: (id) => (id === "codex" ? "/bin/codex-acp" : undefined),
       agentEnv: () => ({}),
     }).map((p) => p.id);
-    expect(ids).toEqual(["x", "claude", "mock"]);
+    expect(ids).toEqual(["x", "codex", "mock"]);
   });
 
   it("skips agents that are not installed and mock without a script", () => {
@@ -134,18 +135,17 @@ describe("pi", () => {
 
   it("explains where to get Pi", () => {
     expect(() => resolveProfile("pi", { configured: [], find: () => undefined })).toThrow(
-      /Agent page.*AGENTHERD_PI/,
+      /desktop app.*AGENTHERD_PI/,
     );
   });
 
-  it("is listed before Codex and Claude Code", () => {
+  it("is listed before Codex", () => {
     const ids = availableProfiles({
       configured: [],
-      find: (id) =>
-        ({ claude: "/bin/claude-agent-acp", codex: "/bin/codex-acp", pi: "/bin/pi" })[id],
+      find: (id) => ({ codex: "/bin/codex-acp", pi: "/bin/pi" })[id],
       agentEnv: () => ({}),
     }).map((p) => p.id);
-    expect(ids).toEqual(["pi", "codex", "claude"]);
+    expect(ids).toEqual(["pi", "codex"]);
   });
 });
 
@@ -158,12 +158,12 @@ describe("findAgent on Windows", () => {
 
   it("finds npm's .cmd shim, not the shell script beside it", () => {
     const found = findAgent(
-      "claude",
+      "codex",
       { PATH },
-      has("C:\\nodejs\\claude-agent-acp", "C:\\nodejs\\claude-agent-acp.cmd"),
+      has("C:\\nodejs\\codex-acp", "C:\\nodejs\\codex-acp.cmd"),
       "win32",
     );
-    expect(found).toBe("C:\\nodejs\\claude-agent-acp.cmd");
+    expect(found).toBe("C:\\nodejs\\codex-acp.cmd");
   });
   it("finds an .exe", () => {
     expect(findAgent("pi", { PATH }, has("C:\\a\\pi.exe"), "win32")).toBe("C:\\a\\pi.exe");

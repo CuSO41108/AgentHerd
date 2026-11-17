@@ -18,29 +18,17 @@ export function isGptModel(id: string): boolean {
 }
 
 /**
- * The agent for a model when the owner does not name one (ADR 0031, 0066): Codex for GPT models;
- * Claude Code for a hard coding task when it can run the model (`runners`, the agents that can);
- * Pi for everything else. Falls back to Pi when the chosen agent is not installed, and to the
- * first agent when Pi is not either.
+ * The agent for a model when the owner does not name one (ADR 0031): Codex for GPT models, Pi
+ * for everything else. Falls back to Pi when Codex is not installed, and to the first agent when
+ * Pi is not either.
  */
-export function agentForModel(
-  ref: string | undefined,
-  agentIds: readonly string[],
-  hard = false,
-  runners?: readonly string[],
-): string {
+export function agentForModel(ref: string | undefined, agentIds: readonly string[]): string {
   const id = ref === undefined ? "" : ref.slice(ref.indexOf("/") + 1);
   if (ref !== undefined && isGptModel(id) && agentIds.includes("codex")) return "codex";
-  if (hard && agentIds.includes("claude") && runners?.includes("claude") === true) return "claude";
   if (agentIds.includes("pi")) return "pi";
   const first = agentIds[0];
   if (first === undefined) throw new Error("no agent installed");
   return first;
-}
-
-/** Claude Code speaks only Anthropic's Messages API (ADR 0066). */
-export function claudeCanRun(model: Model<Api>): boolean {
-  return model.api === "anthropic-messages";
 }
 
 /**
@@ -63,9 +51,6 @@ export function codexCanRun(model: Model<Api>): boolean {
  * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0).
  * - codex: models `codexCanRun` accepts, as a custom provider in `CODEX_CONFIG` (read by
  *   codex-acp).
- * - claude: Anthropic-style models (`claudeCanRun`), through the env Claude Code reads. Every
- *   model alias (haiku, sonnet, opus and the background model) is the chosen model, so no call
- *   goes to a model the service does not have.
  */
 export function agentModelEnv(
   agentId: string,
@@ -93,24 +78,6 @@ export function agentModelEnv(
         MODEL_PROVIDER: CODEX_PROVIDER,
         [CODEX_KEY_ENV]: key ?? "none",
       };
-    case "claude": {
-      if (!claudeCanRun(model)) return undefined;
-      const headers = Object.entries(model.headers ?? {})
-        .map(([k, v]) => `${k}: ${v}`)
-        .join("\n");
-      return {
-        ANTHROPIC_BASE_URL: model.baseUrl,
-        ANTHROPIC_API_KEY: key ?? "none",
-        ANTHROPIC_MODEL: model.id,
-        ANTHROPIC_DEFAULT_OPUS_MODEL: model.id,
-        ANTHROPIC_DEFAULT_SONNET_MODEL: model.id,
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: model.id,
-        ANTHROPIC_SMALL_FAST_MODEL: model.id,
-        CLAUDE_CODE_SUBAGENT_MODEL: model.id,
-        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-        ...(headers === "" ? {} : { ANTHROPIC_CUSTOM_HEADERS: headers }),
-      };
-    }
     default:
       return undefined;
   }

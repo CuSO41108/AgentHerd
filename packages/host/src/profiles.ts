@@ -292,7 +292,7 @@ export function resolveProfile(id: string, opts: ResolveOptions): AgentProfile {
     const bin = (opts.find ?? ((x: string) => findAgent(x)))(id);
     if (bin === undefined) {
       throw new Error(
-        `${def.name} not found. Download it on the Agent page of the desktop app, or set ${def.envVar}.`,
+        `${def.name} not found. It comes with the desktop app; otherwise install it or set ${def.envVar}.`,
       );
     }
     const extra = (opts.agentEnv ?? ((x: string) => agentEnv(x)))(id);
