@@ -60,7 +60,7 @@ const HEADERS: Record<Page, { title: string; hint: string }> = {
   },
   models: { title: "模型", hint: "模型服务、Key 和订阅登录，主管和各档任务用哪个模型" },
   agents: { title: "Agent", hint: "替你干活的编程 Agent；主管开任务时按模型自动挑" },
-  settings: { title: "设置", hint: "飞书、审批方式、外观、电源和数据目录" },
+  settings: { title: "设置", hint: "飞书、审批方式、外观、桌宠、电源和数据目录" },
 };
 
 function Sidebar() {

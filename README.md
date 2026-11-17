@@ -51,6 +51,9 @@ English · [简体中文](README.zh-CN.md)
   schedule, and missed runs happen once when your Mac wakes.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
   itself. It learns a lesson only when a task went wrong, and finds past results in task records.
+- **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop, says what AgentHerd just told you
+  in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
+  her to talk to the Herder; fold her into a dot when she is in the way.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.
 
@@ -102,4 +105,4 @@ recent decisions with `status`.
 
 AgentHerd is under the [MIT License](LICENSE).
 
-<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md).</sub>
+<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md). The desktop pet's figures are drawn by ZipZipPipe and come from [llm-pet](https://github.com/savanna0425/llm-pet); they are not under the MIT License and may not be used commercially ([notice](apps/desktop/src/renderer/src/pet/figures/NOTICE.md)).</sub>

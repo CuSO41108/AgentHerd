@@ -1,5 +1,6 @@
 // The local API of the AgentHerd host (docs/spec/02-architecture.md §4). The desktop app and the
-// CLI use it; agents do not. Items are read-only here: the owner decides in the channel.
+// CLI use it; agents do not. Items are decided in the channel, or through the desktop pet, which
+// passes the owner's press on as if made in the channel (ADR 0070).
 // These types have no runtime imports, so the renderer can import them too.
 
 import type {
@@ -13,7 +14,7 @@ import type {
   Task,
   TranscriptEntry,
 } from "@agentherd/core";
-import type { Locale, Mode, Risk } from "@agentherd/protocol";
+import type { Locale, Mode, ReportResult, Risk } from "@agentherd/protocol";
 
 export const API_VERSION = 1;
 
@@ -45,6 +46,8 @@ export interface HostStatus {
   obsidianVault?: string;
   /** Agent profile ids the owner can start with /run. */
   profiles: string[];
+  /** The desktop pet (ADR 0070). */
+  pet: PetSettings;
 }
 
 /**
@@ -273,6 +276,52 @@ export interface SettingsPatch {
   keepAwake?: boolean;
   /** An Obsidian vault folder; "" clears it. */
   obsidianVault?: string;
+  pet?: Partial<PetSettings>;
+}
+
+/** The two figures that come with the app (ADR 0070). */
+export const PET_FIGURES = ["claude", "deepseek"] as const;
+export type PetFigure = (typeof PET_FIGURES)[number];
+
+export interface PetSettings {
+  /** Shown on the desktop. */
+  on: boolean;
+  figure: PetFigure;
+}
+
+export const DEFAULT_PET: PetSettings = { on: true, figure: "deepseek" };
+
+/** One thing AgentHerd sent to the owner, as the pet shows it. */
+export interface PetLine {
+  /** Grows with every new line, so the pet knows when to speak. */
+  id: number;
+  at: string;
+  /** say: the Herder talking; task: a task's progress; report: a task finished; ask: needs the owner. */
+  kind: "say" | "task" | "report" | "ask" | "error";
+  text: string;
+  /** Task title or label. */
+  task?: string;
+  /** Only for reports. */
+  result?: ReportResult;
+}
+
+/** A card waiting for the owner; its buttons work the same as in the chat app. */
+export interface PetPending {
+  target: string;
+  title: string;
+  body: string;
+  options: { action: string; label: string }[];
+  task?: string;
+  /** Open approvals on a combined card. */
+  count?: number;
+}
+
+export interface PetView {
+  /** The chat channel is up, so the owner can talk and press buttons. */
+  connected: boolean;
+  last?: PetLine;
+  /** Oldest first. */
+  pending: PetPending[];
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */
@@ -498,6 +547,12 @@ export interface HostApi {
   logoutLark(): Promise<LarkView>;
   feeds(): FeedView[];
   setFeed(source: FeedSource, on: boolean): FeedView[];
+  /** What the desktop pet shows (ADR 0070). */
+  pet(): PetView;
+  /** The owner typed this to the pet: it reaches AgentHerd as a chat message. */
+  petSay(text: string): Promise<PetView>;
+  /** The owner pressed a button on a card in the pet's bubble. */
+  petPress(target: string, action: string): Promise<PetView>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -558,6 +613,9 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "logoutLark",
   "feeds",
   "setFeed",
+  "pet",
+  "petSay",
+  "petPress",
 ];
 
 export type HostEvent =
@@ -570,7 +628,8 @@ export type HostEvent =
   | { topic: "socials"; data: SocialView[] }
   | { topic: "watches"; data: WatchView[] }
   | { topic: "lark"; data: LarkView }
-  | { topic: "login"; data: LoginView };
+  | { topic: "login"; data: LoginView }
+  | { topic: "pet"; data: PetView };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {
