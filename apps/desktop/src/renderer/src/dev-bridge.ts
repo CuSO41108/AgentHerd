@@ -15,6 +15,9 @@
 //   edit-<id>        the edit dialog of the service <id> (deepseek, gateway)
 //   task-<id>        the conversation of the task <id> (s2 has one)
 //   subscription     the 用订阅登录 vendor list (ADR 0068)
+// The pet window (/pet.html, ADR 0070) uses the same bridge; `?pet=` picks what it shows:
+//   waiting          an approval waits for the owner
+//   done             a task just finished
 
 import type {
   AgentView,
@@ -27,6 +30,7 @@ import type {
   MemoryView,
   ModelsView,
   ModelTiersView,
+  PetView,
   RemoteHost,
   SchedulesView,
   SetupState,
@@ -92,7 +96,53 @@ function installFakeBridge(): void {
     locale: "zh-CN",
     keepAwake: true,
     profiles: sim === "no-agent" ? [] : ["pi"],
+    pet: { on: true, figure: "deepseek" },
   };
+
+  const petSim = new URLSearchParams(window.location.search).get("pet");
+  let petLineId = 1;
+  let pet: PetView = {
+    connected: sim !== "fresh" && sim !== "network",
+    last: {
+      id: petLineId,
+      at: new Date().toISOString(),
+      kind: "say",
+      text: "早上好，昨晚的两个任务都做完了。",
+    },
+    pending:
+      petSim === "waiting"
+        ? [
+            {
+              target: "item-1",
+              task: "清理旧日志",
+              title: "运行 rm -rf ./logs/*",
+              body: "rm -rf ./logs/*",
+              options: [
+                { action: "allow", label: "同意" },
+                { action: "deny", label: "拒绝" },
+                { action: "skip", label: "跳过" },
+              ],
+            },
+          ]
+        : [],
+  };
+  const petSays = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">): void => {
+    petLineId++;
+    pet = { ...pet, last: { ...line, id: petLineId, at: new Date().toISOString() } };
+    emit({ topic: "pet", data: structuredClone(pet) });
+  };
+  if (petSim === "done") {
+    setTimeout(
+      () =>
+        petSays({
+          kind: "report",
+          task: "修登录 401",
+          result: "done",
+          text: "登录修好了，测试都过了，PR 已开。",
+        }),
+      1500,
+    );
+  }
 
   const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
 
@@ -313,6 +363,25 @@ function installFakeBridge(): void {
     logoutLark: () => {
       lark = { state: "signed-out", version: "1.4.0" };
       return delay(lark);
+    },
+    pet: () => delay(pet),
+    petSay: (text) => {
+      if (!pet.connected)
+        return Promise.reject(new Error("AgentHerd 还没连上飞书，先在 App 里设置好"));
+      setTimeout(() => petSays({ kind: "say", text: `收到：「${text}」。我这就去办。` }), 1200);
+      return delay(pet);
+    },
+    petPress: (target, action) => {
+      const card = pet.pending.find((p) => p.target === target);
+      if (card === undefined) return Promise.reject(new Error("这件事已经处理过了"));
+      pet = { ...pet, pending: pet.pending.filter((p) => p !== card) };
+      emit({ topic: "pet", data: structuredClone(pet) });
+      petSays({
+        kind: "task",
+        task: card.task ?? "",
+        text: action === "allow" ? "你同意了，继续干活。" : "好的，这步不做了。",
+      });
+      return delay(pet);
     },
     feeds: () => delay(feeds),
     setFeed: (source, on) => {
@@ -656,7 +725,8 @@ function installFakeBridge(): void {
         const { obsidianVault: _, ...kept } = status;
         status = obsidianVault === "" ? kept : { ...kept, obsidianVault };
       }
-      status = { ...status, ...rest };
+      const { pet: petPatch, ...others } = rest;
+      status = { ...status, ...others, pet: { ...status.pet, ...petPatch } };
       emit({ topic: "status", data: structuredClone(status) });
       return delay(status);
     },

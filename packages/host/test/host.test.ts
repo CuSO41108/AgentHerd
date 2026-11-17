@@ -164,6 +164,35 @@ describe("Host", () => {
     expect(() => t.host.updateSettings({ mode: "auto" })).toThrow(/observe or assist/);
   });
 
+  it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
+    const t = makeHost(true);
+    expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
+    expect(t.host.pet()).toEqual({ connected: false, pending: [] });
+    await t.host.start();
+    expect(t.host.pet().connected).toBe(true);
+
+    expect(t.host.updateSettings({ pet: { figure: "claude" } }).pet).toEqual({
+      on: true,
+      figure: "claude",
+    });
+    expect(t.host.updateSettings({ pet: { on: false } }).pet).toEqual({
+      on: false,
+      figure: "claude",
+    });
+    expect(readConfig(t.home).pet).toEqual({ on: false, figure: "claude" });
+    expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
+      /claude, deepseek/,
+    );
+
+    await t.host.petSay("在吗");
+    const chat = t.channels[0];
+    expect(chat?.messages[0]?.view).toEqual({ kind: "text", text: "（在桌宠里说）在吗" });
+    // No Herder here, so the herd answers by itself; the pet shows that answer.
+    await until(() => (t.host.pet().last?.id ?? 0) > 0);
+    expect(t.events.some((e) => e.topic === "pet")).toBe(true);
+    await expect(t.host.petPress("nothing", "allow")).rejects.toThrow("这件事已经处理过了");
+  });
+
   it("shows the Herder's schedules and lets the owner pause and remove them (ADR 0055)", async () => {
     const off = makeHost(false);
     await off.host.start();

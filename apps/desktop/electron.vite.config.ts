@@ -26,6 +26,14 @@ export default defineConfig({
   renderer: {
     root: resolve(import.meta.dirname, "src/renderer"),
     plugins: [react(), tailwindcss()],
-    build: { rollupOptions: { input: resolve(import.meta.dirname, "src/renderer/index.html") } },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(import.meta.dirname, "src/renderer/index.html"),
+          // The desktop pet window (ADR 0070).
+          pet: resolve(import.meta.dirname, "src/renderer/pet.html"),
+        },
+      },
+    },
   },
 });

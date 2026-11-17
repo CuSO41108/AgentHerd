@@ -110,7 +110,9 @@ Rules:
   `testModel`, `probeModels` (GET `/models` of an OpenAI- or Anthropic-compatible service, so
   the owner ticks models instead of typing ids), `setupFeishu`, `cancelSetup`, `setupState`,
   `updateSettings`, `transcript` (a task's conversation), `herderActivity` (what the Herder did,
-  see 08 §6). Later: `rule.*`, `export.*`.
+  see 08 §6), `pet`, `petSay`, `petPress` (the desktop pet, ADR 0070: what it shows, and the
+  owner's message or button press, delivered to the herd as if from the channel). Later:
+  `rule.*`, `export.*`.
 
 ## 5. Storage
 

@@ -72,6 +72,9 @@ import type {
   ModelsView,
   ModelTest,
   ModelTiersView,
+  PetFigure,
+  PetSettings,
+  PetView,
   ProbeTarget,
   ProviderView,
   SchedulesView,
@@ -88,6 +91,7 @@ import type {
   TranscriptView,
   WatchView,
 } from "./api.ts";
+import { DEFAULT_PET, PET_FIGURES } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
 import { withClaudeHome } from "./claude-home.ts";
@@ -98,6 +102,7 @@ import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
+import { PetFeed } from "./pet.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -198,6 +203,8 @@ export class Host implements HostApi {
   /** 飞书 through lark-cli, and the news sources (ADR 0059). */
   private readonly larkCli: Lark;
   private readonly feedList: Feeds;
+  /** What the desktop pet sees of the chat (ADR 0070). */
+  private readonly petFeed: PetFeed;
 
   constructor(opts: HostOptions) {
     this.opts = opts;
@@ -218,6 +225,13 @@ export class Host implements HostApi {
       userId: () => this.composioUserId(),
       emit: (data) => this.emit({ topic: "apps", data }),
       log: (line) => this.log(line),
+    });
+    this.petFeed = new PetFeed({
+      changed: () => this.emit({ topic: "pet", data: this.pet() }),
+      echo: (text) =>
+        (this.config().locale ?? DEFAULT_LOCALE) === "en"
+          ? `(said to the desktop pet) ${text}`
+          : `（在桌宠里说）${text}`,
     });
     this.socialList = new Socials({
       home: opts.home,
@@ -480,7 +494,7 @@ export class Host implements HostApi {
     const herd = new Herd({
       home: this.opts.home,
       userHome: this.opts.userHome ?? homedir(),
-      channel: this.opts.createChannel(locale),
+      channel: this.petFeed.wrap(this.opts.createChannel(locale)),
       binding: config.channel,
       mode: config.mode ?? "assist",
       locale,
@@ -718,7 +732,27 @@ export class Host implements HostApi {
       keepAwake: config.keepAwake ?? false,
       ...(config.obsidianVault ? { obsidianVault: config.obsidianVault } : {}),
       profiles: this.profileList.map((p) => p.id),
+      pet: petSettings(config),
     };
+  }
+
+  pet(): PetView {
+    const last = this.petFeed.last;
+    return {
+      connected: this.petFeed.connected,
+      ...(last === undefined ? {} : { last }),
+      pending: this.petFeed.pending(),
+    };
+  }
+
+  async petSay(text: string): Promise<PetView> {
+    await this.petFeed.say(text);
+    return this.pet();
+  }
+
+  async petPress(target: string, action: string): Promise<PetView> {
+    await this.petFeed.press(target, action);
+    return this.pet();
   }
 
   tasks(): TasksView {
@@ -1073,6 +1107,14 @@ export class Host implements HostApi {
       this.herd?.setMode(patch.mode);
     }
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
+    if (patch.pet !== undefined) {
+      const pet: PetSettings = { ...petSettings(config), ...patch.pet };
+      if (typeof pet.on !== "boolean") throw new Error("pet.on must be true or false");
+      if (!PET_FIGURES.includes(pet.figure)) {
+        throw new Error(`pet.figure must be one of ${PET_FIGURES.join(", ")}`);
+      }
+      next.pet = pet;
+    }
     if (patch.obsidianVault !== undefined) {
       const vault = patch.obsidianVault.trim().replace(/^~(?=[/\\]|$)/, homedir());
       if (vault === "") delete next.obsidianVault;
@@ -1197,4 +1239,13 @@ function cleanService(s: ModelService): ModelService {
   if (s.kind === "openai-compatible" && s.baseUrl !== undefined) base.baseUrl = s.baseUrl.trim();
   if (s.kind === "openai-compatible" && s.api === "anthropic-messages") base.api = s.api;
   return base;
+}
+
+/** The pet settings with defaults filled in; an unknown figure falls back to the default. */
+function petSettings(config: CliConfig): PetSettings {
+  const saved = config.pet ?? {};
+  const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
+    ? (saved.figure as PetFigure)
+    : DEFAULT_PET.figure;
+  return { on: typeof saved.on === "boolean" ? saved.on : DEFAULT_PET.on, figure };
 }

@@ -40,6 +40,8 @@
   Notion 通过 Composio 连接，Obsidian 笔记库会交给每个任务。
 - **一句话建定时任务。** 「工作日每天 9 点看看有没有新 issue」，主管就建好；Mac 睡着时错过的，醒来只补跑一次。
 - **记忆有用不啰嗦。** 整段对话都保留，旧的部分由主管自己折叠。只有任务出了问题才记一条经验，以前的结果去任务记录里查。
+- **桌宠。** 大肥鱼或 Claude 娘浮在桌面上：飞书收到什么她就说什么，任务做完会开心，有事要你点头时带着「同意 / 拒绝」等你。
+  点她就能跟主管说话，嫌碍事可以收成一个小圆点。
 - **只在本机运行。** 没有 AgentHerd 服务器，Key 和订阅登录凭据存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
 
 ## 怎么工作
@@ -84,4 +86,4 @@ node packages/cli/bin/agentherd.ts start
 
 AgentHerd 使用 [MIT 许可证](LICENSE)。
 
-<sub>主管的循环 fork 自 [Pi](https://github.com/earendil-works/pi) 的 agent loop（MIT，[`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)）。上下文管理用的是 [billion-context](https://github.com/ranxianglei/billion-context) 的 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT，另加一条署名条款），代码复制在 [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md)。详见[参考项目](docs/references.md)。</sub>
+<sub>主管的循环 fork 自 [Pi](https://github.com/earendil-works/pi) 的 agent loop（MIT，[`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)）。上下文管理用的是 [billion-context](https://github.com/ranxianglei/billion-context) 的 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT，另加一条署名条款），代码复制在 [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md)。详见[参考项目](docs/references.md)。桌宠形象由画师 ZipZipPipe 绘制，来自 [llm-pet](https://github.com/savanna0425/llm-pet)，不在 MIT 许可证范围内，不可商用（[说明](apps/desktop/src/renderer/src/pet/figures/NOTICE.md)）。</sub>

@@ -29,6 +29,8 @@ export interface CliConfig {
   feedsOff?: ("github-trending" | "hacker-news" | "arxiv")[];
   /** The owner's Obsidian vault, told to every new task (ADR 0059). */
   obsidianVault?: string;
+  /** The desktop pet (ADR 0070); DEFAULT_PET where missing. */
+  pet?: Partial<import("./api.ts").PetSettings>;
 }
 
 export function agentherdHome(env: NodeJS.ProcessEnv = process.env): string {
