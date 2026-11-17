@@ -15,6 +15,7 @@
 //   edit-<id>        the edit dialog of the service <id> (deepseek, gateway)
 //   task-<id>        the conversation of the task <id> (s2 has one)
 //   subscription     the 用订阅登录 vendor list (ADR 0068)
+//   chat             the expanded pet with the conversation (/pet.html)
 // The pet window (/pet.html, ADR 0070) uses the same bridge; `?pet=` picks what it shows:
 //   waiting          an approval waits for the owner
 //   done             a task just finished
@@ -100,15 +101,26 @@ function installFakeBridge(): void {
   };
 
   const petSim = new URLSearchParams(window.location.search).get("pet");
-  let petLineId = 1;
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const petHistory: PetView["history"] = [
+    { id: 1, at: minutesAgo(42), kind: "owner", text: "帮我小红书搜一下西岸智塔附近好吃的面条" },
+    { id: 2, at: minutesAgo(41), kind: "say", text: "好，我开个任务去小红书搜，挑走路能到的。" },
+    {
+      id: 3,
+      at: minutesAgo(32),
+      kind: "report",
+      task: "小红书：西岸智塔附近面馆",
+      result: "done",
+      text: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n1. 阿娘面馆：黄鱼面，排队快\n2. 味千拉面：豚骨汤浓",
+    },
+    { id: 4, at: minutesAgo(3), kind: "owner", text: "第一家几点关门？" },
+    { id: 5, at: minutesAgo(2), kind: "say", text: "早上好，昨晚的两个任务都做完了。" },
+  ];
+  let petLineId = petHistory.length;
   let pet: PetView = {
     connected: sim !== "fresh" && sim !== "network",
-    last: {
-      id: petLineId,
-      at: new Date().toISOString(),
-      kind: "say",
-      text: "早上好，昨晚的两个任务都做完了。",
-    },
+    last: petHistory.at(-1),
+    history: petHistory,
     pending:
       petSim === "waiting"
         ? [
@@ -126,9 +138,14 @@ function installFakeBridge(): void {
           ]
         : [],
   };
-  const petSays = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">): void => {
+  const petLine = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">) => {
     petLineId++;
-    pet = { ...pet, last: { ...line, id: petLineId, at: new Date().toISOString() } };
+    const next = { ...line, id: petLineId, at: new Date().toISOString() };
+    pet = { ...pet, history: [...pet.history, next].slice(-80) };
+    return next;
+  };
+  const petSays = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">): void => {
+    pet = { ...pet, last: petLine(line) };
     emit({ topic: "pet", data: structuredClone(pet) });
   };
   if (petSim === "done") {
@@ -368,6 +385,8 @@ function installFakeBridge(): void {
     petSay: (text) => {
       if (!pet.connected)
         return Promise.reject(new Error("AgentHerd 还没连上飞书，先在 App 里设置好"));
+      petLine({ kind: "owner", text });
+      emit({ topic: "pet", data: structuredClone(pet) });
       setTimeout(() => petSays({ kind: "say", text: `收到：「${text}」。我这就去办。` }), 1200);
       return delay(pet);
     },

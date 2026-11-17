@@ -742,6 +742,7 @@ export class Host implements HostApi {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
+      history: this.petFeed.history(),
     };
   }
 

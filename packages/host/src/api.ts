@@ -296,8 +296,11 @@ export interface PetLine {
   /** Grows with every new line, so the pet knows when to speak. */
   id: number;
   at: string;
-  /** say: the Herder talking; task: a task's progress; report: a task finished; ask: needs the owner. */
-  kind: "say" | "task" | "report" | "ask" | "error";
+  /**
+   * say: the Herder talking; task: a task's progress; report: a task finished; ask: needs the
+   * owner; owner: what the owner wrote, in the chat app or to the pet (only in `history`).
+   */
+  kind: "say" | "task" | "report" | "ask" | "error" | "owner";
   text: string;
   /** Task title or label. */
   task?: string;
@@ -319,9 +322,12 @@ export interface PetPending {
 export interface PetView {
   /** The chat channel is up, so the owner can talk and press buttons. */
   connected: boolean;
+  /** The latest line AgentHerd sent; never the owner's own. */
   last?: PetLine;
   /** Oldest first. */
   pending: PetPending[];
+  /** The conversation since the host started, both ways, oldest first (the expanded pet). */
+  history: PetLine[];
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */

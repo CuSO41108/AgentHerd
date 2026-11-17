@@ -1,7 +1,8 @@
 // The desktop pet (ADR 0070): a small figure floating over other windows. It moves with what
 // AgentHerd is doing, says in a bubble what AgentHerd just told the owner (the same as Feishu),
 // shows the buttons of whatever waits for the owner, and passes what the owner types to the
-// Herder. Drag it anywhere; the small button folds it into a dot.
+// Herder. A double click opens the conversation both ways. Drag it anywhere; the small button
+// folds it into a dot.
 
 import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
@@ -12,8 +13,21 @@ import {
   useRef,
   useState,
 } from "react";
+import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
-import { cannedLine, cut, FLASH_MS, flashOf, lineText, type Mood, moodOf } from "./pet-state";
+import {
+  cannedLine,
+  clickPlan,
+  clockOf,
+  cut,
+  DOUBLE_CLICK_MS,
+  FLASH_MS,
+  flashOf,
+  historyHead,
+  lineText,
+  type Mood,
+  moodOf,
+} from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
 const SCALE = 0.58;
@@ -40,7 +54,7 @@ interface Speech {
 
 export function Pet() {
   const bridge = window.agentherd;
-  const [view, setView] = useState<PetView>({ connected: false, pending: [] });
+  const [view, setView] = useState<PetView>({ connected: false, pending: [], history: [] });
   const [figure, setFigure] = useState<PetFigure>("deepseek");
   const [working, setWorking] = useState(0);
   const [online, setOnline] = useState(true);
@@ -48,7 +62,9 @@ export function Pet() {
   const [lastActive, setLastActive] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
   const [speech, setSpeech] = useState<Speech>();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => devOpen() === "chat");
+  /** The conversation instead of the small bubble. */
+  const [expanded, setExpanded] = useState(() => devOpen() === "chat");
   const [hover, setHover] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === "1");
   const [draft, setDraft] = useState("");
@@ -61,6 +77,9 @@ export function Pet() {
   const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
   const figureEl = useRef<HTMLButtonElement>(null);
   const inputEl = useRef<HTMLInputElement>(null);
+  const listEl = useRef<HTMLDivElement>(null);
+  const clickAt = useRef(0);
+  const closing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const mood: Mood = moodOf({
     view,
@@ -157,6 +176,14 @@ export function Pet() {
     return () => window.removeEventListener("focus", toInput);
   }, [open]);
 
+  // The conversation starts at its newest line and follows new ones.
+  const shown = open && expanded && !collapsed;
+  const historyLength = view.history.length;
+  useLayoutEffect(() => {
+    const el = listEl.current;
+    if (shown && el !== null && historyLength >= 0) el.scrollTop = el.scrollHeight;
+  }, [shown, historyLength]);
+
   // The window is as big as the pet; it grows up and to the left when the bubble opens.
   useLayoutEffect(() => {
     const el = root.current;
@@ -200,10 +227,33 @@ export function Pet() {
     if (d !== undefined && !d.moved) click();
   };
 
+  const close = () => {
+    setOpen(false);
+    setExpanded(false);
+  };
+
+  const onFigureClick = () => {
+    touch();
+    const t = Date.now();
+    const double = t - clickAt.current < DOUBLE_CLICK_MS;
+    clickAt.current = double ? 0 : t;
+    clearTimeout(closing.current);
+    const plan = clickPlan(open, double);
+    if (plan === "switch") {
+      setOpen(true);
+      setExpanded((x) => !x);
+    } else if (plan === "open") {
+      setOpen(true);
+    } else {
+      // Wait a moment: a second click opens the conversation instead.
+      closing.current = setTimeout(close, DOUBLE_CLICK_MS);
+    }
+  };
+
   const fold = (value: boolean) => {
     setCollapsed(value);
     localStorage.setItem(COLLAPSED_KEY, value ? "1" : "0");
-    if (value) setOpen(false);
+    if (value) close();
   };
 
   const send = async () => {
@@ -236,7 +286,7 @@ export function Pet() {
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
-    if (e.key === "Escape") setOpen(false);
+    if (e.key === "Escape") close();
   };
 
   const atlas = FIGURES[figure].atlas;
@@ -277,6 +327,59 @@ export function Pet() {
       ? cannedLine("resting")
       : lineText(view.last);
 
+  const card =
+    pending === undefined ? undefined : (
+      <div className="pet-card">
+        {pending.task !== undefined && <div className="pet-task">{cut(pending.task, 30)}</div>}
+        <div className="pet-title">{cut(pending.title, 120)}</div>
+        {pending.body !== "" && <div className="pet-body">{pending.body}</div>}
+        <div className="pet-actions">
+          {pending.options.map((o) => (
+            <button
+              key={o.action}
+              type="button"
+              disabled={busy || offline}
+              className={o.action === "allow" || o.action === "allow-all" ? "primary" : ""}
+              onClick={() => void press(pending.target, o.action)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {view.pending.length > 1 && (
+          <div className="pet-more">还有 {view.pending.length - 1} 件等你</div>
+        )}
+      </div>
+    );
+
+  const talk = (
+    <>
+      <input
+        ref={inputEl}
+        className="pet-input"
+        autoFocus
+        value={draft}
+        disabled={offline}
+        placeholder={offline ? "连上飞书后才能说话" : "跟主管说…（回车发送）"}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKey}
+      />
+      <div className="pet-foot">
+        <span className="pet-note">{note ?? ""}</span>
+        <span className="pet-links">
+          {!expanded && (
+            <button type="button" className="pet-link" onClick={() => setExpanded(true)}>
+              展开对话
+            </button>
+          )}
+          <button type="button" className="pet-link" onClick={() => bridge.pet?.openApp()}>
+            打开 App
+          </button>
+        </span>
+      </div>
+    </>
+  );
+
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button
     <div
@@ -285,68 +388,53 @@ export function Pet() {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      {showBubble && (
-        <div className="pet-bubble">
-          {open && (
-            <button
-              type="button"
-              className="pet-close"
-              aria-label="收起对话"
-              onClick={() => setOpen(false)}
-            >
-              ×
-            </button>
-          )}
-          {pending !== undefined ? (
-            <div className="pet-card">
-              {pending.task !== undefined && (
-                <div className="pet-task">{cut(pending.task, 30)}</div>
-              )}
-              <div className="pet-title">{cut(pending.title, 120)}</div>
-              {pending.body !== "" && <div className="pet-body">{pending.body}</div>}
-              <div className="pet-actions">
-                {pending.options.map((o) => (
-                  <button
-                    key={o.action}
-                    type="button"
-                    disabled={busy || offline}
-                    className={o.action === "allow" || o.action === "allow-all" ? "primary" : ""}
-                    onClick={() => void press(pending.target, o.action)}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-              {view.pending.length > 1 && (
-                <div className="pet-more">还有 {view.pending.length - 1} 件等你</div>
+      {showBubble &&
+        (open && expanded ? (
+          <div className="pet-bubble pet-chat">
+            <div className="pet-chat-head">
+              <span>和主管的对话</span>
+              <span className="pet-chat-tools">
+                <button type="button" className="pet-link" onClick={() => setExpanded(false)}>
+                  缩小
+                </button>
+                <button type="button" className="pet-x" aria-label="收起对话" onClick={close}>
+                  ×
+                </button>
+              </span>
+            </div>
+            <div className="pet-chat-list" ref={listEl}>
+              {view.history.length === 0 ? (
+                <div className="pet-note">这里是你和主管的对话，从 AgentHerd 这次启动算起。</div>
+              ) : (
+                view.history.map((line) => {
+                  const head = historyHead(line);
+                  const tone =
+                    line.kind === "owner" ? " mine" : line.kind === "error" ? " bad" : "";
+                  return (
+                    <div key={line.id} className={`pet-msg${tone}`}>
+                      {head !== undefined && <div className="pet-msg-task">{head}</div>}
+                      <div className="pet-msg-text">{line.text}</div>
+                      <div className="pet-msg-time">{clockOf(line.at)}</div>
+                    </div>
+                  );
+                })
               )}
             </div>
-          ) : (
-            <div className="pet-text">{speaking && !open ? speech.text : idleText}</div>
-          )}
-          {open && (
-            <>
-              <input
-                ref={inputEl}
-                className="pet-input"
-                autoFocus
-                value={draft}
-                disabled={offline}
-                placeholder={offline ? "连上飞书后才能说话" : "跟主管说…（回车发送）"}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={onKey}
-              />
-              <div className="pet-foot">
-                <span className="pet-note">{note ?? ""}</span>
-                <button type="button" className="pet-link" onClick={() => bridge.pet?.openApp()}>
-                  打开 App
-                </button>
-              </div>
-            </>
-          )}
-          {!open && note !== undefined && <div className="pet-note">{note}</div>}
-        </div>
-      )}
+            {card}
+            {talk}
+          </div>
+        ) : (
+          <div className="pet-bubble">
+            {open && (
+              <button type="button" className="pet-close" aria-label="收起对话" onClick={close}>
+                ×
+              </button>
+            )}
+            {card ?? <div className="pet-text">{speaking && !open ? speech.text : idleText}</div>}
+            {open && talk}
+            {!open && note !== undefined && <div className="pet-note">{note}</div>}
+          </div>
+        ))}
       <div className="pet-stage" style={{ width: W, height: H }}>
         {hover && (
           <button
@@ -361,17 +449,18 @@ export function Pet() {
         )}
         <button
           type="button"
-          aria-label="桌宠，点一下跟主管说话"
+          aria-label="桌宠：点一下跟主管说话，双击展开对话"
+          title="点一下说话，双击展开对话"
           ref={figureEl}
           className={`pet-figure mood-${mood}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp(() => {
-            touch();
-            setOpen((o) => !o);
-          })}
+          onPointerUp={onPointerUp(onFigureClick)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") setOpen((o) => !o);
+            if (e.key === "Enter" || e.key === " ") {
+              if (open) close();
+              else setOpen(true);
+            }
           }}
           style={{
             width: W,
