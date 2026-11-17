@@ -11,6 +11,7 @@ import type {
   ProviderView,
   SchedulesView,
   SocialView,
+  SubscriptionView,
   TasksView,
   TranscriptView,
   WatchView,
@@ -250,6 +251,46 @@ export function sampleServices(): ModelsView["services"] {
     },
   ];
 }
+
+/** Vendors of 用订阅登录, a few from pi-ai's list (ADR 0068). */
+export const SAMPLE_SUBSCRIPTIONS: SubscriptionView[] = [
+  {
+    provider: "openai-codex",
+    name: "OpenAI (ChatGPT Plus/Pro)",
+    subscription: true,
+    models: ["gpt-6-astra", "gpt-5.6-codex", "gpt-5.6-mini"].map((id) => ({ id, name: id })),
+  },
+  {
+    provider: "anthropic",
+    name: "Anthropic (Claude Pro/Max)",
+    subscription: true,
+    models: ["claude-opus-5-5", "claude-sonnet-5-5"].map((id) => ({ id, name: id })),
+  },
+  {
+    provider: "github-copilot",
+    name: "GitHub Copilot",
+    subscription: true,
+    models: ["claude-sonnet-5-5", "gpt-6.1-sol", "gemini-3-pro"].map((id) => ({ id, name: id })),
+  },
+  {
+    provider: "kimi-coding",
+    name: "Kimi Code",
+    subscription: true,
+    models: ["kimi-k2.6"].map((id) => ({ id, name: id })),
+  },
+  {
+    provider: "xai",
+    name: "xAI (SuperGrok / X Premium)",
+    subscription: true,
+    models: ["grok-5"].map((id) => ({ id, name: id })),
+  },
+  {
+    provider: "openrouter",
+    name: "OpenRouter OAuth",
+    subscription: false,
+    models: ["openai/gpt-6.1-sol", "qwen/qwen3-coder"].map((id) => ({ id, name: id })),
+  },
+];
 
 export const providers: ProviderView[] = [
   {

@@ -71,7 +71,7 @@ pnpm --filter @agentherd/desktop start
 ```
 
 The first run walks you through it: scan a QR code to connect Feishu, add a model service and
-its key, pick the Herder's model and how it talks. Pi and Codex come with the app; on the **Agent**
+its key (or sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi and Codex come with the app; on the **Agent**
 page, press 验证 to check that one starts. In development, run
 `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks.
 `pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and a `.dmg` (not signed

@@ -6,7 +6,15 @@ import type { ModelService, ModelSettings, SecretStore } from "@agentherd/core";
 import { parseModelRef } from "@agentherd/core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getProviders } from "@earendil-works/pi-ai/compat";
-import { PI_KEY_ENV, PI_MODEL_ENV, resolveModel, serviceKey } from "./models.ts";
+import { loginOf } from "./logins.ts";
+import {
+  notReadyReason,
+  PI_KEY_ENV,
+  PI_MODEL_ENV,
+  resolveModel,
+  serviceKey,
+  serviceReady,
+} from "./models.ts";
 
 /** Env names for agents that read the key from a variable named in their config. */
 export const CODEX_KEY_ENV = "AGENTHERD_CODEX_KEY";
@@ -40,6 +48,9 @@ export function agentForModel(ref: string | undefined, agentIds: readonly string
  * without Responses fails Codex's first turn and the task moves to Pi (ADR 0043).
  */
 export function codexCanRun(model: Model<Api>): boolean {
+  // Subscription tokens are fetched per request through Pi's bridge (ADR 0068); Codex would need
+  // the account's refresh token, which never leaves the host.
+  if (loginOf(model) !== undefined) return false;
   if (model.api === "openai-responses") return true;
   if (model.api !== "openai-completions") return false;
   if (isGptModel(model.id)) return true;
@@ -48,7 +59,8 @@ export function codexCanRun(model: Model<Api>): boolean {
 
 /**
  * The env that makes an agent use a model, or `undefined` when the agent cannot use it.
- * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0).
+ * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0). A
+ *   subscription model carries its service id; the host adds the socket Pi asks for tokens on.
  * - codex: models `codexCanRun` accepts, as a custom provider in `CODEX_CONFIG` (read by
  *   codex-acp).
  */
@@ -148,10 +160,8 @@ export function modelLaunchFor(
     throw new Error(`model "${ref}" is not in the model list`);
   }
   const model = resolveModel(service, id);
+  if (!serviceReady(service, secrets, env)) throw new Error(notReadyReason(service));
   const key = serviceKey(service, secrets, env);
-  if (key === undefined && service.kind === "builtin") {
-    throw new Error(`no key for service "${service.id}"`);
-  }
   const out = agentModelEnv(agentId, model, key);
   if (out === undefined) throw new Error(`agent "${agentId}" cannot run model "${ref}"`);
   return { env: out };

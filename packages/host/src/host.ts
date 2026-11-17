@@ -1,6 +1,7 @@
 // The AgentHerd host: owns the config, the Herd, the Herder and the channel, and answers the local
 // API (./api.ts). `agentherd start` and the desktop app both run one host; only one per home.
 
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import {
   FEED_SOURCES,
   type GhRun,
   Herd,
+  isSubscription,
   type JsonRpcMessage,
   type ModelRef,
   type ModelRole,
@@ -26,19 +28,23 @@ import {
 import {
   activityTurns,
   agentForModel,
-  builtinBaseUrls,
   builtinProviders,
   fallbackOrder,
   herderFromSettings,
-  isGptModel,
+  LOGIN_FIELD,
+  loginsFor,
   MemoryWorker,
   memoryModel,
   modelChoices,
   modelLaunchFor,
+  PI_MODEL_ENV,
   piModelEnv,
   placeModels,
+  requestStream,
   resolveModel,
   serviceKey,
+  serviceReady,
+  subscriptionProviders,
   TIERS,
   type TierPlacement,
   testModel,
@@ -60,6 +66,7 @@ import type {
   ItemSummary,
   LarkLogin,
   LarkView,
+  LoginView,
   MemoryView,
   ModelProbe,
   ModelsView,
@@ -75,19 +82,21 @@ import type {
   SocialPlatform,
   SocialTest,
   SocialView,
+  SubscriptionView,
   TasksView,
   Tier,
   TranscriptView,
   WatchView,
 } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
-import type { AgentDef, Fetchers } from "./catalog.ts";
+import type { AgentDef } from "./catalog.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
+import { LoginRun } from "./model-logins.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -147,6 +156,11 @@ const HERDER_INCIDENTS_MAX = 2000;
 /** Herder audit kinds the turns already show. */
 const HERDER_ROUTINE = new Set(["herder.turn", "herder.tool", "herder.answer"]);
 
+/** The JSON-RPC method Pi's login extension calls (packages/pi-acp/extension/login.ts). */
+const MODEL_AUTH_METHOD = "agentherd/modelAuth";
+const PI_AUTH_SOCKET_ENV = "AGENTHERD_PI_AUTH_SOCKET";
+const PI_AUTH_TOKEN_ENV = "AGENTHERD_PI_AUTH_TOKEN";
+
 export class Host implements HostApi {
   private readonly opts: HostOptions;
   private readonly listeners = new Set<(event: HostEvent) => void>();
@@ -159,6 +173,10 @@ export class Host implements HostApi {
   private channelError: string | undefined;
   private herderReason: string | undefined;
   private herderRef: string | undefined;
+  /** The running or last subscription sign-in (ADR 0068). */
+  private loginRun: LoginRun | undefined;
+  /** Socket tokens Pi uses to ask for a subscription token, by the service they may ask for. */
+  private readonly modelGrants = new Map<string, string>();
   private readonly modelChecks = new Map<
     string,
     { result: { ok: true } | { ok: false; message: string }; until: number }
@@ -386,8 +404,36 @@ export class Host implements HostApi {
 
   /** One message from an agent's `agentherd` MCP server, for the running herd. */
   mcp(token: string, msg: JsonRpcMessage): Promise<JsonRpcMessage | undefined> {
+    const granted = this.modelGrants.get(token);
+    if (granted !== undefined) return this.modelAuth(granted, msg);
     if (this.herd === undefined) throw new UnknownTokenError();
     return this.herd.mcp(token, msg);
+  }
+
+  /**
+   * A short-lived token for Pi's next request to a subscription model (ADR 0068). The grant
+   * names one service; Pi never gets the refresh token.
+   */
+  private async modelAuth(
+    serviceId: string,
+    msg: JsonRpcMessage,
+  ): Promise<JsonRpcMessage | undefined> {
+    if (msg.method === "notifications/hello") return undefined;
+    const id = msg.id ?? null;
+    const params = (msg.params ?? {}) as { service?: unknown };
+    if (msg.method !== MODEL_AUTH_METHOD || params.service !== serviceId) {
+      return { jsonrpc: "2.0", id, error: { code: -32601, message: "not allowed" } };
+    }
+    const service = this.settings().services.find((s) => s.id === serviceId);
+    if (service === undefined) {
+      return { jsonrpc: "2.0", id, error: { code: -32000, message: `no service "${serviceId}"` } };
+    }
+    try {
+      const auth = await loginsFor(this.opts.secrets).auth(service);
+      return { jsonrpc: "2.0", id, result: auth };
+    } catch (error) {
+      return { jsonrpc: "2.0", id, error: { code: -32000, message: (error as Error).message } };
+    }
   }
 
   async stop(): Promise<void> {
@@ -463,7 +509,7 @@ export class Host implements HostApi {
             this.opts.env,
           );
           if (profileId === "codex") return { env: withCodexHome(this.opts.home, launch.env) };
-          return { env: launch.env };
+          return { env: this.withModelGrant(launch.env) };
         },
         check: (ref) => this.checkModel(ref),
         next: (profileId, failed, tried) => this.nextModel(profileId, failed, tried),
@@ -770,12 +816,28 @@ export class Host implements HostApi {
     return builtinProviders();
   }
 
+  /** Pi with a subscription model gets a socket and a token to ask for its tokens on. */
+  private withModelGrant(env: Record<string, string>): Record<string, string> {
+    const raw = env[PI_MODEL_ENV];
+    if (raw === undefined || this.opts.mcpSocket === undefined) return env;
+    let service: unknown;
+    try {
+      service = (JSON.parse(raw) as Record<string, unknown>)[LOGIN_FIELD];
+    } catch {
+      return env;
+    }
+    if (typeof service !== "string") return env;
+    const token = randomBytes(24).toString("hex");
+    this.modelGrants.set(token, service);
+    return { ...env, [PI_AUTH_SOCKET_ENV]: this.opts.mcpSocket, [PI_AUTH_TOKEN_ENV]: token };
+  }
+
   models(): ModelsView {
     const settings = this.settings();
     return {
       services: settings.services.map((s) => ({
         ...s,
-        hasKey: serviceKey(s, this.opts.secrets, this.opts.env) !== undefined,
+        hasKey: serviceReady(s, this.opts.secrets, this.opts.env),
       })),
       roles: settings.roles,
     };
@@ -792,6 +854,7 @@ export class Host implements HostApi {
   async removeService(serviceId: string): Promise<ModelsView> {
     this.saveSettings(removeService(this.settings(), serviceId));
     this.opts.secrets.delete(modelKeyAccount(serviceId));
+    loginsFor(this.opts.secrets).logout(serviceId);
     await this.applyModels();
     return this.models();
   }
@@ -817,13 +880,74 @@ export class Host implements HostApi {
     const service = this.settings().services.find((s) => s.id === ref.serviceId);
     if (service === undefined) return { ok: false, message: `no service "${ref.serviceId}"` };
     try {
+      if (!serviceReady(service, this.opts.secrets, this.opts.env) && isSubscription(service)) {
+        return { ok: false, message: `service "${service.id}" is not signed in` };
+      }
       return await testModel(
         resolveModel(service, ref.model),
         serviceKey(service, this.opts.secrets, this.opts.env),
+        undefined,
+        requestStream(this.opts.secrets, () => this.settings().services),
       );
     } catch (error) {
       return { ok: false, message: (error as Error).message };
     }
+  }
+
+  subscriptions(): SubscriptionView[] {
+    return subscriptionProviders();
+  }
+
+  startLogin(provider: string, serviceId: string, name?: string): LoginView {
+    const vendor = subscriptionProviders().find((p) => p.provider === provider);
+    if (vendor === undefined) throw new Error(`cannot sign in to "${provider}"`);
+    const id = serviceId.trim();
+    if (id === "") throw new Error("service id is empty");
+    const other = this.settings().services.find((s) => s.id === id);
+    if (other !== undefined && (!isSubscription(other) || other.provider !== provider)) {
+      throw new Error(`service "${id}" already exists`);
+    }
+    this.loginRun?.cancel();
+    const run = new LoginRun({
+      serviceId: id,
+      provider,
+      run: (interaction) => loginsFor(this.opts.secrets).login(id, provider, interaction),
+      done: async (models) => {
+        const keep = other?.models.filter((m) => models.includes(m)) ?? [];
+        await this.putService({
+          id,
+          name: name?.trim() || other?.name || vendor.name,
+          kind: "builtin",
+          provider,
+          auth: "subscription",
+          models: keep.length > 0 ? keep : models,
+        });
+        // Same service, new account: the Herder must ask with the new sign-in.
+        this.herderRef = undefined;
+        await this.applyModels();
+      },
+      changed: (data) => this.emit({ topic: "login", data }),
+    });
+    this.loginRun = run;
+    run.start();
+    return run.view();
+  }
+
+  answerLogin(id: string, value: string): LoginView {
+    const run = this.currentLogin(id);
+    run.answer(value);
+    return run.view();
+  }
+
+  cancelLogin(id: string): LoginView {
+    const run = this.currentLogin(id);
+    run.cancel();
+    return run.view();
+  }
+
+  private currentLogin(id: string): LoginRun {
+    if (this.loginRun?.id !== id) throw new Error("no such sign-in");
+    return this.loginRun;
   }
 
   async probeModels(target: ProbeTarget): Promise<ModelProbe> {
@@ -1040,6 +1164,7 @@ function cleanService(s: ModelService): ModelService {
     models: s.models.map((m) => m.trim()).filter((m) => m !== ""),
   };
   if (s.kind === "builtin" && s.provider !== undefined) base.provider = s.provider;
+  if (s.kind === "builtin" && s.auth === "subscription") base.auth = "subscription";
   if (s.kind === "openai-compatible" && s.baseUrl !== undefined) base.baseUrl = s.baseUrl.trim();
   if (s.kind === "openai-compatible" && s.api === "anthropic-messages") base.api = s.api;
   return base;

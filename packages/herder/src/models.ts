@@ -2,16 +2,17 @@
 // the providers pi-ai knows, and tests a service with one short request.
 
 import type { HerderFactory, ModelService, ModelSettings, SecretStore } from "@agentherd/core";
-import { modelFor, modelKeyAccount } from "@agentherd/core";
+import { isSubscription, modelFor, modelKeyAccount } from "@agentherd/core";
+import type { StreamFn } from "@agentherd/herder-loop";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   completeSimple,
   getEnvApiKey,
   getModels,
   getProviders,
-  streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { Herder, type HerderModel } from "./herder.ts";
+import { LOGIN_FIELD, loginStream, loginsFor, subscriptionModel } from "./logins.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import { fallbackOrder } from "./tools.ts";
 
@@ -59,6 +60,11 @@ export const CUSTOM_CONTEXT_WINDOW = 128_000;
 export const CUSTOM_MAX_TOKENS = 8_192;
 
 export function resolveModel(service: ModelService, modelId: string): Model<Api> {
+  if (isSubscription(service)) {
+    const model = subscriptionModel(service.provider ?? "", modelId);
+    if (model === undefined) throw new Error(`pi-ai cannot sign in to "${service.provider}"`);
+    return { ...model, [LOGIN_FIELD]: service.id } as Model<Api>;
+  }
   if (service.kind === "builtin") {
     const provider = service.provider ?? "";
     const known = (getModels as (p: string) => Model<Api>[])(provider);
@@ -105,12 +111,42 @@ export function serviceKey(
   secrets: SecretStore,
   env: Record<string, string> = definedEnv(),
 ): string | undefined {
+  if (isSubscription(service)) return undefined;
   const saved = secrets.get(modelKeyAccount(service.id));
   if (saved !== undefined && saved !== "") return saved;
   if (service.kind === "builtin" && service.provider !== undefined) {
     return getEnvApiKey(service.provider, env) ?? undefined;
   }
   return undefined;
+}
+
+/**
+ * Whether a service can be called: a key-only provider needs its key, a subscription its sign-in
+ * (ADR 0068). Custom endpoints may need no key.
+ */
+export function serviceReady(
+  service: ModelService,
+  secrets: SecretStore,
+  env?: Record<string, string>,
+): boolean {
+  if (isSubscription(service)) return loginsFor(secrets).signedIn(service.id);
+  if (service.kind !== "builtin") return true;
+  return serviceKey(service, secrets, env) !== undefined;
+}
+
+/** Why a service cannot be called, matching serviceReady. */
+export function notReadyReason(service: ModelService): string {
+  return isSubscription(service)
+    ? `service "${service.id}" is not signed in`
+    : `no key for service "${service.id}"`;
+}
+
+/** How to send requests: subscription models get a fresh token per request. */
+export function requestStream(
+  secrets: SecretStore,
+  services: () => readonly ModelService[],
+): StreamFn {
+  return loginStream(secrets, services) as StreamFn;
 }
 
 export type TestResult = { ok: true; reply: string } | { ok: false; message: string };
@@ -122,13 +158,19 @@ export async function testModel(
   model: Model<Api>,
   key: string | undefined,
   timeoutMs = TEST_TIMEOUT_MS,
+  stream?: StreamFn,
 ): Promise<TestResult> {
   try {
-    const reply = await completeSimple(
-      model,
-      { messages: [{ role: "user", content: "Reply with the word OK.", timestamp: Date.now() }] },
-      { apiKey: key ?? "none", signal: AbortSignal.timeout(timeoutMs) },
-    );
+    const context = {
+      messages: [
+        { role: "user" as const, content: "Reply with the word OK.", timestamp: Date.now() },
+      ],
+    };
+    const options = { apiKey: key ?? "none", signal: AbortSignal.timeout(timeoutMs) };
+    const reply =
+      stream === undefined
+        ? await completeSimple(model, context, options)
+        : await (await stream(model, context as never, options)).result();
     if (reply.stopReason === "error" || reply.stopReason === "aborted") {
       return { ok: false, message: reply.errorMessage ?? reply.stopReason };
     }
@@ -164,9 +206,8 @@ export function herderFromSettings(
     return { reason: (error as Error).message };
   }
   const key = serviceKey(choice.service, secrets, env);
-  if (key === undefined && choice.service.kind === "builtin") {
-    return { reason: `no key for service "${choice.service.id}"` };
-  }
+  if (!serviceReady(choice.service, secrets, env))
+    return { reason: notReadyReason(choice.service) };
   const ref = `${choice.service.id}/${choice.model}`;
   return {
     ref,
@@ -175,7 +216,7 @@ export function herderFromSettings(
         host,
         model,
         modelRef: ref,
-        streamFn: streamSimple,
+        streamFn: requestStream(secrets, () => settings.services),
         getApiKey: () => key ?? "none",
         fallbacks: () => herderFallbacks(settings, secrets, ref, modelTiers?.(), env),
         ...(modelTiers === undefined ? {} : { modelTiers }),
@@ -210,8 +251,8 @@ export function herderFallbacks(
     if (ref === current) continue;
     const entry = all.find((m) => m.ref === ref);
     if (entry === undefined) continue;
+    if (!serviceReady(entry.service, secrets, env)) continue;
     const key = serviceKey(entry.service, secrets, env);
-    if (key === undefined && entry.service.kind === "builtin") continue;
     try {
       out.push({ ref, model: resolveModel(entry.service, entry.model), apiKey: key ?? "none" });
     } catch {
@@ -245,10 +286,9 @@ export function piModelEnv(
   } catch (error) {
     return { reason: (error as Error).message };
   }
+  if (!serviceReady(choice.service, secrets, env))
+    return { reason: notReadyReason(choice.service) };
   const key = serviceKey(choice.service, secrets, env);
-  if (key === undefined && choice.service.kind === "builtin") {
-    return { reason: `no key for service "${choice.service.id}"` };
-  }
   return {
     ref: `${choice.service.id}/${choice.model}`,
     env: { [PI_MODEL_ENV]: JSON.stringify(model), [PI_KEY_ENV]: key ?? "none" },
@@ -286,8 +326,8 @@ export function memoryModel(
   const herder = modelFor(settings, "herder");
   if (herder !== undefined) candidates.push(herder);
   for (const c of candidates) {
+    if (!serviceReady(c.service, secrets, env)) continue;
     const key = serviceKey(c.service, secrets, env);
-    if (key === undefined && c.service.kind === "builtin") continue;
     let model: Model<Api>;
     try {
       model = resolveModel(c.service, c.model);
@@ -297,14 +337,17 @@ export function memoryModel(
     return {
       ref: `${c.service.id}/${c.model}`,
       complete: async (system, user, signal) => {
-        const reply = await completeSimple(
-          model,
-          {
-            systemPrompt: system,
-            messages: [{ role: "user", content: user, timestamp: Date.now() }],
-          },
-          { apiKey: key ?? "none", signal },
-        );
+        const stream = requestStream(secrets, () => settings.services);
+        const reply = await (
+          await stream(
+            model,
+            {
+              systemPrompt: system,
+              messages: [{ role: "user", content: user, timestamp: Date.now() }],
+            } as never,
+            { apiKey: key ?? "none", signal },
+          )
+        ).result();
         if (reply.stopReason === "error" || reply.stopReason === "aborted") {
           throw new Error(reply.errorMessage ?? reply.stopReason);
         }

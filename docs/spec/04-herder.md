@@ -623,6 +623,9 @@ actions follow §1 in every mode, except that in `observe` it does not act on wa
 
 ## 6. Model providers
 
+> Current behaviour: services with keys (ADR 0021) or a sign-in to a plan (ADR 0068) on the 模型
+> page; the text below is the older onboarding plan.
+
 - During onboarding the user picks two models from the providers Pi supports: a fast one for
   the Herder and the strongest available one for the Reviewer. AgentHerd ships no default
   provider.

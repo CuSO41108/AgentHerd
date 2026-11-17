@@ -27,13 +27,15 @@ import {
 } from "@agentherd/acp-client";
 import { ALLOW, DENY, decodeQuestion } from "../extension/gate.ts";
 import { discoverMcpTools, MCP_ENV } from "../extension/mcp.ts";
-import { modelFromEnv, PI_PROVIDER } from "../extension/model.ts";
+import { LOGIN_FIELD, modelFromEnv, PI_PROVIDER } from "../extension/model.ts";
 import { toolCallOf } from "./map.ts";
 import { type PiRecord, PiRpc } from "./rpc.ts";
 
 export const GATE_PATH = fileURLToPath(new URL("../extension/gate.ts", import.meta.url));
 export const MCP_PATH = fileURLToPath(new URL("../extension/mcp.ts", import.meta.url));
 export const MODEL_PATH = fileURLToPath(new URL("../extension/model.ts", import.meta.url));
+/** Loaded instead of {@link MODEL_PATH} for a subscription model (ADR 0068). */
+export const LOGIN_PATH = fileURLToPath(new URL("../extension/login.ts", import.meta.url));
 export const BRIDGE_NAME = "pi-acp (AgentHerd)";
 /**
  * Where Pi saves its sessions. When set, sessions are kept and can be opened again with
@@ -130,8 +132,10 @@ export function piArgsFor(
   const args = ["--mode", "rpc", ...session, "-e", GATE_PATH];
   if ((env[MCP_ENV] ?? "") !== "") args.push("-e", MCP_PATH);
   const model = modelFromEnv(env);
-  if (model !== undefined)
-    args.push("-e", MODEL_PATH, "--provider", PI_PROVIDER, "--model", model.id);
+  if (model !== undefined) {
+    const path = typeof model[LOGIN_FIELD] === "string" ? LOGIN_PATH : MODEL_PATH;
+    args.push("-e", path, "--provider", PI_PROVIDER, "--model", model.id);
+  }
   return [...args, ...piArgs];
 }
 

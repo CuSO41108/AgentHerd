@@ -171,7 +171,42 @@ export interface MemoryView {
 }
 
 export interface ServiceView extends ModelService {
+  /** A key is saved, or the subscription is signed in (ADR 0068). */
   hasKey: boolean;
+}
+
+/** A vendor the owner can sign in to with an account instead of a key (ADR 0068). */
+export interface SubscriptionView {
+  provider: string;
+  name: string;
+  /** Backed by a paid plan (ChatGPT Plus, Claude Max…) rather than a free account. */
+  subscription: boolean;
+  models: { id: string; name: string }[];
+}
+
+export interface LoginPrompt {
+  type: "text" | "secret" | "select" | "manual_code";
+  message: string;
+  placeholder?: string;
+  options?: { id: string; label: string; description?: string }[];
+}
+
+/** A running or finished sign-in; progress comes as "login" events. */
+export interface LoginView {
+  id: string;
+  provider: string;
+  serviceId: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  /** A page to open: the vendor's sign-in page or where to type `userCode`. */
+  url?: string;
+  instructions?: string;
+  /** Device-code flows: the code to type on `url`. */
+  userCode?: string;
+  progress?: string;
+  /** A question the flow waits on; answer with `answerLogin`. */
+  prompt?: LoginPrompt;
+  models?: string[];
+  error?: string;
 }
 
 export interface ModelsView {
@@ -389,6 +424,15 @@ export interface HostApi {
   setKey(serviceId: string, key: string): Promise<ModelsView>;
   chooseModel(role: ModelRole, ref: ModelRef | null): Promise<ModelsView>;
   testModel(ref: ModelRef): Promise<ModelTest>;
+  /** Vendors pi-ai can sign in to (ADR 0068). */
+  subscriptions(): SubscriptionView[];
+  /**
+   * Starts signing in to `provider`. On success the service `serviceId` (new, or replaced) is
+   * saved with the account's models. Cancels a sign-in still running.
+   */
+  startLogin(provider: string, serviceId: string, name?: string): LoginView;
+  answerLogin(id: string, value: string): LoginView;
+  cancelLogin(id: string): LoginView;
   /** Asks an OpenAI- or Anthropic-compatible service which models it offers (GET /models). */
   probeModels(target: ProbeTarget): Promise<ModelProbe>;
   /** Starts the one-scan Feishu setup; progress comes as "setup" events. */
@@ -464,6 +508,10 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "setKey",
   "chooseModel",
   "testModel",
+  "subscriptions",
+  "startLogin",
+  "answerLogin",
+  "cancelLogin",
   "probeModels",
   "setupFeishu",
   "cancelSetup",
@@ -506,7 +554,8 @@ export type HostEvent =
   | { topic: "apps"; data: AppsView }
   | { topic: "socials"; data: SocialView[] }
   | { topic: "watches"; data: WatchView[] }
-  | { topic: "lark"; data: LarkView };
+  | { topic: "lark"; data: LarkView }
+  | { topic: "login"; data: LoginView };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {

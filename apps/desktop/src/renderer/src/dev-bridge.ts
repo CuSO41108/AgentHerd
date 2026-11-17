@@ -14,6 +14,7 @@
 //   add-custom       the 添加服务 form of an OpenAI-compatible address
 //   edit-<id>        the edit dialog of the service <id> (deepseek, gateway)
 //   task-<id>        the conversation of the task <id> (s2 has one)
+//   subscription     the 用订阅登录 vendor list (ADR 0068)
 
 import type {
   AgentView,
@@ -22,6 +23,7 @@ import type {
   HostEvent,
   HostStatus,
   LarkView,
+  LoginView,
   MemoryView,
   ModelsView,
   ModelTiersView,
@@ -37,6 +39,7 @@ import {
   hoursFromNow,
   PLACEHOLDER_QR,
   providers,
+  SAMPLE_SUBSCRIPTIONS,
   sampleFeeds,
   sampleHerderActivity,
   sampleLark,
@@ -135,6 +138,31 @@ function installFakeBridge(): void {
     emit({ topic: "socials", data: structuredClone(socials) });
   };
 
+  let login: LoginView | undefined;
+  const finishLogin = (vendor: (typeof SAMPLE_SUBSCRIPTIONS)[number]): void => {
+    if (login === undefined) return;
+    const ids = vendor.models.map((m) => m.id);
+    keys.set(login.serviceId, "signed-in");
+    const others = models.services.filter((s) => s.id !== login?.serviceId);
+    models = {
+      ...models,
+      services: [
+        ...others,
+        {
+          id: login.serviceId,
+          name: vendor.name,
+          kind: "builtin",
+          provider: vendor.provider,
+          auth: "subscription",
+          models: ids,
+          hasKey: true,
+        },
+      ],
+    };
+    login = { ...login, status: "done", models: ids, prompt: undefined };
+    emit({ topic: "login", data: structuredClone(login) });
+    emit({ topic: "models", data: structuredClone(models) });
+  };
   const emit = (event: HostEvent): void => {
     for (const l of eventListeners) l(event);
   };
@@ -488,6 +516,47 @@ function installFakeBridge(): void {
         return delay({ ok: false, message: "401 Unauthorized: missing API key" }, 700);
       }
       return delay({ ok: true, reply: `你好，我是 ${ref.model}。` }, 900);
+    },
+    subscriptions: () => delay(SAMPLE_SUBSCRIPTIONS),
+    startLogin: (provider, serviceId) => {
+      const vendor = SAMPLE_SUBSCRIPTIONS.find((v) => v.provider === provider);
+      if (vendor === undefined) return Promise.reject(new Error(`cannot sign in to "${provider}"`));
+      login = {
+        id: `login-${Date.now()}`,
+        provider,
+        serviceId,
+        status: "running",
+        ...(provider === "github-copilot"
+          ? { userCode: "8F2A-61C4", url: "https://github.com/login/device" }
+          : {
+              url: "https://auth.example.com/authorize",
+              instructions: "在浏览器里登录；如果没有自动跳回来，把地址栏里的代码贴到下面。",
+              prompt: { type: "manual_code", message: "粘贴登录后的代码", placeholder: "code" },
+            }),
+      };
+      const id = login.id;
+      if (provider === "github-copilot") {
+        setTimeout(() => {
+          if (login?.id === id && login.status === "running") finishLogin(vendor);
+        }, 4000);
+      }
+      return delay(structuredClone(login));
+    },
+    answerLogin: (id) => {
+      if (login?.id !== id) return Promise.reject(new Error("no such sign-in"));
+      const vendor = SAMPLE_SUBSCRIPTIONS.find((v) => v.provider === login?.provider);
+      login = { ...login, prompt: undefined, progress: "正在换取令牌…" };
+      emit({ topic: "login", data: structuredClone(login) });
+      setTimeout(() => {
+        if (vendor !== undefined) finishLogin(vendor);
+      }, 800);
+      return delay(structuredClone(login));
+    },
+    cancelLogin: (id) => {
+      if (login?.id !== id) return Promise.reject(new Error("no such sign-in"));
+      login = { ...login, status: "cancelled", prompt: undefined };
+      emit({ topic: "login", data: structuredClone(login) });
+      return delay(structuredClone(login));
     },
     probeModels: (target) => {
       const saved = models.services.find((x) => x.id === target.serviceId);

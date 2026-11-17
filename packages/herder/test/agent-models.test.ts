@@ -8,7 +8,6 @@ import {
   isGptModel,
   modelChoices,
   modelEnvFor,
-  modelLaunchFor,
 } from "../src/agent-models.ts";
 import { PI_KEY_ENV, PI_MODEL_ENV, resolveModel } from "../src/models.ts";
 

@@ -125,7 +125,9 @@ All state is under `~/.agentherd/` (overridable by `AGENTHERD_HOME`):
 | `backups/` | Copies of agent config files before each export |
 
 Secrets (Feishu App Secret, model API keys) are stored in `<home>/secrets.json` (mode 600, in
-the mode 700 home), keyed `feishu:<appId>` and `model:<serviceId>`. Not the macOS keychain: the
+the mode 700 home), keyed `feishu:<appId>`, `model:<serviceId>` and, for a service signed in with
+a plan (ADR 0068), `model-login:<serviceId>` (the vendor's refresh and access tokens; agents only
+get a short token per request). Not the macOS keychain: the
 owner did not want them there, and its per-program access prompts appeared every time a different
 binary (node, Electron) read an item. The host process holds them, so the desktop app and the CLI
 share them; the renderer and
