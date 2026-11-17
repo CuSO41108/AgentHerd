@@ -298,7 +298,8 @@ export interface PetLine {
   at: string;
   /**
    * say: the Herder talking; task: a task's progress; report: a task finished; ask: needs the
-   * owner; owner: what the owner wrote, in the chat app or to the pet (only in `history`).
+   * owner; owner: what the owner wrote or answered, in the chat app or to the pet (only in
+   * `history`).
    */
   kind: "say" | "task" | "report" | "ask" | "error" | "owner";
   text: string;
@@ -326,7 +327,10 @@ export interface PetView {
   last?: PetLine;
   /** Oldest first. */
   pending: PetPending[];
-  /** The conversation since the host started, both ways, oldest first (the expanded pet). */
+  /**
+   * The Herder's conversation with the owner as herd.db keeps it, both ways, the last lines,
+   * oldest first (the expanded pet). Ids are those of `herder_turns`.
+   */
   history: PetLine[];
 }
 

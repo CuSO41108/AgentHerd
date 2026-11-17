@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeChannel, type SentMessage } from "@agentherd/channel-fake";
-import { Herd, Store } from "@agentherd/core";
+import { Herd, type HerderTurn, Store } from "@agentherd/core";
 import type { Inbound, ItemView } from "@agentherd/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { PET_HISTORY_MAX, PetFeed } from "../src/pet.ts";
+import { historyOf, PET_HISTORY_TEXT_MAX, PetFeed } from "../src/pet.ts";
 
 const BINDING = { channelId: "fake", ownerId: "owner", data: {} };
 
@@ -153,52 +153,33 @@ describe("PetFeed (ADR 0070)", () => {
     expect(t.feed.last?.kind).toBe("ask");
   });
 
-  it("keeps the conversation both ways for the expanded pet", async () => {
-    const t = await started((text) => `（在桌宠里说）${text}`);
-    await t.fake.say("西岸附近有什么好吃的面");
-    await t.channel.send({ kind: "text", text: "我开个任务去小红书搜。" });
-    const progress = await t.channel.send({
-      kind: "text",
-      text: "搜索中",
-      taskLabel: "面馆",
-      tone: "progress",
-    });
-    await t.feed.say("要走路十分钟以内的");
-    await t.fake.say("不是负责人说的", "someone-else");
-    await t.fake.tap("nothing", "allow");
-    await t.channel.update(progress, {
-      kind: "text",
-      text: "读了 12 篇笔记",
-      taskLabel: "面馆",
-      tone: "progress",
-    });
-    expect(t.feed.history().map((l) => [l.id, l.kind, l.text])).toEqual([
-      [1, "owner", "西岸附近有什么好吃的面"],
-      [2, "say", "我开个任务去小红书搜。"],
-      [3, "task", "读了 12 篇笔记"],
-      [4, "owner", "要走路十分钟以内的"],
+  it("shows the Herder's conversation from herd.db for the expanded pet", () => {
+    const at = "2026-11-17T12:00:00.000Z";
+    const turns: HerderTurn[] = [
+      { id: 7, at, role: "owner", text: "西岸附近有什么好吃的面" },
+      { id: 8, at, role: "ask", text: "要走路能到的吗？\n- 要\n- 不用" },
+      { id: 9, at, role: "answer", text: "要" },
+      { id: 10, at, role: "herder", text: "好，我开个任务去小红书搜。" },
+      { id: 11, at, role: "event", text: "面馆: （没有回复）", taskId: "t9" },
+      { id: 12, at, role: "herder", text: "找到了，传媒港 B1 那一排。", taskId: "t1" },
+      { id: 13, at, role: "herder", text: "   " },
+      { id: 14, at, role: "herder", text: "旧任务说完了", taskId: "gone" },
+    ];
+    const titles: Record<string, string> = { t1: "小红书：西岸面馆" };
+    expect(historyOf(turns, (id) => titles[id])).toEqual([
+      { id: 7, at, kind: "owner", text: "西岸附近有什么好吃的面" },
+      { id: 8, at, kind: "ask", text: "要走路能到的吗？\n- 要\n- 不用" },
+      { id: 9, at, kind: "owner", text: "要" },
+      { id: 10, at, kind: "say", text: "好，我开个任务去小红书搜。" },
+      { id: 11, at, kind: "task", text: "面馆: （没有回复）" },
+      { id: 12, at, kind: "say", text: "找到了，传媒港 B1 那一排。", task: "小红书：西岸面馆" },
+      { id: 14, at, kind: "say", text: "旧任务说完了" },
     ]);
-    // The bubble only speaks for AgentHerd; the owner's own words stay out of it.
-    expect(t.feed.last).toMatchObject({ id: 3, kind: "task", text: "读了 12 篇笔记" });
-    // A message of only a picture still shows up.
-    await t.feed.heard("owner", {
-      kind: "message",
-      text: "",
-      from: "owner",
-      images: [{ data: "", mimeType: "image/png" }] as never,
-    });
-    expect(t.feed.history().at(-1)).toMatchObject({ kind: "owner", text: "[图片]" });
-  });
-
-  it("keeps only the newest lines", async () => {
-    const t = await started();
-    for (let i = 1; i <= PET_HISTORY_MAX + 5; i++) {
-      await t.channel.send({ kind: "text", text: `第 ${i} 句` });
-    }
-    const history = t.feed.history();
-    expect(history).toHaveLength(PET_HISTORY_MAX);
-    expect(history[0]?.text).toBe("第 6 句");
-    expect(t.feed.last?.text).toBe(`第 ${PET_HISTORY_MAX + 5} 句`);
+    const long = historyOf(
+      [{ id: 1, at, role: "herder", text: "长".repeat(5000) }],
+      () => undefined,
+    );
+    expect(long[0]?.text).toHaveLength(PET_HISTORY_TEXT_MAX);
   });
 
   it("refuses stale buttons, empty text and a stopped herd", async () => {

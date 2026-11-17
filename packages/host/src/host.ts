@@ -73,6 +73,7 @@ import type {
   ModelTest,
   ModelTiersView,
   PetFigure,
+  PetLine,
   PetSettings,
   PetView,
   ProbeTarget,
@@ -102,7 +103,7 @@ import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
-import { PetFeed } from "./pet.ts";
+import { historyOf, PET_HISTORY_MAX, PetFeed } from "./pet.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -507,6 +508,7 @@ export class Host implements HostApi {
       },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
+      herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -742,8 +744,15 @@ export class Host implements HostApi {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
-      history: this.petFeed.history(),
+      history: this.petHistory(),
     };
+  }
+
+  /** The Herder's conversation as herd.db keeps it: it reaches back past restarts. */
+  private petHistory(): PetLine[] {
+    const store = this.herd?.store;
+    if (store === undefined) return [];
+    return historyOf(store.herderTurns(PET_HISTORY_MAX), (id) => store.task(id)?.task.title);
   }
 
   async petSay(text: string): Promise<PetView> {
