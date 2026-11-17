@@ -48,8 +48,9 @@ export interface HostStatus {
 }
 
 /**
- * Where an agent's CLI comes from: inside the app (ADR 0067), a download by an older app, a CLI
- * the owner installed, or a profile in config.json.
+ * Where an agent's CLI comes from: inside the app (ADR 0067), a download on this computer (Claude
+ * Code on request, ADR 0069, or an older app's copy), a CLI the owner installed, or a profile in
+ * config.json.
  */
 export type AgentSource = "bundled" | "managed" | "system" | "config";
 
@@ -57,14 +58,24 @@ export interface AgentView {
   id: string;
   name: string;
   /** ready: can run tasks. missing: not in this app and not installed on the computer. */
-  state: "ready" | "missing";
+  state: "ready" | "missing" | "installing";
   source?: AgentSource;
   path?: string;
   /** Version of the copy in use, when it ships with the app or an older app downloaded it. */
   version?: string;
   /** The version AgentHerd is adapted to and ships (ADR 0067). */
   adapted?: string;
-  /** A copy an older app downloaded, which the owner can remove. */
+  /** Not in the app; the owner can download it (ADR 0069). */
+  onRequest?: boolean;
+  /** The owner's own CLI the adapter runs (Claude Code's `claude`). */
+  ownCli?: string;
+  /** Bytes, while downloading. */
+  progress?: { received: number; total: number };
+  /** Last download error. */
+  error?: string;
+  /** The app can download it now (only when missing and not in the app; never an update). */
+  canInstall: boolean;
+  /** A download the owner can remove. */
   canRemove: boolean;
   /** Model passed to it ("service/model"), when it uses one from the model list. */
   modelRef?: string;
@@ -447,7 +458,9 @@ export interface HostApi {
   /** Connects the channel again, e.g. after a network failure. */
   reconnect(): Promise<HostStatus>;
   agents(): AgentView[];
-  /** Starts downloading an agent's CLI; progress comes as "agents" events. */
+  /** Starts downloading an agent that is not in the app (ADR 0069); progress as "agents" events. */
+  installAgent(id: string): AgentView[];
+  cancelInstall(id: string): AgentView[];
   /** Removes a downloaded CLI. */
   removeAgent(id: string): AgentView[];
   /** Starts the agent in an empty folder, opens a session and closes it. */
@@ -521,6 +534,8 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "setModelTiers",
   "reconnect",
   "agents",
+  "installAgent",
+  "cancelInstall",
   "removeAgent",
   "verifyAgent",
   "apps",

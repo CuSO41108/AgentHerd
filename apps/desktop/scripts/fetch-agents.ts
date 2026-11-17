@@ -20,7 +20,8 @@ export async function fetchAgents(dir: string): Promise<void> {
   const target = currentTarget();
   const store = new RuntimeStore(dir);
   const tools = new RuntimeStore(join(tmpdir(), "agentherd-build-tools"));
-  for (const def of AGENTS) {
+  // Agents downloaded on the owner's computer (ADR 0069) stay out of the app.
+  for (const def of AGENTS.filter((d) => d.onRequest !== true)) {
     const done = store.installed(def.id);
     const complete = (def.requires?.(target) ?? []).every((file) =>
       existsSync(join(store.dir(def.id, done?.version ?? ""), file)),

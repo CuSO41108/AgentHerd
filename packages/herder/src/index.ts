@@ -11,6 +11,7 @@ export {
   agentModelEnv,
   CODEX_KEY_ENV,
   CODEX_PROVIDER,
+  claudeCanRun,
   isGptModel,
   type ModelChoice,
   modelChoices,

@@ -40,12 +40,13 @@ server ([09-agent-tools.md](09-agent-tools.md)).
 | --- | --- | --- |
 | Pi | `node packages/pi-acp/bin/pi-acp.ts --pi <pi>` (bridge to `pi --mode rpc`) | Tested 2026-11-04 with Pi 1.5.0 and DeepSeek: allow writes the file, deny blocks it. Steering tested 2026-11-14 with Pi 1.5.0 and `deepseek-flash`: a message sent during a `sleep 8` command was read after it and answered in the same turn; one sent during the final reply was read too; a cancelled turn answered `false` and Pi did not act on the message. Built-in profile `pi` (found via `AGENTHERD_PI`, the copy inside the app, or `PATH`); see [Pi](#pi) and ADR 0022 |
 | Codex | `node …/codex-acp/dist/index.js` (npm `@agentclientprotocol/codex-acp`), env `INITIAL_AGENT_MODE=read-only`, `NO_BROWSER=1`, the model in `CODEX_CONFIG` (ADR 0031) | Ships inside the app (2.5.0, with the Codex CLI for the build's platform); 验证 reports "Codex process was killed by SIGKILL" on this Mac (endpoint security); prompt run not tried **(verify, Q01)** |
+| Claude Code | `node …/claude-agent-acp/dist/index.js` (npm `@agentclientprotocol/claude-agent-acp` 0.107.2), env `NO_BROWSER=1`, the model and key in `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR=<home>/run/claude` (ask before edits and commands), `CLAUDE_CODE_EXECUTABLE` = the owner's own `claude` when found ([ADR 0069](../adr/0069-claude-code-the-owners-own-or-downloaded.md)) | Not in the app; `claude` is killed by endpoint security on this Mac (exit 137), so not run end to end **(verify, Q01)** |
 | Qwen Code, others | Their ACP mode, as a config.json profile | **(verify, Q02)** |
 
-The desktop app has built-in profiles for Pi and Codex and lets the user add any ACP command.
-Claude Code was a built-in profile for a day (ADR 0066) and was removed: its CLI is not open
-source and cannot ship inside the app ([ADR 0067](../adr/0067-agents-ship-inside-the-app.md)); it
-can still be added as a config.json profile.
+The desktop app has built-in profiles for Pi, Codex and Claude Code and lets the user add any ACP
+command. Claude Code's CLI may not be redistributed, so it is not in the app
+([ADR 0069](../adr/0069-claude-code-the-owners-own-or-downloaded.md)): see
+[Claude Code](#claude-code).
 
 ### Mapping ACP to AgentHerd
 
@@ -113,7 +114,9 @@ Pi has no native ACP or MCP client and never asks before a tool call. AgentHerd'
 ### Agents inside the app
 
 The owner does not choose an agent ([ADR 0031](../adr/0031-pick-the-agent-from-the-model.md)):
-GPT models run in Codex, every other task runs in Pi.
+GPT models run in Codex; a hard coding task (`session_start` `hard`) runs in Claude Code when it
+is installed and the model has an Anthropic-style API with a key
+([ADR 0069](../adr/0069-claude-code-the-owners-own-or-downloaded.md)); every other task runs in Pi.
 
 Pi and Codex ship inside the app ([ADR 0067](../adr/0067-agents-ship-inside-the-app.md)), each at
 the one version AgentHerd was adapted to (`packages/host/src/catalog.ts`: Pi `1.5.0` from GitHub
@@ -126,8 +129,8 @@ architecture, signed ad hoc until M5). The desktop main process passes that fold
 `AGENTHERD_AGENTS`; in development `pnpm --filter @agentherd/desktop fetch-agents` fills
 `apps/desktop/agents/`, which the dev app reads.
 
-The app downloads nothing at run time: no download at start, no 下载 or 更新 button. A new agent
-version comes with a new app. Lookup: `AGENTHERD_<ID>`, the copy inside the app, a copy an older
+The app downloads nothing on its own and updates nothing: no download at start, no 更新 button. A
+new Pi or Codex version comes with a new app; Claude Code is the one exception below. Lookup: `AGENTHERD_<ID>`, the copy inside the app, a copy an older
 app downloaded into `<home>/runtimes` (read only; 移除 deletes it), then `PATH`. A missing agent
 shows on the **Agent** page as 没有.
 On Windows, when OpenAI's Codex (ChatGPT) desktop app is installed (package folder from
@@ -144,6 +147,31 @@ built-in providers without Responses stay with Pi ([ADR 0044](../adr/0044-codex-
 default stays GPT → Codex. These runs get `CODEX_HOME=<home>/run/codex-<hash>` whose
 `config.toml` names the `agentherd` provider (no key): Codex 0.166 refuses a turn whose provider
 differs from its global config's (`packages/host/src/codex-home.ts`).
+
+### Claude Code
+
+Claude Code runs through `@agentclientprotocol/claude-agent-acp` (pinned 0.107.2), the way
+OpenBot does it but without a Claude account sign-in: it uses the owner's own model services, not
+a claude.ai login ([ADR 0069](../adr/0069-claude-code-the-owners-own-or-downloaded.md)).
+
+- **Which `claude`.** `AGENTHERD_CLAUDE_CLI`, `claude` on `PATH`, `~/.local/bin/claude`,
+  `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`
+  (`localClaude` in `packages/host/src/profiles.ts`); it reaches the adapter as
+  `CLAUDE_CODE_EXECUTABLE`. Without one, the adapter's own build is used.
+- **Download only when asked.** On the **Agent** page Claude Code shows 没有 with 下载 until the
+  adapter is in `<home>/runtimes/claude/<version>/`. With the owner's `claude`, 下载 fetches only
+  the adapter (`npm --omit=optional`, a few MB); without it, also Anthropic's platform build
+  (`@anthropic-ai/claude-agent-sdk-<os>-<arch>`, about 90 MB), and the install fails when npm
+  skipped it. 取消 stops it, 移除 deletes it. No updates: a new version is a code change.
+- **Model and key.** Only models with the Anthropic Messages API and a key (`claudeCanRun`): the
+  env sets `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` and every alias to the
+  chosen model. A subscription sign-in (ADR 0068) keeps its token in the host, so those models stay
+  with Pi.
+- **Asking.** `CLAUDE_CONFIG_DIR=<home>/run/claude` holds a `settings.json` with
+  `permissions.defaultMode: "default"` and auto mode off, so every edit and command asks the owner
+  through AgentHerd; the owner's own `~/.claude` is not used.
+- When it does not start or its first turn breaks before acting, the task moves to Pi with the same
+  model.
 
 验证 starts the agent in an empty temporary folder, runs `initialize` and `session/new`, and
 reports its name and version, a needed sign-in, or the error. Local API: `agents()`,

@@ -248,9 +248,36 @@ export function builtinProfile(
   return def === undefined ? undefined : agentProfile(def, bin, extraEnv);
 }
 
+/** Env naming the Claude Code CLI that claude-agent-acp runs (read by the Agent SDK). */
+export const CLAUDE_EXECUTABLE_ENV = "CLAUDE_CODE_EXECUTABLE";
+
+/**
+ * The owner's own Claude Code CLI (ADR 0069): `AGENTHERD_CLAUDE_CLI`, `claude` on PATH, or where
+ * Anthropic's installers put it (an app started from Finder has a short PATH).
+ */
+export function localClaude(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string | undefined {
+  const named = envValue(env, "AGENTHERD_CLAUDE_CLI");
+  if (named !== undefined && named !== "") return named;
+  const onSystem = onPath(["claude"], envValue(env, "PATH"), exists, platform);
+  if (onSystem !== undefined) return onSystem;
+  if (platform === "win32") return undefined;
+  return [
+    join(home, ".local", "bin", "claude"),
+    join(home, ".claude", "local", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ].find((p) => exists(p));
+}
+
 /**
  * Env an agent needs from the machine besides its catalog env: for Codex, `CODEX_PATH` naming
- * the Codex desktop app's CLI when there is one and the owner set none, so codex-acp runs it.
+ * the Codex desktop app's CLI when there is one and the owner set none, so codex-acp runs it; for
+ * Claude Code, `CLAUDE_CODE_EXECUTABLE` naming the owner's own `claude` (localClaude).
  * @param clis Default: codexAppClis(platform), asked only for Codex.
  */
 export function agentEnv(
@@ -259,7 +286,13 @@ export function agentEnv(
   exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
   clis: () => string[] = () => codexAppClis(platform),
+  home: string = homedir(),
 ): Record<string, string> {
+  if (id === "claude") {
+    if ((envValue(env, CLAUDE_EXECUTABLE_ENV) ?? "") !== "") return {};
+    const cli = localClaude(env, exists, platform, home);
+    return cli === undefined ? {} : { [CLAUDE_EXECUTABLE_ENV]: cli };
+  }
   if (id !== "codex" || (envValue(env, "CODEX_PATH") ?? "") !== "") return {};
   const cli = clis().find((p) => exists(p));
   return cli === undefined ? {} : { CODEX_PATH: cli };
