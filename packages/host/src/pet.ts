@@ -1,13 +1,15 @@
 // The desktop pet (ADR 0070): a tee in front of the chat channel. Everything AgentHerd sends to
 // the owner still goes to Feishu; the pet sees the same views, shows the latest one in its bubble
 // with the buttons of whatever waits for the owner, and passes what the owner types or presses
-// there back in as the owner's own message or button press. It never writes text of its own and
-// makes no model calls; its short idle lines live in the app.
+// there back in as the owner's own message or button press. It also hears what the owner writes
+// in the chat app, so the expanded pet shows the conversation both ways. It never writes text of
+// its own and makes no model calls; its short idle lines live in the app.
 
 import type {
   Channel,
   ChannelBinding,
   ChannelCapability,
+  Inbound,
   InboundSink,
   MessageRef,
   SetupUI,
@@ -17,6 +19,8 @@ import type { PetLine, PetPending } from "./api.ts";
 
 /** Longest text the pet keeps for one line or one card body. */
 export const PET_TEXT_MAX = 600;
+/** Lines the expanded pet keeps; older ones are only in the chat app. */
+export const PET_HISTORY_MAX = 80;
 
 function cut(text: string, max = PET_TEXT_MAX): string {
   const t = text.trim();
@@ -93,6 +97,18 @@ function task(label: string | undefined): { task?: string } {
   return label === undefined ? {} : { task: label };
 }
 
+/** What the owner wrote, as the expanded pet shows it; undefined for button presses. */
+function ownerText(inbound: Inbound): string | undefined {
+  if (inbound.kind !== "message") return undefined;
+  const parts = [inbound.text.trim()];
+  if ((inbound.images?.length ?? 0) > 0) parts.push("[图片]");
+  if ((inbound.files?.length ?? 0) > 0) parts.push("[文件]");
+  const text = parts.filter((p) => p !== "").join(" ");
+  return text === "" ? undefined : cut(text);
+}
+
+type Entry = PetLine & { ref?: string };
+
 /**
  * What the pet knows: the latest line and the open cards. One feed lives as long as the host;
  * each herd start wraps its new channel with it.
@@ -110,7 +126,9 @@ export interface PetFeedOptions {
 
 export class PetFeed {
   private seq = 0;
-  private lastLine: (PetLine & { ref?: string }) | undefined;
+  private lastLine: Entry | undefined;
+  /** Both ways, oldest first, at most PET_HISTORY_MAX. */
+  private readonly lines: Entry[] = [];
   /** Open cards by message ref, oldest first. */
   private readonly open = new Map<string, PetPending>();
   private sink: InboundSink | undefined;
@@ -151,6 +169,21 @@ export class PetFeed {
     return [...this.open.values()];
   }
 
+  /** The conversation since the host started, oldest first. */
+  history(): PetLine[] {
+    return this.lines.map(({ ref: _ref, ...line }) => line);
+  }
+
+  private add(line: Omit<PetLine, "id" | "at">, ref?: string): Entry {
+    this.seq++;
+    const entry: Entry = { ...line, id: this.seq, at: this.now().toISOString() };
+    if (ref !== undefined) entry.ref = ref;
+    this.lines.push(entry);
+    if (this.lines.length > PET_HISTORY_MAX)
+      this.lines.splice(0, this.lines.length - PET_HISTORY_MAX);
+    return entry;
+  }
+
   /** The owner typed this in the pet's bubble: it reaches AgentHerd like a chat message. */
   async say(text: string): Promise<void> {
     const t = text.trim();
@@ -180,6 +213,15 @@ export class PetFeed {
     return { sink: this.sink, ownerId: this.ownerId };
   }
 
+  /** @internal The owner wrote to AgentHerd: in the chat app, or to the pet through `say`. */
+  heard(ownerId: string, inbound: Inbound): void {
+    if (inbound.from !== ownerId) return;
+    const text = ownerText(inbound);
+    if (text === undefined) return;
+    this.add({ kind: "owner", text });
+    this.changed();
+  }
+
   /** @internal */
   attach(binding: ChannelBinding, sink: InboundSink): void {
     this.sink = sink;
@@ -202,10 +244,7 @@ export class PetFeed {
     const pending = pendingOf(view);
     if (pending !== undefined) this.open.set(k, pending);
     const line = lineOf(view);
-    if (line !== undefined) {
-      this.seq++;
-      this.lastLine = { ...line, id: this.seq, at: this.now().toISOString(), ref: k };
-    }
+    if (line !== undefined) this.lastLine = this.add(line, k);
     if (pending !== undefined || line !== undefined) this.changed();
   }
 
@@ -220,12 +259,14 @@ export class PetFeed {
     } else if (this.open.delete(k)) {
       changed = true;
     }
-    if (this.lastLine?.ref === k && view.kind === "text") {
-      const line = lineOf(view);
-      if (line !== undefined) {
-        this.lastLine = { ...this.lastLine, ...line };
-        changed = true;
-      }
+    // An edited message (a progress line that grows): the same line, new words.
+    const i = view.kind === "text" ? this.lines.findIndex((l) => l.ref === k) : -1;
+    const line = i < 0 ? undefined : lineOf(view);
+    if (line !== undefined) {
+      const entry: Entry = { ...(this.lines[i] as Entry), ...line };
+      this.lines[i] = entry;
+      if (this.lastLine?.ref === k) this.lastLine = entry;
+      changed = true;
     }
     if (changed) this.changed();
   }
@@ -249,8 +290,12 @@ class PetChannel implements Channel {
   }
 
   async start(binding: ChannelBinding, sink: InboundSink): Promise<void> {
-    await this.inner.start(binding, sink);
-    this.feed.attach(binding, sink);
+    const heard: InboundSink = (inbound) => {
+      this.feed.heard(binding.ownerId, inbound);
+      return sink(inbound);
+    };
+    await this.inner.start(binding, heard);
+    this.feed.attach(binding, heard);
   }
 
   async stop(): Promise<void> {

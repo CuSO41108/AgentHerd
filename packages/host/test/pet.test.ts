@@ -6,7 +6,7 @@ import { FakeChannel, type SentMessage } from "@agentherd/channel-fake";
 import { Herd, Store } from "@agentherd/core";
 import type { Inbound, ItemView } from "@agentherd/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { PetFeed } from "../src/pet.ts";
+import { PET_HISTORY_MAX, PetFeed } from "../src/pet.ts";
 
 const BINDING = { channelId: "fake", ownerId: "owner", data: {} };
 
@@ -151,6 +151,54 @@ describe("PetFeed (ADR 0070)", () => {
       text: "（在桌宠里说）今天有什么新任务",
     });
     expect(t.feed.last?.kind).toBe("ask");
+  });
+
+  it("keeps the conversation both ways for the expanded pet", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`);
+    await t.fake.say("西岸附近有什么好吃的面");
+    await t.channel.send({ kind: "text", text: "我开个任务去小红书搜。" });
+    const progress = await t.channel.send({
+      kind: "text",
+      text: "搜索中",
+      taskLabel: "面馆",
+      tone: "progress",
+    });
+    await t.feed.say("要走路十分钟以内的");
+    await t.fake.say("不是负责人说的", "someone-else");
+    await t.fake.tap("nothing", "allow");
+    await t.channel.update(progress, {
+      kind: "text",
+      text: "读了 12 篇笔记",
+      taskLabel: "面馆",
+      tone: "progress",
+    });
+    expect(t.feed.history().map((l) => [l.id, l.kind, l.text])).toEqual([
+      [1, "owner", "西岸附近有什么好吃的面"],
+      [2, "say", "我开个任务去小红书搜。"],
+      [3, "task", "读了 12 篇笔记"],
+      [4, "owner", "要走路十分钟以内的"],
+    ]);
+    // The bubble only speaks for AgentHerd; the owner's own words stay out of it.
+    expect(t.feed.last).toMatchObject({ id: 3, kind: "task", text: "读了 12 篇笔记" });
+    // A message of only a picture still shows up.
+    await t.feed.heard("owner", {
+      kind: "message",
+      text: "",
+      from: "owner",
+      images: [{ data: "", mimeType: "image/png" }] as never,
+    });
+    expect(t.feed.history().at(-1)).toMatchObject({ kind: "owner", text: "[图片]" });
+  });
+
+  it("keeps only the newest lines", async () => {
+    const t = await started();
+    for (let i = 1; i <= PET_HISTORY_MAX + 5; i++) {
+      await t.channel.send({ kind: "text", text: `第 ${i} 句` });
+    }
+    const history = t.feed.history();
+    expect(history).toHaveLength(PET_HISTORY_MAX);
+    expect(history[0]?.text).toBe("第 6 句");
+    expect(t.feed.last?.text).toBe(`第 ${PET_HISTORY_MAX + 5} 句`);
   });
 
   it("refuses stale buttons, empty text and a stopped herd", async () => {

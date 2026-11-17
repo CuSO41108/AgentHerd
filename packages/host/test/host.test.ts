@@ -167,7 +167,7 @@ describe("Host", () => {
   it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
     const t = makeHost(true);
     expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
-    expect(t.host.pet()).toEqual({ connected: false, pending: [] });
+    expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [] });
     await t.host.start();
     expect(t.host.pet().connected).toBe(true);
 
@@ -190,6 +190,10 @@ describe("Host", () => {
     // No Herder here, so the herd answers by itself; the pet shows that answer.
     await until(() => (t.host.pet().last?.id ?? 0) > 0);
     expect(t.events.some((e) => e.topic === "pet")).toBe(true);
+    // The expanded pet shows both sides: the owner's words, then the answer.
+    const history = t.host.pet().history;
+    expect(history[0]).toMatchObject({ kind: "owner", text: "在吗" });
+    expect(history.at(-1)?.id).toBe(t.host.pet().last?.id);
     await expect(t.host.petPress("nothing", "allow")).rejects.toThrow("这件事已经处理过了");
   });
 

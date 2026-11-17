@@ -2,8 +2,11 @@ import type { PetView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
   cannedLine,
+  clickPlan,
+  clockOf,
   FLASH_MS,
   flashOf,
+  historyHead,
   lineText,
   moodOf,
   SLEEP_AFTER_MS,
@@ -99,5 +102,34 @@ describe("pet frames", () => {
       expect(a.durations.length).toBeLessThanOrEqual(ATLAS.columns);
     }
     expect(HELLO_MS).toBe(700);
+  });
+});
+
+describe("the expanded pet (ADR 0070)", () => {
+  it("one click opens the bubble, a double click switches to the conversation", () => {
+    expect(clickPlan(false, false)).toBe("open");
+    expect(clickPlan(true, false)).toBe("close-later");
+    expect(clickPlan(true, true)).toBe("switch");
+    expect(clickPlan(false, true)).toBe("switch");
+  });
+
+  it("heads a line with its task and how it ended", () => {
+    const at = "2026-11-17T12:00:00Z";
+    expect(historyHead({ id: 1, at, kind: "owner", text: "搜面馆" })).toBeUndefined();
+    expect(historyHead({ id: 2, at, kind: "say", text: "好" })).toBeUndefined();
+    expect(historyHead({ id: 3, at, kind: "task", text: "搜索中", task: "面馆" })).toBe("「面馆」");
+    expect(
+      historyHead({ id: 4, at, kind: "report", text: "找到了", task: "面馆", result: "done" }),
+    ).toBe("「面馆」做完了");
+    expect(
+      historyHead({ id: 5, at, kind: "report", text: "没找到", task: "面馆", result: "failed" }),
+    ).toBe("「面馆」没做成");
+  });
+
+  it("shows the time, with the date for an earlier day", () => {
+    const now = new Date(2026, 10, 17, 23, 0);
+    expect(clockOf(new Date(2026, 10, 17, 9, 5).toISOString(), now)).toBe("09:05");
+    expect(clockOf(new Date(2026, 10, 16, 21, 30).toISOString(), now)).toBe("11-16 21:30");
+    expect(clockOf("not a date", now)).toBe("");
   });
 });

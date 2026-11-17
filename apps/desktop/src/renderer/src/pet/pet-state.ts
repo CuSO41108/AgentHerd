@@ -72,3 +72,37 @@ export function lineText(line: PetLine): string {
   if (line.task !== undefined && line.kind !== "say") return cut(`「${line.task}」${line.text}`);
   return cut(line.text);
 }
+
+/** Two clicks on the figure within this long are a double click. */
+export const DOUBLE_CLICK_MS = 320;
+
+/**
+ * What a click on the figure does. One click opens the small bubble at once, or closes the open
+ * one unless a second click follows; a double click switches between the bubble and the
+ * conversation.
+ */
+export function clickPlan(open: boolean, double: boolean): "open" | "close-later" | "switch" {
+  if (double) return "switch";
+  return open ? "close-later" : "open";
+}
+
+/** The small line above a message of the conversation: which task, and how it ended. */
+export function historyHead(line: PetLine): string | undefined {
+  if (line.kind === "owner" || line.task === undefined) return undefined;
+  if (line.kind === "report") {
+    const head = line.result === "done" ? "做完了" : line.result === "stopped" ? "停了" : "没做成";
+    return `「${line.task}」${head}`;
+  }
+  return `「${line.task}」`;
+}
+
+/** 14:05 for today, 11-16 14:05 for an earlier day. */
+export function clockOf(at: string, now = new Date()): string {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toDateString() === now.toDateString()
+    ? time
+    : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+}

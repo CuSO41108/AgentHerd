@@ -186,6 +186,102 @@ body {
   padding: 0;
 }
 
+.pet-links {
+  flex: none;
+  display: flex;
+  gap: 10px;
+}
+
+/* The expanded pet: the conversation both ways, newest at the bottom. */
+.pet-chat {
+  width: 320px;
+  padding: 8px 10px 10px;
+}
+
+.pet-chat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  color: var(--pet-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pet-chat-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pet-x {
+  border: 0;
+  background: none;
+  color: var(--pet-muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pet-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 6px;
+  user-select: text;
+  cursor: auto;
+}
+
+.pet-msg {
+  align-self: flex-start;
+  max-width: 86%;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: var(--pet-control);
+}
+
+.pet-msg.mine {
+  align-self: flex-end;
+  background: var(--pet-accent);
+  color: #fff;
+}
+
+.pet-msg.bad {
+  background: rgba(255, 59, 48, 0.12);
+}
+
+.pet-msg-task {
+  color: var(--pet-muted);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.pet-msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pet-msg-time {
+  color: var(--pet-muted);
+  font-size: 10px;
+  text-align: right;
+  margin-top: 2px;
+}
+
+.pet-msg.mine .pet-msg-time {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.pet-chat .pet-card {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pet-line);
+}
+
 .pet-stage {
   position: relative;
 }

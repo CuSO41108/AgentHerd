@@ -9,7 +9,8 @@ import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen } from "electron
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
 const MIN = 40;
-const MAX = { width: 480, height: 560 };
+/** Room for the expanded pet: the conversation above the figure. */
+const MAX = { width: 480, height: 700 };
 /** Gap to the screen edge the first time. */
 const MARGIN = 24;
 
@@ -29,6 +30,8 @@ export interface PetWindowOptions {
 export class PetWindow {
   private win: BrowserWindow | undefined;
   private dragFrom: { x: number; y: number } | undefined;
+  /** Where the figure stands: the window grows up and left from here and shrinks back to it. */
+  private anchor: Corner | undefined;
   private readonly opts: PetWindowOptions;
 
   constructor(opts: PetWindowOptions) {
@@ -48,22 +51,39 @@ export class PetWindow {
     ipcMain.on("pet:drag-end", (e) => {
       const w = this.own(e);
       this.dragFrom = undefined;
-      if (w !== undefined) this.saveCorner(w);
+      if (w === undefined) return;
+      const b = w.getBounds();
+      this.anchor = { right: b.x + b.width, bottom: b.y + b.height };
+      this.saveCorner(this.anchor);
     });
     ipcMain.on("pet:resize", (e, width: unknown, height: unknown) => {
       const w = this.own(e);
       if (w === undefined || typeof width !== "number" || typeof height !== "number") return;
       const b = w.getBounds();
+      const anchor = this.anchor ?? { right: b.x + b.width, bottom: b.y + b.height };
+      this.anchor = anchor;
+      const area = screen.getDisplayNearestPoint({
+        x: anchor.right - 1,
+        y: anchor.bottom - 1,
+      }).workArea;
       const next = {
-        width: clamp(Math.ceil(width), MIN, MAX.width),
-        height: clamp(Math.ceil(height), MIN, MAX.height),
+        width: clamp(Math.ceil(width), MIN, Math.min(MAX.width, area.width)),
+        height: clamp(Math.ceil(height), MIN, Math.min(MAX.height, area.height)),
       };
-      if (next.width === b.width && next.height === b.height) return;
-      w.setBounds({
-        x: b.x + b.width - next.width,
-        y: b.y + b.height - next.height,
+      // Near the top or left edge the window moves in rather than grow off the screen.
+      const bounds = {
+        x: Math.max(area.x, anchor.right - next.width),
+        y: Math.max(area.y, anchor.bottom - next.height),
         ...next,
-      });
+      };
+      if (
+        bounds.x === b.x &&
+        bounds.y === b.y &&
+        next.width === b.width &&
+        next.height === b.height
+      )
+        return;
+      w.setBounds(bounds);
     });
     ipcMain.on("pet:open-app", (e) => {
       if (this.own(e) !== undefined) this.opts.openApp();
@@ -90,6 +110,7 @@ export class PetWindow {
   private open(): void {
     if (this.win !== undefined && !this.win.isDestroyed()) return;
     const corner = this.corner();
+    this.anchor = corner;
     const created = new BrowserWindow({
       x: corner.right - START.width,
       y: corner.bottom - START.height,
@@ -160,12 +181,11 @@ export class PetWindow {
     return { right: area.x + area.width - MARGIN, bottom: area.y + area.height - MARGIN };
   }
 
-  private saveCorner(w: BrowserWindow): void {
-    const b = w.getBounds();
+  private saveCorner(corner: Corner): void {
     try {
       const file = this.file();
       if (!existsSync(dirname(file))) mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify({ right: b.x + b.width, bottom: b.y + b.height }));
+      writeFileSync(file, JSON.stringify(corner));
     } catch {
       // the pet just starts in the corner next time
     }
