@@ -12,21 +12,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { FIGURES, FRAME } from "./figures";
-import {
-  cannedLine,
-  cut,
-  FLASH_MS,
-  flashOf,
-  lineText,
-  MOODS,
-  type Mood,
-  moodOf,
-} from "./pet-state";
+import { FIGURES } from "./figures";
+import { cannedLine, cut, FLASH_MS, flashOf, lineText, type Mood, moodOf } from "./pet-state";
+import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
 const SCALE = 0.58;
-const W = Math.round(FRAME.width * SCALE);
-const H = Math.round(FRAME.height * SCALE);
+const W = Math.round(CELL.width * SCALE);
+const H = Math.round(CELL.height * SCALE);
 /** The folded pet: the head of the current frame in a circle. */
 const DOT = 46;
 const DOT_SCALE = 0.5;
@@ -67,6 +59,8 @@ export function Pet() {
   const lastCanned = useRef<string | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
+  const figureEl = useRef<HTMLButtonElement>(null);
+  const inputEl = useRef<HTMLInputElement>(null);
 
   const mood: Mood = moodOf({
     view,
@@ -137,6 +131,32 @@ export function Pet() {
     });
   }, [mood]);
 
+  // Plays the clip's frames on the figure. Writes the style directly: no React render per frame.
+  const clip: Clip = hello ? "hello" : mood;
+  useEffect(() => {
+    if (collapsed) return;
+    const animation = ANIMATIONS[clip];
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const start = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = () => {
+      const { column, next } = frameAt(animation, still ? 0 : performance.now() - start);
+      const el = figureEl.current;
+      if (el !== null) el.style.backgroundPosition = `${-column * W}px ${-animation.row * H}px`;
+      if (!still && Number.isFinite(next)) timer = setTimeout(show, Math.max(16, next));
+    };
+    show();
+    return () => clearTimeout(timer);
+  }, [clip, collapsed]);
+
+  // Back to the pet with the bubble open: the cursor goes straight into the input.
+  useEffect(() => {
+    if (!open) return;
+    const toInput = () => inputEl.current?.focus();
+    window.addEventListener("focus", toInput);
+    return () => window.removeEventListener("focus", toInput);
+  }, [open]);
+
   // The window is as big as the pet; it grows up and to the left when the bubble opens.
   useLayoutEffect(() => {
     const el = root.current;
@@ -151,7 +171,7 @@ export function Pet() {
   const touch = () => {
     setLastActive(Date.now());
     setHello(true);
-    setTimeout(() => setHello(false), 1300);
+    setTimeout(() => setHello(false), 2 * HELLO_MS);
   };
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
@@ -219,8 +239,7 @@ export function Pet() {
     if (e.key === "Escape") setOpen(false);
   };
 
-  const strip = FIGURES[figure].strip;
-  const frame = MOODS.indexOf(mood);
+  const atlas = FIGURES[figure].atlas;
   const pending = view.pending[0];
   const speaking = speech !== undefined && speech.until > now;
   const offline = !online || !view.connected;
@@ -239,9 +258,9 @@ export function Pet() {
           style={{
             width: DOT,
             height: DOT,
-            backgroundImage: `url(${strip})`,
-            backgroundSize: `${FRAME.width * DOT_SCALE * MOODS.length}px ${FRAME.height * DOT_SCALE}px`,
-            backgroundPosition: `${-(frame * FRAME.width * DOT_SCALE) - 25}px -6px`,
+            backgroundImage: `url(${atlas})`,
+            backgroundSize: `${CELL.width * DOT_SCALE * ATLAS.columns}px ${CELL.height * DOT_SCALE * ATLAS.rows}px`,
+            backgroundPosition: `-25px ${-(ANIMATIONS[mood].row * CELL.height * DOT_SCALE) - 6}px`,
           }}
         >
           {view.pending.length > 0 && <span className="pet-badge">{view.pending.length}</span>}
@@ -308,6 +327,7 @@ export function Pet() {
           {open && (
             <>
               <input
+                ref={inputEl}
                 className="pet-input"
                 autoFocus
                 value={draft}
@@ -342,7 +362,8 @@ export function Pet() {
         <button
           type="button"
           aria-label="桌宠，点一下跟主管说话"
-          className={`pet-figure mood-${mood}${hello ? " hello" : ""}`}
+          ref={figureEl}
+          className={`pet-figure mood-${mood}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp(() => {
@@ -355,9 +376,8 @@ export function Pet() {
           style={{
             width: W,
             height: H,
-            backgroundImage: `url(${strip})`,
-            backgroundSize: `${W * MOODS.length}px ${H}px`,
-            backgroundPosition: `${-frame * W}px 0`,
+            backgroundImage: `url(${atlas})`,
+            backgroundSize: `${W * ATLAS.columns}px ${H * ATLAS.rows}px`,
           }}
         />
         {view.pending.length > 0 && <span className="pet-badge">{view.pending.length}</span>}

@@ -8,6 +8,7 @@ import {
   moodOf,
   SLEEP_AFTER_MS,
 } from "../src/renderer/src/pet/pet-state";
+import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
 
 const IDLE: PetView = { connected: true, pending: [] };
 const NOW = 1_000_000;
@@ -65,5 +66,38 @@ describe("pet lines", () => {
     const long = lineText({ id: 1, at: "", kind: "say", text: "字".repeat(200) });
     expect(long).toHaveLength(90);
     expect(long.endsWith("…")).toBe(true);
+  });
+});
+
+describe("pet frames", () => {
+  it("plays each clip with its frame times, after the rest", () => {
+    const resting = ANIMATIONS.resting;
+    expect(frameAt(resting, 0)).toEqual({ column: 0, next: 2_400 });
+    expect(frameAt(resting, 2_400)).toEqual({ column: 0, next: 280 });
+    expect(frameAt(resting, 2_400 + 280 + 50)).toEqual({ column: 1, next: 60 });
+    // the next round starts with the rest again
+    expect(frameAt(resting, 2_400 + 1_100).column).toBe(0);
+  });
+
+  it("loops busy clips, stops a failure on its last frame, keeps sleep still", () => {
+    expect(frameAt(ANIMATIONS.working, 820)).toEqual({ column: 0, next: 120 });
+    expect(frameAt(ANIMATIONS.error, 10_000)).toEqual({
+      column: 7,
+      next: Number.POSITIVE_INFINITY,
+    });
+    expect(frameAt(ANIMATIONS.sleeping, 5_000)).toEqual({
+      column: 0,
+      next: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it("gives every clip its own row inside the atlas", () => {
+    const rows = Object.values(ANIMATIONS).map((a) => a.row);
+    expect(new Set(rows).size).toBe(rows.length);
+    for (const a of Object.values(ANIMATIONS)) {
+      expect(a.row).toBeLessThan(ATLAS.rows);
+      expect(a.durations.length).toBeLessThanOrEqual(ATLAS.columns);
+    }
+    expect(HELLO_MS).toBe(700);
   });
 });
