@@ -42,14 +42,20 @@
    queued or working → working; nothing for 2 minutes or no host → sleeping; else resting. Its
    own words are a few fixed lines (开工啦！, 我先眯一会儿…); everything else it says is the text
    AgentHerd sent, cut to 90 characters. No model calls.
-4. **Six frames, CSS motion.** Each figure is one strip of six 192×208 frames
-   (resting, working, waiting, celebrate, error, sleeping) cut from llm-pet's chibi sheets
-   (`apps/desktop/src/renderer/src/pet/figures/`), with a small CSS motion per mood (breathe,
-   sway, tilt, hop, shake, slow breathe), zZ when sleeping and sparkles when cheering.
-   `prefers-reduced-motion` stops the motion.
+4. **The art's own frames.** Each figure is one atlas of 192×208 cells cut from llm-pet's chibi
+   sheets (`apps/desktop/src/renderer/src/pet/figures/`, layout in `pet/sprite.ts`): the rows
+   idle (resting), running (working), waiting, jumping (celebrate), failed (error, played once)
+   and waving (when clicked), played with the Codex pet frame times; resting holds still for
+   2.4 s between rounds so it stays calm. Sleeping is one frame with a slow CSS breath, zZ on top;
+   sparkles when cheering. `prefers-reduced-motion` shows first frames only. The first version
+   moved one still frame per mood with CSS (a 2 px bob, a 1° sway); the owner found it choppy
+   ("动作一顿一顿的不流畅") although it drew at the screen's full rate, so it plays the drawn
+   frames instead.
 5. **The window.** A frameless, transparent, always-on-top window (`pet.html`,
    `apps/desktop/src/main/pet-window.ts`), on all spaces, not in the task bar, sized to the pet
-   and growing up and left when the bubble opens. Drag moves it (the corner is saved); a click
+   and growing up and left when the bubble opens. It takes the first click even while another app
+   is in front (`acceptFirstMouse`), so one click opens her, puts the cursor in the input or
+   presses 同意. Drag moves it (the corner is saved); a click
    opens the bubble with an input line and 打开 App; the small – button folds it into a round dot
    with a red count of open cards. The main window still decides when the app quits; the dock
    icon brings the main window back.
@@ -67,8 +73,11 @@
   can say things AgentHerd did not; fixed lines and AgentHerd's own text are enough.
 - **A host API that decides items directly** — would duplicate the inbox's rules (owner check,
   batch cards, asks, offers); delivering the same inbound as Feishu reuses all of them.
-- **Codex pet sheets with full animations (8 frames per row)** — more motion than the owner asked
-  for, and the sheets are 2 MB each; six still frames are 0.45 MB together.
+- **One still frame per mood with CSS motion (the DSH whale's way)** — the first version; a
+  bitmap that only bobs and sways looks stiff next to drawn frames. The whale is vector art made
+  for that; these figures are drawn as frame animations.
+- **The whole Codex sheets** — 2 MB each with rows the pet does not use (walking left and right,
+  review); the cut atlases are about 0.5 MB each.
 - **The DSH whale** — its art may not be extracted from that plugin.
 
 ## Consequences

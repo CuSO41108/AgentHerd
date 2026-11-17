@@ -105,6 +105,9 @@ export class PetWindow {
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // On macOS the first click on a window of an app in the background only brings the app
+      // forward; the pet should open, take the cursor or press 同意 on that first click.
+      acceptFirstMouse: true,
       title: "AgentHerd",
       webPreferences: {
         preload: this.opts.preload,
