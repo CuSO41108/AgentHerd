@@ -194,6 +194,8 @@ describe("RuntimeStore", () => {
     );
     const { requires: _, ...plain } = release;
     await expect(store.install(plain, { npmCli })).resolves.toMatchObject({ version: "1.0.0" });
+    // Installed without the file: asking for it again reinstalls instead of keeping the copy.
+    await expect(store.install(release, { npmCli })).rejects.toThrow(/npm did not install/);
   });
 });
 
