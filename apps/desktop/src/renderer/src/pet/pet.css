@@ -75,22 +75,6 @@ body {
   transform: rotate(45deg);
 }
 
-.pet-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.pet-close {
-  position: absolute;
-  top: 2px;
-  right: 6px;
-  border: 0;
-  background: none;
-  color: var(--pet-muted);
-  font-size: 16px;
-  cursor: pointer;
-}
-
 .pet-task,
 .pet-more,
 .pet-note {
@@ -186,13 +170,7 @@ body {
   padding: 0;
 }
 
-.pet-links {
-  flex: none;
-  display: flex;
-  gap: 10px;
-}
-
-/* The expanded pet: the conversation both ways, newest at the bottom. */
+/* The conversation both ways, newest at the bottom: what a click on the pet opens. */
 .pet-chat {
   width: 360px;
   padding: 8px 10px 10px;

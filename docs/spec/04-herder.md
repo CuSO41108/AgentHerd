@@ -483,6 +483,13 @@ not a number: the result in a sentence or two when that is all they want, every 
 ask for a list, the whole of it when it matters. No filler, no steps, no 「结论：」 lines; when
 there is far too much, what matters plus where the rest is. The style text no longer carries
 "say less" or "under three sentences".
+
+It is written for a phone: several things with details of their own (repositories, options,
+files, findings) go one per line starting with "- ", never run together in one paragraph; a
+question to the owner goes on its own line after a blank line; a long answer is split into short
+paragraphs. The owner found a list of five repositories run together in one block hard to read
+(「完全粘在一起，这一大段话，没有换行之类的」, 2026-11-18); `stylePrompt()` and the report prompt
+(`voicePrompt`) both say so.
 - Messages are folded in the channel, not shortened ([05-channels.md](05-channels.md#2-what-the-owner-sees)).
 
 ## 3. Approval pipeline

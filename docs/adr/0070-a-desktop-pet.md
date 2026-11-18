@@ -39,9 +39,8 @@
    ("这件事已经处理过了"); with no channel connected, both are refused.
 3. **Mood from state, not from a model.** The pet's mood follows the host: something waits for
    the owner → waiting; a report or error just came → celebrate or error for 6 s; a task is
-   queued or working → working; nothing for 2 minutes or no host → sleeping; else resting. Its
-   own words are a few fixed lines (开工啦！, 我先眯一会儿…); everything else it says is the text
-   AgentHerd sent, cut to 90 characters. No model calls.
+   queued or working → working; nothing for 2 minutes or no host → sleeping; else resting. It
+   has no words of its own: what it shows is what AgentHerd sent, whole. No model calls.
 4. **The art's own frames.** Each figure is one atlas of 192×208 cells cut from llm-pet's chibi
    sheets (`apps/desktop/src/renderer/src/pet/figures/`, layout in `pet/sprite.ts`): the rows
    idle (resting), running (working), waiting, jumping (celebrate), failed (error, played once)
@@ -53,16 +52,21 @@
    frames instead.
 5. **The window.** A frameless, transparent, always-on-top window (`pet.html`,
    `apps/desktop/src/main/pet-window.ts`), on all spaces, not in the task bar, sized to the pet
-   and growing up and left when the bubble opens. It takes the first click even while another app
-   is in front (`acceptFirstMouse`), so one click opens her, puts the cursor in the input or
-   presses 同意. Drag moves it (the corner is saved); a click
-   opens the bubble with an input line and 打开 App; the small – button folds it into a round dot
-   with a red count of open cards. The main window still decides when the app quits; the dock
-   icon brings the main window back.
-5a. **The conversation.** The owner asked for 「双击还是什么操作，可以展开对话框」: a double click on
-   the figure (or 展开对话 in the bubble) opens the conversation both ways, newest at the bottom,
-   with the open card and the input under it; 缩小 or another double click goes back to the small
-   bubble. It is the Herder's conversation as herd.db keeps it (`herder_turns`: the owner's
+   and growing up and left when the conversation opens. It takes the first click even while
+   another app is in front (`acceptFirstMouse`), so one click opens her, puts the cursor in the
+   input or presses 同意. Drag moves it (the corner is saved); the small – button folds it into a
+   round dot with a red count of open cards and of lines that came while it was folded. The main
+   window still decides when the app quits; the dock icon brings the main window back.
+5a. **Always the conversation.** A click on the figure opens the conversation both ways, newest
+   at the bottom, with the open card and the input under it; ×, Esc or another click closes it.
+   When a new line comes (a reply, a report, a question, a card), the conversation opens by
+   itself and stays open, without taking the keyboard from the app in front; folded, the dot
+   counts it instead. The latest line is shown after the conversation when herd.db does not hold
+   it (task progress). There is no small bubble: the first version had one with the latest line
+   cut to 90 characters and a double click for the conversation, and the owner found it could
+   not be read (「这样是看不全的，所以我宁愿一直都是对话框」), and wanted new lines to show in
+   the conversation directly (「直接显示对话框吧」).
+   The conversation is the Herder's as herd.db keeps it (`herder_turns`: the owner's
    messages and answers, the Herder's replies, questions and the reports it passed on), the last
    80 lines, so it reaches back past restarts and holds what was said in Feishu too. A first
    version kept only the lines since the host started, in memory; the owner rejected that
@@ -83,8 +87,11 @@
 
 ## Alternatives
 
-- **A chat panel in the pet** — the owner found it too big; the bubble shows one line and the
-  open card, Feishu and the app keep the history.
+- **A small bubble with the latest line** — the first version, after the owner found a chat
+  panel too big in a mock; a line cut to 90 characters could not be read, so the pet shows the
+  conversation, sized by the owner (5b).
+- **Fixed lines of its own (开工啦！, 我先眯一会儿…)** — dropped with the bubble; the motion
+  already says that much.
 - **The pet calls a model for its own lines (Claude Code `/buddy`)** — costs a call per line and
   can say things AgentHerd did not; fixed lines and AgentHerd's own text are enough.
 - **A host API that decides items directly** — would duplicate the inbox's rules (owner check,
@@ -108,4 +115,4 @@
 
 Tests: `packages/host/test/pet.test.ts` (feed, inbound, stale buttons, E2E-PET-APPROVE),
 `packages/host/test/host.test.ts` (settings, `petSay`), `apps/desktop/test/pet-state.test.ts`
-(mood and lines).
+(mood, new lines, sizing).

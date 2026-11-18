@@ -1,5 +1,5 @@
-// What the desktop pet looks like and says (ADR 0070). No model calls: its mood follows what the
-// host reports, and its own lines are a few fixed ones. Pure functions, so they are easy to test.
+// What the desktop pet looks like and shows (ADR 0070). No model calls: its mood follows what the
+// host reports. Pure functions, so they are easy to test.
 
 import type { PetLine, PetView } from "@agentherd/host/api";
 
@@ -7,12 +7,10 @@ import type { PetLine, PetView } from "@agentherd/host/api";
 export const MOODS = ["resting", "working", "waiting", "celebrate", "error", "sleeping"] as const;
 export type Mood = (typeof MOODS)[number];
 
-/** How long a finished or failed task shows on the pet, and a new line stays in the bubble. */
+/** How long a finished or failed task shows on the pet. */
 export const FLASH_MS = 6_000;
 /** Nothing new and nothing running for this long: the pet dozes off. */
 export const SLEEP_AFTER_MS = 2 * 60_000;
-/** Longest text in the bubble; the rest is in Feishu and the app. */
-export const BUBBLE_MAX = 90;
 
 export interface MoodInput {
   view: PetView;
@@ -42,48 +40,39 @@ export function flashOf(line: PetLine): "celebrate" | "error" | undefined {
   return line.result === "done" ? "celebrate" : "error";
 }
 
-const LINES: Record<Mood, readonly string[]> = {
-  resting: ["我在呢，有事叫我。", "点我就能跟主管说话。"],
-  working: ["开工啦！", "正在一点点搞定…", "让我琢磨一下…"],
-  waiting: ["有件事要你点头。"],
-  celebrate: ["搞定啦！", "又完成一件，开心！"],
-  error: ["出了点状况，去看看吧。", "这次没成，要再试试吗？"],
-  sleeping: ["我先眯一会儿…"],
-};
-
-/** A fixed line for a mood, not the same as the one before if the mood has more than one. */
-export function cannedLine(mood: Mood, previous?: string): string {
-  const lines = LINES[mood];
-  const at = previous === undefined ? -1 : lines.indexOf(previous);
-  return lines[(at + 1) % lines.length] ?? lines[0] ?? "";
-}
-
-export function cut(text: string, max = BUBBLE_MAX): string {
+/** One line of at most `max` characters, for a task name or an approval's title. */
+export function cut(text: string, max: number): string {
   const t = text.replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-/** What the bubble says for a line AgentHerd sent. */
-export function lineText(line: PetLine): string {
-  if (line.kind === "report" && line.task !== undefined) {
-    const head = line.result === "done" ? "做完了" : line.result === "stopped" ? "停了" : "没做成";
-    return cut(`「${line.task}」${head}：${line.text}`);
-  }
-  if (line.task !== undefined && line.kind !== "say") return cut(`「${line.task}」${line.text}`);
-  return cut(line.text);
+/**
+ * A line AgentHerd sent that the pet has not shown yet. The first look only takes note: what came
+ * before the pet started is history, not news.
+ */
+export function newLine(seen: number | undefined, line: PetLine | undefined): boolean {
+  return line !== undefined && seen !== undefined && line.id > seen;
 }
 
-/** Two clicks on the figure within this long are a double click. */
-export const DOUBLE_CLICK_MS = 320;
-
 /**
- * What a click on the figure does. One click opens the small bubble at once, or closes the open
- * one unless a second click follows; a double click switches between the bubble and the
- * conversation.
+ * The latest line when the conversation does not hold it yet: a task's progress, an alarm, or a
+ * message the Herder has not taken into its conversation. Shown after the conversation, so a
+ * conversation that opened for a line always shows it. Asks are shown as their card instead.
  */
-export function clickPlan(open: boolean, double: boolean): "open" | "close-later" | "switch" {
-  if (double) return "switch";
-  return open ? "close-later" : "open";
+export function trailingLine(
+  history: readonly PetLine[],
+  last: PetLine | undefined,
+): PetLine | undefined {
+  if (last === undefined || last.kind === "ask") return undefined;
+  const newest = history[history.length - 1];
+  if (newest !== undefined && Date.parse(newest.at) > Date.parse(last.at)) return undefined;
+  const head = (text: string) => text.replace(/\s+/g, "").slice(0, 40);
+  return history.some((h) => head(h.text) === head(last.text)) ? undefined : last;
+}
+
+/** The number on the folded dot: what waits for the owner, or the lines that came while folded. */
+export function badgeOf(pending: number, unread: number): number {
+  return Math.max(pending, unread);
 }
 
 /** The small line above a message of the conversation: which task, and how it ended. */
