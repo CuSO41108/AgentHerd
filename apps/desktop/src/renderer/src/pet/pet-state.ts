@@ -218,6 +218,16 @@ export function canStop(task: Task): boolean {
   return task.stage !== "done" && task.stage !== "failed";
 }
 
+/**
+ * The step line under a task card: its latest report while it runs or waits. An ended task shows
+ * none; its last report is 「已报告：…」, which only repeats the result card.
+ */
+export function stepOf(task: Task): string | undefined {
+  if (!canStop(task)) return undefined;
+  const step = task.lastReport.trim();
+  return step === "" ? undefined : step;
+}
+
 /** How long a task has run: until now while it runs, until its last change once it ended. */
 export function elapsedOf(task: Task, now = Date.now()): string {
   const end = canStop(task) ? now : Date.parse(task.updatedAt);
@@ -258,35 +268,6 @@ export function foldBody(body: string): { head: string; folded: boolean } {
     head: body.slice(0, cutAt > FOLD_CHARS / 2 ? cutAt : FOLD_CHARS).trimEnd(),
     folded: true,
   };
-}
-
-/** A file a message names (ADR 0073): shown under it with a button that opens it. */
-export interface FileRef {
-  path: string;
-  name: string;
-  /** Its folder, as the message wrote it. */
-  dir: string;
-}
-
-/** Absolute or ~/ paths, up to a space, quote, bracket or Chinese punctuation; not inside a link. */
-const FILE_PATH =
-  /(?<![\w.:/\\-])(?:~[\\/]|\/(?:Users|tmp|private|var|home|opt|Volumes)\/|[A-Za-z]:[\\/])[^\s`'"<>()（）[\]{}，。；：、！？「」]+/g;
-const FILE_NAME = /\.[A-Za-z0-9]{1,8}$/;
-/** At most this many files under one message. */
-export const FILES_MAX = 6;
-
-/** The files a message names, in order, each once. A path without an extension is a folder. */
-export function filesIn(text: string): FileRef[] {
-  const out: FileRef[] = [];
-  for (const m of text.matchAll(FILE_PATH)) {
-    const path = m[0].replace(/[.,;:!?*_]+$/, "");
-    const sep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    const name = path.slice(sep + 1);
-    if (!FILE_NAME.test(name) || out.some((f) => f.path === path)) continue;
-    out.push({ path, name, dir: path.slice(0, sep) });
-    if (out.length === FILES_MAX) break;
-  }
-  return out;
 }
 
 /** A reply longer than this is folded behind 「展开全文」. */

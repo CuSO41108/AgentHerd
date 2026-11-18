@@ -10,9 +10,21 @@ import type {
   View,
 } from "@agentherd/protocol";
 import { DEFAULT_LOCALE } from "@agentherd/protocol";
+import { hasHerdUi, herdUiPlain } from "@agentherd/protocol/herd-ui";
+import {
+  actionRow,
+  answerElement,
+  collapsiblePanel,
+  escapeCodeFence,
+  foldedMarkdown,
+  markdown,
+} from "./card-parts.ts";
+import { herdUiElements } from "./herd-ui-card.ts";
 import { readableMath } from "./math.ts";
 import type { CardTexts } from "./texts.ts";
 import { CARD_TEXTS } from "./texts.ts";
+
+export { FOLD_CHARS } from "./card-parts.ts";
 
 /** Feishu card header template color for an item's risk level. */
 function riskTemplate(risk: Risk): string {
@@ -29,11 +41,6 @@ function riskTemplate(risk: Risk): string {
 /** User-facing tag text for an item's risk level. */
 function riskLabel(risk: Risk, t: CardTexts): string {
   return t.risk[risk];
-}
-
-/** Break a ``` sequence inside a code block so it cannot close the fence early. */
-function escapeCodeFence(text: string): string {
-  return text.replaceAll("```", "``\u200B`");
 }
 
 /** A card header: title, colored template, and a risk tag. */
@@ -69,62 +76,6 @@ function itemButton(itemId: string, option: ItemOption): Record<string, unknown>
           : "default",
     behaviors: [{ type: "callback", value: { target: itemId, action: option.action } }],
   };
-}
-
-/** A one-button row for a relay/end-relay action with a {target, action} value. */
-function actionRow(target: string, action: string, label: string): Record<string, unknown> {
-  return {
-    tag: "column_set",
-    columns: [
-      {
-        tag: "column",
-        width: "auto",
-        elements: [
-          {
-            tag: "button",
-            text: { tag: "plain_text", content: label },
-            type: "default",
-            behaviors: [{ type: "callback", value: { target, action } }],
-          },
-        ],
-      },
-    ],
-  };
-}
-
-/** Longer answers, and any path, do not fit a one-line button on a phone. */
-const ANSWER_BUTTON_MAX = 15;
-
-function fitsButton(label: string): boolean {
-  return [...label].length <= ANSWER_BUTTON_MAX && !label.includes("/") && !label.includes("\\");
-}
-
-/**
- * A whole-width clickable box for a long answer: Feishu cuts a button to one line, so a path like
- * /Users/me/learnspace/PI-Desktop lost the part that tells two folders apart. The box wraps the
- * full text and sends the same {target, action} as a button.
- */
-function answerBox(target: string, action: string, label: string): Record<string, unknown> {
-  return {
-    tag: "interactive_container",
-    width: "fill",
-    has_border: true,
-    border_color: "grey",
-    corner_radius: "8px",
-    padding: "8px 12px 8px 12px",
-    behaviors: [{ type: "callback", value: { target, action } }],
-    elements: [{ tag: "markdown", content: escapeMarkdown(label) }],
-  };
-}
-
-/** Paths and names stay as typed, not turned into emphasis or links. */
-function escapeMarkdown(text: string): string {
-  return text.replace(/([\\`*_[\]()<>#|])/g, "\\$1");
-}
-
-/** A markdown element; TeX math is written as plain text, which Feishu cards can show. */
-function markdown(content: string): Record<string, unknown> {
-  return { tag: "markdown", content: readableMath(content) };
 }
 
 function makeCard(
@@ -182,9 +133,6 @@ function reportTemplate(result: ReportResult): string {
   }
 }
 
-/** Maximum body length shown before a report body is folded. */
-export const FOLD_CHARS = 400;
-
 const REPORT_ICON: Record<ReportResult, string> = {
   done: "✅",
   failed: "❌",
@@ -210,26 +158,6 @@ function textHeader(view: TextView, t: CardTexts): Record<string, unknown> | und
       ? `${tone.icon} ${view.taskLabel}`
       : (view.title ?? (view.tone === "error" ? t.errorHeader : tone.icon));
   return { title: { tag: "plain_text", content: title }, template: tone.template };
-}
-
-/** Shorten a long body, cutting at the last newline after position 200 when possible. */
-function foldBody(body: string): string {
-  const prefix = body.slice(0, FOLD_CHARS);
-  const lastNewline = prefix.lastIndexOf("\n");
-  if (lastNewline > 200) {
-    return body.slice(0, lastNewline);
-  }
-  return prefix;
-}
-
-/** A folded panel (e.g. "Show all") wrapping a markdown element. */
-function collapsiblePanel(title: string, content: string): Record<string, unknown> {
-  return {
-    tag: "collapsible_panel",
-    expanded: false,
-    header: { title: markdown(title) },
-    elements: [markdown(content)],
-  };
 }
 
 /** Buttons in one row. */
@@ -305,13 +233,10 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
       );
     }
     case "text": {
-      const elements: Record<string, unknown>[] = [];
-      if (view.text.length <= FOLD_CHARS) {
-        elements.push(markdown(view.text));
-      } else {
-        elements.push(markdown(`${foldBody(view.text)}…`));
-        elements.push(collapsiblePanel(t.showAll, view.text));
-      }
+      // A reply with herd-ui fences is drawn as components (ADR 0074), never folded as a whole.
+      const elements = hasHerdUi(view.text)
+        ? herdUiElements(view.text, { t, target: view.target, chosen: view.chosen })
+        : foldedMarkdown(view.text, t.showAll);
       if (view.options !== undefined && view.target !== undefined) {
         for (const o of view.options) elements.push(actionRow(view.target, o.action, o.label));
       }
@@ -355,13 +280,10 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
       return makeCard(header, [table]);
     }
     case "report": {
-      const elements: Record<string, unknown>[] = [];
-      if (view.body.length <= FOLD_CHARS) {
-        elements.push(markdown(view.body));
-      } else {
-        elements.push(markdown(`${foldBody(view.body)}…`));
-        elements.push(collapsiblePanel(t.showAll, view.body));
-      }
+      // A report has no answer target: choices in its fences are shown as a list.
+      const elements = hasHerdUi(view.body)
+        ? herdUiElements(view.body, { t })
+        : foldedMarkdown(view.body, t.showAll);
       if (view.summarized && view.fullReply !== undefined) {
         const label =
           view.fullReplyBy === undefined ? t.fullReply : t.fullReplyBy(view.fullReplyBy);
@@ -392,13 +314,7 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
       const elements: Record<string, unknown>[] = [markdown(view.text)];
       if (view.final !== undefined) elements.push(markdown(t.askAnswered(view.final)));
       else {
-        for (const o of view.options) {
-          elements.push(
-            fitsButton(o.label)
-              ? actionRow(view.askId, o.action, o.label)
-              : answerBox(view.askId, o.action, o.label),
-          );
-        }
+        for (const o of view.options) elements.push(answerElement(view.askId, o.action, o.label));
       }
       return makeCard(
         {
@@ -421,10 +337,14 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
   }
 }
 
-/** Render a text view as a plain line, e.g. "[label] text". */
+/**
+ * Render a text view as a plain line, e.g. "[label] text". Herd-ui fences are written as
+ * Markdown, so a plain message never shows their JSON (ADR 0074).
+ */
 export function renderText(view: TextView): string {
+  const text = herdUiPlain(view.text);
   if (view.taskLabel !== undefined) {
-    return `[${view.taskLabel}] ${view.text}`;
+    return `[${view.taskLabel}] ${text}`;
   }
-  return view.text;
+  return text;
 }

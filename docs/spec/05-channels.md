@@ -163,6 +163,15 @@ place with `im.v1.message.patch`. Limits from the Feishu docs and the test:
 Whether an in-place update makes a notification sound on the phone, and how the pin shows in a
 direct chat, are open (Q13).
 
+A reply that holds a herd-ui block ([ADR 0074](../adr/0074-the-herder-draws-with-herd-ui-blocks.md))
+is drawn as elements (`packages/channel-feishu/src/herd-ui-card.ts`): `table` → a `table` element
+like the board's (at most 5 a card, the rest as Markdown tables), `stats` → a `column_set`
+(`flex_mode: bisect`), `link` → a bordered `interactive_container` with an `open_url` behavior,
+`choices` → buttons (or wide boxes for long answers) numbered across the reply with the reply's
+`ui:` target, 「你选了：x」 once chosen; the rest as Markdown. If Feishu refuses such a card
+(230001, 230025, 230099) it is sent once more drawn from `herdUiPlain`, answers as ordinary
+buttons, and later updates of that message stay plain.
+
 ## 4. Adding a channel
 
 A new channel is a package `channel-<id>` that implements the interface, plus a setup page

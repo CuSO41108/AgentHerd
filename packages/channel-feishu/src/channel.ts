@@ -18,12 +18,14 @@ import { DEFAULT_LOCALE } from "@agentherd/protocol";
 import * as lark from "@larksuiteoapi/node-sdk";
 import {
   type Brand,
+  cardRefused,
   type FeishuApi,
   type FeishuCredentials,
   sdkApi,
   verifyCredentials,
 } from "./api.ts";
 import { renderCard } from "./card.ts";
+import { plainHerdUiView } from "./herd-ui-card.ts";
 import { type FeishuMessage, parseCardAction, parseFeishuMessage } from "./inbound.ts";
 import { CARD_TEXTS } from "./texts.ts";
 
@@ -42,6 +44,46 @@ interface PendingCallback {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref());
+
+/** How many messages drawn the old way the channel remembers (see `Drawing`). */
+const PLAIN_KEEP = 200;
+
+type Card = Record<string, unknown>;
+
+/**
+ * The card of one view on its way to Feishu. When Feishu refuses a card drawn from herd-ui
+ * fences for what is in it (ADR 0074), the view is drawn once more the old way, as Markdown
+ * with the old answer buttons, and put again; any other error is thrown as it is.
+ */
+class Drawing {
+  private readonly view: View;
+  private readonly locale: Locale;
+  private readonly fallback: View | null;
+  /** True once the view is drawn the old way. */
+  plain: boolean;
+
+  constructor(view: View, locale: Locale, plain: boolean) {
+    this.view = view;
+    this.locale = locale;
+    this.fallback = plainHerdUiView(view, CARD_TEXTS[locale]);
+    this.plain = plain && this.fallback !== null;
+  }
+
+  card(): Card {
+    const view = this.plain && this.fallback !== null ? this.fallback : this.view;
+    return renderCard(view, this.locale);
+  }
+
+  async put<T>(put: (card: Card) => Promise<T>): Promise<T> {
+    try {
+      return await put(this.card());
+    } catch (error) {
+      if (this.plain || this.fallback === null || !cardRefused(error)) throw error;
+      this.plain = true;
+      return put(this.card());
+    }
+  }
+}
 
 function openMessageId(payload: unknown): string | null {
   const root =
@@ -84,6 +126,8 @@ export class FeishuChannel implements Channel {
   private api: FeishuApi | null = null;
   private ownerId = "";
   private readonly callbacks = new Map<string, PendingCallback>();
+  /** Messages whose herd-ui card Feishu refused: their updates are drawn the old way at once. */
+  private readonly plain = new Set<string>();
 
   private readonly opts: FeishuChannelOptions;
   private readonly locale: Locale;
@@ -154,27 +198,42 @@ export class FeishuChannel implements Channel {
 
   async send(view: View): Promise<MessageRef> {
     const api = this.requireApi();
-    const card = renderCard(view, this.locale);
-    if (view.kind === "text" && view.replyTo !== undefined && api.replyCard !== undefined) {
+    const drawing = new Drawing(view, this.locale, false);
+    let id: string | undefined;
+    const reply = api.replyCard;
+    if (view.kind === "text" && view.replyTo !== undefined && reply !== undefined) {
+      const to = view.replyTo.id;
       try {
-        return { channelId: CHANNEL_ID, id: await api.replyCard(view.replyTo.id, card) };
+        id = await drawing.put((card) => reply.call(api, to, card));
       } catch {
         // The message is gone (recalled): send it on its own.
       }
     }
-    return { channelId: CHANNEL_ID, id: await api.sendCard(this.ownerId, card) };
+    id ??= await drawing.put((card) => api.sendCard(this.ownerId, card));
+    if (drawing.plain) this.rememberPlain(id);
+    return { channelId: CHANNEL_ID, id };
   }
 
   async update(ref: MessageRef, view: View): Promise<void> {
+    const drawing = new Drawing(view, this.locale, this.plain.has(ref.id));
     // During a card callback, Feishu keeps showing the old card if it is patched before the
     // callback is answered (seen in the M1 manual run). So an update of the tapped card goes
     // into the callback response instead.
     const pending = this.callbacks.get(ref.id);
     if (pending !== undefined && !pending.answered) {
-      pending.card = renderCard(view, this.locale);
+      pending.card = drawing.card();
       return;
     }
-    await this.requireApi().patchCard(ref.id, renderCard(view, this.locale));
+    const api = this.requireApi();
+    await drawing.put((card) => api.patchCard(ref.id, card));
+    if (drawing.plain) this.rememberPlain(ref.id);
+  }
+
+  private rememberPlain(messageId: string): void {
+    this.plain.add(messageId);
+    if (this.plain.size <= PLAIN_KEEP) return;
+    const oldest = this.plain.values().next().value;
+    if (oldest !== undefined) this.plain.delete(oldest);
   }
 
   /** Downloads the images of a message. One that fails becomes a note in the text. */

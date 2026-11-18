@@ -476,11 +476,13 @@ export function Pet() {
   const atlas = FIGURES[figure].atlas;
   const offline = !online || !view.connected;
   const badge = badgeOf(view.pending.length, unread);
+  const openFile = (path: string) => bridge.pet?.openFile(path);
   const actions = {
     busy,
     offline,
     press: (target: string, action: string) => void press(target, action),
     openTask,
+    openFile,
   };
 
   if (collapsed) {
@@ -510,7 +512,6 @@ export function Pet() {
     );
   }
 
-  const openFile = (path: string) => bridge.pet?.openFile(path);
   const entryView = (entry: Entry) => {
     if (entry.kind === "card") {
       return (

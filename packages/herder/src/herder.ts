@@ -13,6 +13,7 @@ import type {
 } from "@agentherd/core";
 import { REVIEW_JOB } from "@agentherd/core";
 import { Agent, type AgentMessage, type AgentTool, type StreamFn } from "@agentherd/herder-loop";
+import { checkHerdUi } from "@agentherd/protocol/herd-ui";
 import { guardCheck } from "@agentherd/rules";
 import { type Api, isContextOverflow, type Model } from "@earendil-works/pi-ai";
 import {
@@ -25,6 +26,7 @@ import {
   withoutMarksDeep,
 } from "./context.ts";
 import { errorKind, HELD_RETRY_MS, RETRY_DELAYS_MS, shortError } from "./errors.ts";
+import { herdUiFixPrompt, herdUiPrompt } from "./herd-ui-prompt.ts";
 import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts";
 import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
@@ -485,8 +487,9 @@ export class Herder implements HerderPort {
     }
     const raw = this.turn.asked ? "" : this.lastReply();
     // A model that writes its tool calls as text (DeepSeek's DSML) must not reach the owner.
-    const text = beforeToolMarkup(raw);
-    if (text !== raw) this.host.audit("herder.reply.markup", { kind: job.kind });
+    const said = beforeToolMarkup(raw);
+    if (said !== raw) this.host.audit("herder.reply.markup", { kind: job.kind });
+    const text = said === raw ? await this.readableBlocks(job, said) : said;
     if (job.kind === "voice" && text !== raw) {
       this.save();
       job.done(undefined);
@@ -527,6 +530,28 @@ export class Herder implements HerderPort {
       await this.host.say(text);
     }
     this.save();
+  }
+
+  /**
+   * The reply with its herd-ui blocks checked before anyone sees it (ADR 0074): blocks come out
+   * repaired; a block that cannot be read at all gets one rewrite in the same turn, and if that
+   * fails too the reply goes without it.
+   */
+  private async readableBlocks(job: Job, text: string): Promise<string> {
+    const first = checkHerdUi(text);
+    if (first.fences === 0) return text;
+    if (first.problems.length > 0) {
+      this.host.audit("herder.ui.problems", { kind: job.kind, problems: first.problems });
+    }
+    if (first.broken === 0 || this.stopped) return first.text;
+    const fix = await this.attempt(herdUiFixPrompt(first.problems), []);
+    const again = fix.ok && !this.turn.asked ? beforeToolMarkup(this.lastReply()) : "";
+    const second = checkHerdUi(again);
+    const fixed = again !== "" && second.broken === 0;
+    this.host.audit("herder.ui.rewrite", { kind: job.kind, fixed });
+    if (fixed) return second.text;
+    // Still unreadable: the words around the blocks, or the reply as it was when nothing is left.
+    return first.text.trim() === "" ? text : first.text;
   }
 
   /** Text of the Herder's last message, if it is the model's. */
@@ -634,7 +659,7 @@ export class Herder implements HerderPort {
 
   /** The rules, then how to fold, then the memory: what changes least comes first, for the cache. */
   private fullSystemPrompt(): string {
-    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}`;
+    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}\n\n${herdUiPrompt()}`;
     const snapshot = this.host.memory === undefined ? "" : memorySnapshot(this.host.memory);
     return snapshot === "" ? base : `${base}\n\n${snapshot}`;
   }

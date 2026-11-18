@@ -47,9 +47,59 @@ interface ApiResult {
   msg?: string | undefined;
 }
 
+/** Feishu answered a call with an error code. */
+export class FeishuApiError extends Error {
+  readonly code: number;
+
+  constructor(op: string, code: number, msg?: string) {
+    super(`feishu ${op} failed: ${code} ${msg ?? ""}`.trim());
+    this.name = "FeishuApiError";
+    this.code = code;
+  }
+}
+
 function check(op: string, res: ApiResult): void {
-  if (res.code !== undefined && res.code !== 0) {
-    throw new Error(`feishu ${op} failed: ${res.code} ${res.msg ?? ""}`.trim());
+  if (res.code !== undefined && res.code !== 0) throw new FeishuApiError(op, res.code, res.msg);
+}
+
+/**
+ * The SDK throws its HTTP client's error when Feishu answers 4xx or 5xx (a refused card is a
+ * 400); Feishu's own code is in the response body. Turns such an error into a
+ * `FeishuApiError`; any other error (network, …) comes back as it is.
+ */
+export function feishuError(op: string, error: unknown): unknown {
+  const body = field(field(error, "response"), "data");
+  const code = field(body, "code");
+  if (typeof code !== "number" || code === 0) return error;
+  const msg = field(body, "msg");
+  return new FeishuApiError(op, code, typeof msg === "string" ? msg : undefined);
+}
+
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+/**
+ * Codes with which send, reply and patch refuse what is in a card: 230001 invalid parameter,
+ * 230025 message too long, 230099 failed to create card content (a component Feishu does not
+ * take, too many components, …). The other codes (recalled, no permission, rate limit, …)
+ * would refuse any card, so drawing it differently cannot help.
+ */
+const CARD_REFUSED = new Set([230001, 230025, 230099]);
+
+/** True when Feishu refused a card for what is in it. */
+export function cardRefused(error: unknown): boolean {
+  return error instanceof FeishuApiError && CARD_REFUSED.has(error.code);
+}
+
+/** Runs one SDK call, with Feishu's error code kept when it answers 4xx or 5xx. */
+async function call<T>(op: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw feishuError(op, error);
   }
 }
 
@@ -79,30 +129,36 @@ export function sdkApi(creds: FeishuCredentials): FeishuApi {
       ws = null;
     },
     async sendCard(openId, card) {
-      const res = await client.im.v1.message.create({
-        params: { receive_id_type: "open_id" },
-        data: { receive_id: openId, msg_type: "interactive", content: JSON.stringify(card) },
-      });
+      const res = await call("send", () =>
+        client.im.v1.message.create({
+          params: { receive_id_type: "open_id" },
+          data: { receive_id: openId, msg_type: "interactive", content: JSON.stringify(card) },
+        }),
+      );
       check("send", res);
       const id = res.data?.message_id;
       if (id === undefined) throw new Error("feishu send returned no message_id");
       return id;
     },
     async replyCard(messageId, card) {
-      const res = await client.im.v1.message.reply({
-        path: { message_id: messageId },
-        data: { msg_type: "interactive", content: JSON.stringify(card) },
-      });
+      const res = await call("reply", () =>
+        client.im.v1.message.reply({
+          path: { message_id: messageId },
+          data: { msg_type: "interactive", content: JSON.stringify(card) },
+        }),
+      );
       check("reply", res);
       const id = res.data?.message_id;
       if (id === undefined) throw new Error("feishu reply returned no message_id");
       return id;
     },
     async patchCard(messageId, card) {
-      const res = await client.im.v1.message.patch({
-        path: { message_id: messageId },
-        data: { content: JSON.stringify(card) },
-      });
+      const res = await call("patch", () =>
+        client.im.v1.message.patch({
+          path: { message_id: messageId },
+          data: { content: JSON.stringify(card) },
+        }),
+      );
       check("patch", res);
     },
     async pin(messageId) {

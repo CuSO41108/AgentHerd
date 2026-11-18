@@ -387,14 +387,7 @@ body {
   border-bottom: 0;
 }
 
-/* Files a message names: one tap opens them. */
-.pet-files {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 6px 0 2px;
-}
-
+/* A file the Herder chose to show (a herd-ui `file` item): one tap opens it. */
 .pet-file {
   display: flex;
   align-items: center;

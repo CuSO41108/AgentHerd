@@ -88,11 +88,14 @@ export function runGh(env: NodeJS.ProcessEnv = process.env): GhRun {
       let out = "";
       let err = "";
       const timer = setTimeout(() => killTree(child, "SIGTERM"), GH_TIMEOUT_MS);
-      child.stdout.on("data", (d: Buffer) => {
-        out += d.toString("utf8");
+      // setEncoding decodes across chunks: a chunk can end inside a Chinese character.
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (d: string) => {
+        out += d;
       });
-      child.stderr.on("data", (d: Buffer) => {
-        err += d.toString("utf8");
+      child.stderr.on("data", (d: string) => {
+        err += d;
       });
       child.on("error", (e) => {
         clearTimeout(timer);

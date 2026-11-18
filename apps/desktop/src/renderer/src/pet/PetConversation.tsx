@@ -1,59 +1,70 @@
-// The pieces of the pet's conversation (ADR 0073): the Herder's replies as Markdown with the files
-// they name, the owner's bubbles, a task's events as quiet rows, time lines, and the header.
+// The pieces of the pet's conversation (ADR 0073): the Herder's replies as Markdown with the
+// components of their herd-ui fences (ADR 0074), the owner's bubbles, a task's events as quiet
+// rows, time lines, and the header. A file gets an 打开 button only when the Herder put it in a
+// herd-ui `file` item; a path in its words is just text (it judges which files matter).
 
 import type { PetLine } from "@agentherd/host/api";
 import { useState } from "react";
+import { type ChoiceBinding, HerdUiView } from "./HerdUi";
+import { offersAnswer, replyFold, replyParts } from "./herd-ui-state";
 import { PetMarkdown } from "./PetMarkdown";
-import { clockOf, eventOf, filesIn, foldOf, historyHead } from "./pet-state";
+import { clockOf, eventOf, historyHead } from "./pet-state";
 
-/** A file the message names, with a button that opens it (or shows it in Finder). */
-function FileChips({ text, openFile }: { text: string; openFile(path: string): void }) {
-  const files = filesIn(text);
-  if (files.length === 0) return null;
-  return (
-    <div className="pet-files">
-      {files.map((f) => (
-        <button
-          key={f.path}
-          type="button"
-          className="pet-file"
-          title={f.path}
-          onClick={() => openFile(f.path)}
-        >
-          <span className="pet-file-icon" aria-hidden="true">
-            📄
-          </span>
-          <span className="pet-file-name">
-            <b>{f.name}</b>
-            <small>{f.dir}</small>
-          </span>
-          <span className="pet-file-open">打开</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** A reply of the Herder: no bubble, Markdown, long ones folded behind 「展开全文」. */
-function HerderReply(props: { line: PetLine; openFile(path: string): void }) {
-  const { line } = props;
+/**
+ * The text of a Herder reply: its Markdown, the components of its herd-ui fences in between (their
+ * answers numbered across the whole reply). Long replies without
+ * fences fold behind 「展开全文」. `choices` binds the answers to the card the reply came as.
+ */
+export function ReplyBody(props: {
+  text: string;
+  choices?: ChoiceBinding | undefined;
+  openFile(path: string): void;
+}) {
+  const { text, choices } = props;
   const [all, setAll] = useState(false);
-  const { folded, more } = foldOf(line.text);
+  const { folded, more } = replyFold(text);
   const closed = folded && !all;
-  const bad = line.kind === "error";
-  const head = historyHead(line);
+  const chosen = choices?.chosen;
+  // An answer that is not among the buttons (typed instead) is still said.
+  const loose = chosen !== undefined && !offersAnswer(text, chosen);
   return (
-    <div className={`pet-reply${bad ? " bad" : ""}`} title={clockOf(line.at)}>
-      {head !== undefined && <span className="pet-from">📋 {head}</span>}
-      <div className={closed ? "pet-folded" : undefined}>
-        <PetMarkdown text={line.text} />
+    <>
+      <div className={closed ? "pet-reply-body pet-folded" : "pet-reply-body"}>
+        {replyParts(text).map((part, i) =>
+          part.kind === "markdown" ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and re-read as a whole
+            <PetMarkdown key={i} text={part.text} />
+          ) : (
+            <HerdUiView
+              // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and re-read as a whole
+              key={i}
+              spec={part.spec}
+              firstAction={part.firstAction}
+              choices={choices}
+              openFile={props.openFile}
+            />
+          ),
+        )}
+        {loose && <div className="pet-ui-chosen">你选了：{chosen}</div>}
       </div>
       {folded && (
         <button type="button" className="pet-more" onClick={() => setAll((x) => !x)}>
           {all ? "收起" : more > 0 ? `展开全文 · 还有 ${more} 行` : "展开全文"}
         </button>
       )}
-      <FileChips text={line.text} openFile={props.openFile} />
+    </>
+  );
+}
+
+/** A reply of the Herder: no bubble, Markdown and components, long ones folded. */
+function HerderReply(props: { line: PetLine; openFile(path: string): void }) {
+  const { line } = props;
+  const bad = line.kind === "error";
+  const head = historyHead(line);
+  return (
+    <div className={`pet-reply${bad ? " bad" : ""}`} title={clockOf(line.at)}>
+      {head !== undefined && <span className="pet-from">📋 {head}</span>}
+      <ReplyBody text={line.text} openFile={props.openFile} />
     </div>
   );
 }

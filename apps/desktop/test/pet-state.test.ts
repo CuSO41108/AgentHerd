@@ -11,10 +11,8 @@ import {
   dragChat,
   elapsedOf,
   eventOf,
-  FILES_MAX,
   FLASH_MS,
   FOLD_CHARS,
-  filesIn,
   fitChat,
   flashOf,
   foldBody,
@@ -31,6 +29,7 @@ import {
   SLEEP_AFTER_MS,
   separatorOf,
   statusOf,
+  stepOf,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
@@ -308,6 +307,15 @@ describe("cards and tasks in the conversation (ADR 0072)", () => {
     expect(elapsedOf(done, Date.parse(at(0)) + 86_400_000)).toBe("5 分钟");
   });
 
+  it("shows the step of a running or waiting task, none once it ended", () => {
+    expect(stepOf(task("a", 0, "working"))).toBe("在跑测试");
+    expect(stepOf(task("b", 0, "needs-owner"))).toBe("在跑测试");
+    const reported = { lastReport: "已报告：做完了，测试都过了" };
+    expect(stepOf({ ...task("c", 0, "done"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("d", 0, "failed"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("e", 0, "queued"), lastReport: "  " })).toBeUndefined();
+  });
+
   it("colors report cards and folds long bodies as Feishu does", () => {
     expect(reportHead({ ...report.view, result: "failed" } as never)).toEqual({
       icon: "❌",
@@ -322,29 +330,6 @@ describe("cards and tasks in the conversation (ADR 0072)", () => {
 });
 
 describe("the conversation's new look (ADR 0073)", () => {
-  it("finds the files a message names, once each, up to a few", () => {
-    const text =
-      "完整清单在这：~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md，26 个链接都验过。\n" +
-      "另见 `/tmp/magpie-run/README.md` 和 ~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md。";
-    expect(filesIn(text)).toEqual([
-      {
-        path: "~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md",
-        name: "agent-asset-distribution-products.md",
-        dir: "~/.agentherd/tasks/b1ead723",
-      },
-      { path: "/tmp/magpie-run/README.md", name: "README.md", dir: "/tmp/magpie-run" },
-    ]);
-    // Folders, links and relative paths are not files to open.
-    expect(filesIn("在 ~/.agentherd/tasks/b1ead723/ 里")).toEqual([]);
-    expect(filesIn("见 https://example.com/Users/a/b.md 和 ./src/a.ts")).toEqual([]);
-    const many = Array.from({ length: 9 }, (_, i) => `/tmp/a${i}.md`).join(" ");
-    expect(filesIn(many)).toHaveLength(FILES_MAX);
-    expect(filesIn("见 G:\\AgentHerd\\README.md 和 ~\\.agentherd\\note.txt")).toEqual([
-      { path: "G:\\AgentHerd\\README.md", name: "README.md", dir: "G:\\AgentHerd" },
-      { path: "~\\.agentherd\\note.txt", name: "note.txt", dir: "~\\.agentherd" },
-    ]);
-  });
-
   it("folds long replies and counts the lines behind 展开全文", () => {
     expect(foldOf("短短一句")).toEqual({ folded: false, more: 0 });
     expect(foldOf(Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join("\n"))).toEqual({

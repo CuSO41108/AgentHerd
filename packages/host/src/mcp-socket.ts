@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join, win32 } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { StdioMcpServer } from "@agentherd/acp-client";
 import { type JsonRpcMessage, UnknownTokenError } from "@agentherd/core";
@@ -93,8 +94,10 @@ function serveSocket(socket: Socket, handle: McpHandler): void {
       failed(error);
     }
   };
+  // One decoder for the whole stream: a chunk can end inside a character.
+  const decoder = new StringDecoder("utf8");
   socket.on("data", (chunk: Buffer) => {
-    rest += chunk.toString("utf8");
+    rest += decoder.write(chunk);
     let nl = rest.indexOf("\n");
     while (nl >= 0) {
       const line = rest.slice(0, nl).trim();

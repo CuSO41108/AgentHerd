@@ -196,8 +196,9 @@ function requestSocket(
         `${JSON.stringify({ token })}\n${JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })}\n`,
       );
     });
-    socket.on("data", (chunk: Buffer) => {
-      rest += chunk.toString("utf8");
+    socket.setEncoding("utf8"); // a chunk can end inside a character
+    socket.on("data", (chunk: string) => {
+      rest += chunk;
       let nl = rest.indexOf("\n");
       while (nl >= 0) {
         const line = rest.slice(0, nl).trim();
@@ -275,11 +276,13 @@ function requestStdio(
       if (err !== undefined) reject(err);
       else resolve(value);
     };
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString("utf8")).slice(-MAX_STDERR_CHARS);
+    child.stderr.setEncoding("utf8");
+    child.stdout.setEncoding("utf8"); // a chunk can end inside a character
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-MAX_STDERR_CHARS);
     });
-    child.stdout.on("data", (chunk: Buffer) => {
-      rest += chunk.toString("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      rest += chunk;
       let nl = rest.indexOf("\n");
       while (nl >= 0) {
         const line = rest.slice(0, nl).trim();
