@@ -8,6 +8,7 @@ import type { Inbound, ItemView, ReportView, View } from "@agentherd/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PetCardView } from "../src/api.ts";
 import {
+  echoQuote,
   historyOf,
   PET_CARD_TEXT_MAX,
   PET_HISTORY_MAX,
@@ -172,27 +173,27 @@ describe("PetFeed (ADR 0070)", () => {
       options: [{ action: "take", label: "看看" }],
     });
     const ref = await t.channel.send({ kind: "text", text: "在的，我开个任务去看。" });
+    // Set apart: a quote per message, then a rule, then the Herder's words.
+    const quote = "> （在桌宠里说）在吗\n>\n> （在桌宠里说）帮我看看登录\n\n---\n\n";
     expect(t.fake.messages.map((m) => m.view)).toEqual([
       { kind: "text", text: "跑测试", taskLabel: "修登录", tone: "progress" },
       expect.objectContaining({ text: "有 3 个新 issue" }),
-      {
-        kind: "text",
-        text: "（在桌宠里说）在吗\n（在桌宠里说）帮我看看登录\n\n在的，我开个任务去看。",
-      },
+      { kind: "text", text: `${quote}在的，我开个任务去看。` },
     ]);
     // The pet shows the Herder's words alone; an update in place keeps the quote in the chat.
     expect(t.feed.last).toMatchObject({ kind: "say", text: "在的，我开个任务去看。" });
     await t.channel.update(ref, { kind: "text", text: "在的，任务开好了。" });
-    expect(t.fake.messages[2]?.view).toEqual({
-      kind: "text",
-      text: "（在桌宠里说）在吗\n（在桌宠里说）帮我看看登录\n\n在的，任务开好了。",
-    });
+    expect(t.fake.messages[2]?.view).toEqual({ kind: "text", text: `${quote}在的，任务开好了。` });
     // Taken once: the next answer goes as it is.
     await t.channel.send({ kind: "text", text: "还有别的吗？" });
     expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "还有别的吗？" });
   });
 
-  it("quotes it on a Herder question too", async () => {
+  it("quotes a message of several lines line by line", () => {
+    expect(echoQuote(["（在桌宠里说）第一行\n第二行"])).toBe("> （在桌宠里说）第一行\n> 第二行");
+  });
+
+  it("quotes it on a Herder question and on a reply with herd-ui choices", async () => {
     const t = await started((text) => `（在桌宠里说）${text}`);
     await t.feed.say("找个面馆");
     await t.channel.send({
@@ -203,9 +204,39 @@ describe("PetFeed (ADR 0070)", () => {
     });
     expect(t.fake.messages[0]?.view).toMatchObject({
       kind: "ask",
-      text: "（在桌宠里说）找个面馆\n\n要走路能到的吗？",
+      text: "> （在桌宠里说）找个面馆\n\n---\n\n要走路能到的吗？",
     });
     expect(t.feed.pending()[0]?.title).toBe("要走路能到的吗？");
+
+    await t.feed.say("你好");
+    await t.channel.send({ kind: "text", text: "要设提醒吗？", target: "ui:abc" });
+    expect(t.fake.messages[1]?.view).toEqual({
+      kind: "text",
+      text: "> （在桌宠里说）你好\n\n---\n\n要设提醒吗？",
+      target: "ui:abc",
+    });
+  });
+
+  it("posts it alone first when the owner presses or writes something else", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`);
+    await t.channel.send({
+      kind: "ask",
+      askId: "a1",
+      text: "继续吗？",
+      options: [{ action: "0", label: "继续" }],
+    });
+    await t.feed.say("等等");
+    await t.feed.press("a1", "0");
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "（在桌宠里说）等等" });
+    expect(t.inbound.at(-1)).toMatchObject({ kind: "action", target: "a1" });
+
+    await t.feed.say("还在吗");
+    await t.fake.say("我在飞书里说的");
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "（在桌宠里说）还在吗" });
+    expect(t.inbound.at(-1)).toMatchObject({ kind: "message", text: "我在飞书里说的" });
+    // The answer after that is not quoted: the line already went.
+    await t.channel.send({ kind: "text", text: "在。" });
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "在。" });
   });
 
   it("posts it alone when no answer comes in time, or when the channel stops", async () => {
@@ -316,7 +347,7 @@ describe("PetFeed (ADR 0070)", () => {
     await new Promise((r) => setImmediate(r));
     releaseSend();
     await reply;
-    expect(sent).toEqual(["（在桌宠里说）你好\n\n回复"]);
+    expect(sent).toEqual(["> （在桌宠里说）你好\n\n---\n\n回复"]);
   });
 });
 

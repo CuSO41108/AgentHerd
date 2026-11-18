@@ -191,7 +191,7 @@ describe("Host", () => {
     await until(() => (t.host.pet().last?.id ?? 0) > 0);
     // What the owner typed rides on the answer, so the chat app rings only once.
     expect(chat?.messages[0]?.view).toMatchObject({
-      text: expect.stringMatching(/^（在桌宠里说）在吗\n\n/),
+      text: expect.stringMatching(/^> （在桌宠里说）在吗\n\n---\n\n/),
     });
     expect(t.events.some((e) => e.topic === "pet")).toBe(true);
     // The expanded pet shows the Herder's conversation as herd.db keeps it, from before this

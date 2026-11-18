@@ -40,10 +40,16 @@
    always rings, and the owner does not want the desktop to ring for words they wrote
    (「飞书里可以发，但是不要弹提示和声音到我桌面来，因为这是用户发的」). The send API has no
    silent flag (its only `system` message is a divider of at most 10 characters). So the line
-   waits, up to 2 minutes, and is quoted on top of the Herder's next answer (its own text or a
-   question; not a task's message, an offer, a report or a card), which rings anyway. Several
-   lines typed before the answer are quoted together; an update in place of that message keeps
-   the quote. With no answer in 2 minutes, or when the channel stops, the line is posted alone.
+   waits, up to 2 minutes, and is quoted on top of the Herder's next answer (its own text, with or
+   without herd-ui choices, or a question; not a task's message, an offer, a report or a card),
+   which rings anyway. It is set apart as a Markdown quote (`> `, one per message) and a rule
+   (`---`) before the Herder's words: a first version put it there as plain text, and the owner
+   could not tell their words from the Herder's (「没有做隔离，无法区分用户和主管说的话」). That
+   version also missed the Herder's reply with choices (it has a target), so the line rode on a
+   later, unrelated answer. Several lines typed before the answer are quoted together; an update
+   in place of that message keeps the quote. The line is posted alone when no answer comes in 2
+   minutes, when the channel stops, and when the owner presses a button or writes in the chat
+   first, so it never sits on top of an answer to something else.
    Holding the line also keeps `petSay` from waiting on Feishu. A press on a card that is no
    longer open is refused
    ("这件事已经处理过了"); with no channel connected, both are refused.
