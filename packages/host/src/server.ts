@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { join, win32 } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import {
   API_VERSION,
   type CallMessage,
@@ -31,11 +32,16 @@ export function socketPath(home: string, platform: NodeJS.Platform = process.pla
   return join(home, "run", "herd.sock");
 }
 
-/** Lines from a stream of chunks. */
-function lineReader(onLine: (line: string) => void): (chunk: Buffer) => void {
+/**
+ * Lines from a stream of chunks. A chunk can end in the middle of a character (Chinese takes three
+ * bytes), so the bytes go through one decoder that keeps the unfinished end for the next chunk;
+ * decoding each chunk alone turned such a character into 「��」 in long answers.
+ */
+export function lineReader(onLine: (line: string) => void): (chunk: Buffer) => void {
+  const decoder = new StringDecoder("utf8");
   let rest = "";
   return (chunk) => {
-    rest += chunk.toString("utf8");
+    rest += decoder.write(chunk);
     let nl = rest.indexOf("\n");
     while (nl >= 0) {
       const line = rest.slice(0, nl).trim();
