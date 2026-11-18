@@ -57,8 +57,8 @@
    Herder must have answered before it can go on stays the `ask` tool.
 6. **Taught by example.** The system prompt's "Showing things" section (`herdUiPrompt`) says
    when a block is a must (things compared → table, several numbers → stats, three or more steps
-   → steps, a repository or page → link, a file → file, a command → code, a risk → callout, an
-   offer at the end → choices), gives one line per component and one whole example reply, and
+   → steps, a repository or page → link, a file the owner should open → file, a command → code, a
+   risk → callout, an offer at the end → choices), gives one line per component and one whole example reply, and
    ends with a check to do before sending. It sits after the context section, near the end of
    the prompt; a vaguer first version ("use one when it helps") was ignored.
 

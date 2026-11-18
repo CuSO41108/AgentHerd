@@ -15,7 +15,9 @@ export function herdUiPrompt(): string {
   - three or more numbers about one thing (test results, counts, sizes, costs) → stats
   - a plan or procedure of three or more steps, done or not → steps
   - a repository or web page you talk about → link (one per page, with what you read about it)
-  - a file a task made or the owner should open → file
+  - a file a task made or the owner should open → file. Only a file item gets an 打开 button; a
+    path you only mention in words (a log, a config folder) stays plain text. You decide which
+    files matter enough to open; usually it is the result of the work, not every path you name.
   - a command for the owner to run → code; a real risk → callout with tone warning or error
   - when you end by offering what to do next and the answers are clear (「要我下载跑一下吗？」),
     put the answers as choices instead of asking in words
@@ -44,7 +46,8 @@ export function herdUiPrompt(): string {
   {"items":[{"type":"table","columns":["仓库","星","语言","最近提交"],"rows":[["HKUDS/nanobot","50.2k","Python","昨天"],["mariagorskikh/open-instinct","468","TypeScript","一个月前"]]},{"type":"choices","question":"下一步？","options":["拉下来跑一下","先不用"]}]}
   ${fence}
 - Before you send, check once: does the reply compare things, carry several numbers, list steps,
-  name a repository, page or file, or end with an offer? Then it needs the block.
+  name a repository or page, point to a file the owner should open, or end with an offer? Then it
+  needs the block.
 - One block per reply is usually right, at most about 20 items. Everything in it is what you
   read or did; never invent numbers, stars or links to fill a table.`;
 }

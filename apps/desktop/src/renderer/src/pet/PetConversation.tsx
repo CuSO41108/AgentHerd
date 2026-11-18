@@ -1,30 +1,18 @@
-// The pieces of the pet's conversation (ADR 0073): the Herder's replies as Markdown with the files
-// they name and the components of their herd-ui fences (ADR 0074), the owner's bubbles, a task's
-// events as quiet rows, time lines, and the header.
+// The pieces of the pet's conversation (ADR 0073): the Herder's replies as Markdown with the
+// components of their herd-ui fences (ADR 0074), the owner's bubbles, a task's events as quiet
+// rows, time lines, and the header. A file gets an 打开 button only when the Herder put it in a
+// herd-ui `file` item; a path in its words is just text (it judges which files matter).
 
 import type { PetLine } from "@agentherd/host/api";
 import { useState } from "react";
-import { type ChoiceBinding, FileChip, HerdUiView } from "./HerdUi";
-import { offersAnswer, replyFiles, replyFold, replyParts } from "./herd-ui-state";
+import { type ChoiceBinding, HerdUiView } from "./HerdUi";
+import { offersAnswer, replyFold, replyParts } from "./herd-ui-state";
 import { PetMarkdown } from "./PetMarkdown";
 import { clockOf, eventOf, historyHead } from "./pet-state";
 
-/** The files the reply's words name, each with a button that opens it (or shows it in Finder). */
-function FileChips({ text, openFile }: { text: string; openFile(path: string): void }) {
-  const files = replyFiles(text);
-  if (files.length === 0) return null;
-  return (
-    <div className="pet-files">
-      {files.map((f) => (
-        <FileChip key={f.path} path={f.path} name={f.name} sub={f.dir} openFile={openFile} />
-      ))}
-    </div>
-  );
-}
-
 /**
  * The text of a Herder reply: its Markdown, the components of its herd-ui fences in between (their
- * answers numbered across the whole reply), and the files its words name. Long replies without
+ * answers numbered across the whole reply). Long replies without
  * fences fold behind 「展开全文」. `choices` binds the answers to the card the reply came as.
  */
 export function ReplyBody(props: {
@@ -64,7 +52,6 @@ export function ReplyBody(props: {
           {all ? "收起" : more > 0 ? `展开全文 · 还有 ${more} 行` : "展开全文"}
         </button>
       )}
-      <FileChips text={text} openFile={props.openFile} />
     </>
   );
 }

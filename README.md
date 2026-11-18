@@ -54,7 +54,7 @@ English · [简体中文](README.zh-CN.md)
 - **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop, says what AgentHerd just told you
   in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
   her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
-  drawn as components (in Feishu too); files they name one click away; the same cards as Feishu;
+  drawn as components (in Feishu too); files the Herder points you to one click away; the same cards as Feishu;
   and a card for each task to stop or open it. Fold her into a dot when she is in the way.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.

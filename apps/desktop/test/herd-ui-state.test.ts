@@ -5,7 +5,6 @@ import {
   choiceStarts,
   hostOf,
   offersAnswer,
-  replyFiles,
   replyFold,
   replyMarkdown,
   replyParts,
@@ -96,7 +95,6 @@ describe("folding and files of a reply with fences", () => {
     const text = `看这个：\n\n${withFile}\n\n还有 ~/.agentherd/tasks/b1/outside.md`;
     expect(replyMarkdown(text)).not.toContain("inside.md");
     expect(replyMarkdown(text)).toContain("outside.md");
-    expect(replyFiles(text).map((f) => f.name)).toEqual(["outside.md"]);
     expect(replyMarkdown("没有围栏")).toBe("没有围栏");
   });
 });
