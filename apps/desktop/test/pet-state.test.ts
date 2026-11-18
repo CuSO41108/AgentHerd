@@ -11,10 +11,8 @@ import {
   dragChat,
   elapsedOf,
   eventOf,
-  FILES_MAX,
   FLASH_MS,
   FOLD_CHARS,
-  filesIn,
   fitChat,
   flashOf,
   foldBody,
@@ -304,25 +302,6 @@ describe("cards and tasks in the conversation (ADR 0072)", () => {
 });
 
 describe("the conversation's new look (ADR 0073)", () => {
-  it("finds the files a message names, once each, up to a few", () => {
-    const text =
-      "完整清单在这：~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md，26 个链接都验过。\n" +
-      "另见 `/tmp/magpie-run/README.md` 和 ~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md。";
-    expect(filesIn(text)).toEqual([
-      {
-        path: "~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md",
-        name: "agent-asset-distribution-products.md",
-        dir: "~/.agentherd/tasks/b1ead723",
-      },
-      { path: "/tmp/magpie-run/README.md", name: "README.md", dir: "/tmp/magpie-run" },
-    ]);
-    // Folders, links and relative paths are not files to open.
-    expect(filesIn("在 ~/.agentherd/tasks/b1ead723/ 里")).toEqual([]);
-    expect(filesIn("见 https://example.com/Users/a/b.md 和 ./src/a.ts")).toEqual([]);
-    const many = Array.from({ length: 9 }, (_, i) => `/tmp/a${i}.md`).join(" ");
-    expect(filesIn(many)).toHaveLength(FILES_MAX);
-  });
-
   it("folds long replies and counts the lines behind 展开全文", () => {
     expect(foldOf("短短一句")).toEqual({ folded: false, more: 0 });
     expect(foldOf(Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join("\n"))).toEqual({

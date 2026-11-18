@@ -52,6 +52,9 @@ describe("herd-ui in the Herder (ADR 0074)", () => {
     for (const type of ["table", "stats", "steps", "choices", "link", "file"]) {
       expect(system).toContain(`"type":"${type}"`);
     }
+    // The pet offers 打开 only for file items, so the Herder is told a path in words stays text
+    // and that it picks which files matter (owner, m22988).
+    expect(system).toContain("Only a file item gets an 打开 button");
     expect(rec.said).toEqual(["好。"]);
   });
 

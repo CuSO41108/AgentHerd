@@ -8,7 +8,7 @@ import {
   herdUiChoices,
   splitHerdUi,
 } from "@agentherd/protocol/herd-ui";
-import { type FileRef, filesIn, foldOf } from "./pet-state";
+import { foldOf } from "./pet-state";
 
 /** A part of a reply: Markdown, or a fence's components with the number of its first answer. */
 export type ReplyPart =
@@ -60,11 +60,6 @@ export function replyMarkdown(text: string): string {
 /** A reply with fences is never folded: folding would hide its components and its buttons. */
 export function replyFold(text: string): { folded: boolean; more: number } {
   return hasHerdUi(text) ? { folded: false, more: 0 } : foldOf(text);
-}
-
-/** The files the reply's words name; a fence shows its own files. */
-export function replyFiles(text: string): FileRef[] {
-  return filesIn(replyMarkdown(text));
 }
 
 /** Whether the picked answer is one of the reply's choices (else it is shown on its own). */

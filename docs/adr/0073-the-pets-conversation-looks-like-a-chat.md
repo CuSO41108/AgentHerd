@@ -33,10 +33,15 @@
    in the browser; the pet window itself never navigates or opens windows.
 3. **Long replies fold.** More than 12 lines or 600 characters show their start behind
    「展开全文 · 还有 N 行」.
-4. **Files to open.** A reply that names a file (`~/…` or an absolute path with an extension) gets
-   a row under it: name, folder, 打开. Main decides what 打开 does: documents, text, data and
-   pictures open in their app; anything else (a script, an app, HTML) is only shown in Finder, so a
-   message can never run code. A path that is not a file on this Mac does nothing.
+4. **Files to open.** A file the Herder wants the owner to open gets a row: name, folder, 打开.
+   Main decides what 打开 does: documents, text, data and pictures open in their app; anything
+   else (a script, an app, HTML) is only shown in Finder, so a message can never run code. A path
+   that is not a file on this Mac does nothing.
+   - *Changed the same day:* at first every path a reply named got a row, so a passing mention
+     such as 「日志在 ~/Library/Logs/magpie/app.log」 showed up as a card under the answer. The
+     owner: 「我理解这里要看这个文件重不重要吧？让大模型自己判断吧」 (m22988). Now only a herd-ui
+     `file` item gets the row (ADR 0074); the Herder decides which files matter, and a path in its
+     words stays text.
 5. **Task events are quiet rows.** 「task · what happened」 on one muted line, whole on a click.
 6. **Lighter cards.** Report, approval, question and offer cards keep what Feishu shows (ADR 0072)
    but use a tinted border instead of a coloured header bar; the task card is compact: title and
@@ -63,7 +68,6 @@
 
 ## Tests
 
-- `apps/desktop/test/pet-state.test.ts` (files a message names, folding, time lines, task events,
-  status line), `apps/desktop/test/open-file.test.ts` (what 打开 opens or only shows),
+- `apps/desktop/test/pet-state.test.ts` (folding, time lines, task events, status line), `apps/desktop/test/open-file.test.ts` (what 打开 opens or only shows),
   `packages/herder/test/context.test.ts` (no tags on the Herder's own words, broken tag lines
   removed), `packages/host/test/pet.test.ts` (history without tags).
