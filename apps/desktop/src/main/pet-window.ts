@@ -4,9 +4,19 @@
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  type IpcMainEvent,
+  ipcMain,
+  Menu,
+  screen,
+  shell,
+} from "electron";
 import { hitPetRegion, type PetRegion } from "../shared/bridge.ts";
 import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
+import { petMenuItems } from "./pet-menu";
 
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
@@ -339,6 +349,23 @@ export class PetWindow {
       return { action: "deny" };
     });
     created.webContents.on("will-navigate", (event) => event.preventDefault());
+    // Right-click: copy words, a picture or a link; cut and paste in the input (ADR 0075).
+    created.webContents.on("context-menu", (_event, place) => {
+      const contents = created.webContents;
+      const items = petMenuItems(place);
+      if (items.length === 0) return;
+      const run = {
+        cut: () => contents.cut(),
+        copy: () => contents.copy(),
+        paste: () => contents.paste(),
+        selectAll: () => contents.selectAll(),
+        copyImage: () => contents.copyImageAt(place.x, place.y),
+        copyLink: () => clipboard.writeText(place.linkURL),
+      };
+      Menu.buildFromTemplate(
+        items.map((item) => ({ label: item.label, click: run[item.action] })),
+      ).popup({ window: created });
+    });
     if (this.opts.devUrl !== undefined)
       void created.loadURL(new URL("pet.html", this.opts.devUrl).href);
     else void created.loadFile(join(this.opts.rendererDir, "pet.html"));

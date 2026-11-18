@@ -47,6 +47,9 @@ function renderInline(nodes: Inline[]): ReactNode[] {
             {renderInline(n.children)}
           </a>
         );
+      case "image":
+        // The main window shows no pictures from messages; it names them (ADR 0075).
+        return `🖼️ ${n.alt === "" ? n.src : `${n.alt}（${n.src}）`}`;
       default:
         return null;
     }

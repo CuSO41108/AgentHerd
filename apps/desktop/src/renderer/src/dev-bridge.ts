@@ -215,12 +215,6 @@ function installFakeBridge(): void {
               title: "完整清单",
               desc: "26 个链接，按方向分好",
             },
-            {
-              type: "image",
-              path: "/tmp/lark-mail-auth.png",
-              title: "飞书邮箱授权码",
-              desc: "用飞书扫一下，10 分钟内有效",
-            },
             { type: "divider", label: "接下来" },
             {
               type: "choices",
@@ -233,8 +227,22 @@ function installFakeBridge(): void {
         "选一个我就接着查。",
       ].join("\n"),
     },
+    // A picture on this computer, written as Markdown (ADR 0075); a missing one is named.
+    {
+      id: 8,
+      at: minutesAgo(1.5),
+      kind: "say",
+      task: "查最近的未读邮件",
+      text: [
+        "飞书邮箱缺读信权限，扫这个码授权一下，10 分钟内有效：",
+        "",
+        "![飞书邮箱授权码](/tmp/lark-mail-auth.png)",
+        "",
+        "扫不了就打开 https://accounts.feishu.cn/oauth/v1/device/verify?user_code=RCKY-YCNM 。旧的码 ![旧码](/tmp/missing-old.png) 已经过期。",
+      ].join("\n"),
+    },
   ];
-  let petLineId = 7;
+  let petLineId = 8;
   const waitingCard: PetCard = {
     ref: "fake:m9",
     at: minutesAgo(1),

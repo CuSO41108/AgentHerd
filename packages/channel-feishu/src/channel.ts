@@ -19,7 +19,7 @@ import type {
   View,
 } from "@agentherd/protocol";
 import { DEFAULT_LOCALE } from "@agentherd/protocol";
-import { herdUiImages, herdUiImageType } from "@agentherd/protocol/herd-ui";
+import { herdUiImageType, replyPictures } from "@agentherd/protocol/herd-ui";
 import * as lark from "@larksuiteoapi/node-sdk";
 import {
   type Brand,
@@ -279,7 +279,7 @@ export class FeishuChannel implements Channel {
     const upload = api.uploadImage;
     if (upload === undefined) return keys;
     const now = (this.opts.now ?? Date.now)();
-    for (const path of herdUiImages(text)) {
+    for (const path of replyPictures(text)) {
       if ((this.failedImages.get(path) ?? 0) > now) continue;
       try {
         const data = await (this.opts.readImage ?? readPicture)(path);

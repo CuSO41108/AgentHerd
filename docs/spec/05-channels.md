@@ -173,12 +173,14 @@ like the board's (at most 5 a card, the rest as Markdown tables), `stats` → a 
 (230001, 230025, 230099) it is sent once more drawn from `herdUiPlain`, answers as ordinary
 buttons, and later updates of that message stay plain.
 
-A herd-ui `image` item ([ADR 0075](../adr/0075-the-herder-shows-pictures.md)) is read from disk
+A picture a reply shows ([ADR 0075](../adr/0075-the-herder-shows-pictures.md)) — a Markdown image
+`![alt](/path.png)` on this computer, or a herd-ui `image` item — is read from disk
 (`readPicture`: full path, png/jpg/gif/webp by extension and first bytes, 1 byte to 10 MB),
 uploaded with `im/v1/images` (`image_type: message`, once per picture, kept by hash) and drawn as
-an `img` element (`fit_horizontal`, tap to enlarge) with its title and description under it. A
-picture that cannot be read or uploaded (no `im:resource`, too big) is named by its path and
-not tried again for 10 minutes; the reason goes to the host log.
+`![alt](image_key)` in the card's Markdown (an `image` item: an `img` element, `fit_horizontal`,
+with its title and description under it). A picture that cannot be read or uploaded (no
+`im:resource`, too big) is named by its path and not tried again for 10 minutes; the reason
+goes to the host log. A Markdown image on the web becomes a link.
 
 ## 4. Adding a channel
 

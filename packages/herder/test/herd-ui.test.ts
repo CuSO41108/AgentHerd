@@ -56,7 +56,7 @@ describe("herd-ui in the Herder (ADR 0074)", () => {
     // and that it picks which files matter (owner, m22988).
     expect(system).toContain("Only a file item gets an 打开 button");
     // A picture to look at is shown, not named by its path (ADR 0075).
-    expect(system).toContain(`{"type":"image","path":`);
+    expect(system).toContain("![飞书邮箱授权码](/tmp/lark-mail-auth.png)");
     expect(system).toContain("Do it also when a task's message only");
     expect(rec.said).toEqual(["好。"]);
   });
