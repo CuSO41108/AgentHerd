@@ -18,7 +18,7 @@ import type {
   SetupUI,
   View,
 } from "@agentherd/protocol";
-import { hasHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
+import { HERD_UI_TARGET, hasHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
 import type { PetCard, PetCardView, PetLine, PetPending } from "./api.ts";
 
 /** Longest text the pet keeps for one line or one card body. */
@@ -43,18 +43,34 @@ export const PET_ECHO_HOLD_MS = 2 * 60_000;
 const ECHOED_MAX = 50;
 
 /**
- * The Herder answering: its own words or its question. Not a task's message, an offer with
- * buttons, the board, a report or a card.
+ * The Herder answering: its own words (with or without herd-ui choices) or its question. Not a
+ * task's message, an offer with buttons, the board, a report or a card.
  */
 function carriesEcho(view: View): boolean {
   if (view.kind === "ask") return true;
-  return view.kind === "text" && view.taskLabel === undefined && view.target === undefined;
+  if (view.kind !== "text" || view.taskLabel !== undefined) return false;
+  return view.target === undefined || view.target.startsWith(HERD_UI_TARGET);
+}
+
+/**
+ * What the owner typed in the pet, set apart from the Herder's words: a Markdown quote, one per
+ * message, then a rule. Without it the chat could not tell who said what.
+ */
+export function echoQuote(lines: readonly string[]): string {
+  return lines
+    .map((line) =>
+      line
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n"),
+    )
+    .join("\n>\n");
 }
 
 /** The view with what the owner typed in the pet quoted on top. */
-function withEcho(view: View, echo: string): View {
+function withEcho(view: View, quote: string): View {
   if (view.kind !== "text" && view.kind !== "ask") return view;
-  return { ...view, text: `${echo}\n\n${view.text}` };
+  return { ...view, text: `${quote}\n\n---\n\n${view.text}` };
 }
 
 /** How long a text may be in the pet: longer when it carries a herd-ui block. */
@@ -445,6 +461,8 @@ export class PetFeed {
     );
     if (!open) throw new Error("这件事已经处理过了");
     const { sink, ownerId } = this.inbound();
+    // A press is not an answer to what the owner typed: that goes first, alone.
+    if (this.inner !== undefined) await this.flush(this.inner);
     await sink({ kind: "action", target, action, from: ownerId });
   }
 
@@ -542,7 +560,12 @@ class PetChannel implements Channel {
   }
 
   async start(binding: ChannelBinding, sink: InboundSink): Promise<void> {
-    await this.inner.start(binding, sink);
+    // The owner moved on in the chat: what they typed in the pet goes first, alone, so it is
+    // never quoted on an answer to something else.
+    await this.inner.start(binding, async (inbound) => {
+      await this.feed.flush(this.inner);
+      await sink(inbound);
+    });
     this.feed.attach(binding, sink);
   }
 
@@ -559,7 +582,7 @@ class PetChannel implements Channel {
       this.feed.sent(ref, view);
       return ref;
     }
-    const echo = lines.join("\n");
+    const echo = echoQuote(lines);
     let ref: MessageRef;
     try {
       ref = await this.inner.send(withEcho(view, echo));
