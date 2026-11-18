@@ -1,7 +1,7 @@
 import { FakeChannel } from "@agentherd/channel-fake";
 import type { MessageRef, View } from "@agentherd/protocol";
 import { describe, expect, it } from "vitest";
-import { BOARD_MAX_ROWS, Board, boardView } from "../src/board.ts";
+import { BOARD_ENDED_KEEP_MS, BOARD_MAX_ROWS, Board, boardView } from "../src/board.ts";
 import { FakeClock } from "../src/clock.ts";
 import { Store } from "../src/store.ts";
 import type { Task } from "../src/tasks.ts";
@@ -47,11 +47,35 @@ describe("boardView", () => {
     const tasks: Task[] = Array.from({ length: 25 }, (_, i) =>
       task({ id: `t${i}`, updatedAt: `2026-11-04T00:00:${String(i).padStart(2, "0")}.000Z` }),
     );
-    const view = boardView(tasks);
+    const view = boardView(tasks, new Date("2026-11-04T01:00:00.000Z"));
     expect(view.kind).toBe("board");
     expect(view.rows).toHaveLength(BOARD_MAX_ROWS);
     expect(view.rows[0]?.taskId).toBe("t24");
     expect(view.rows.at(-1)?.taskId).toBe("t5");
+  });
+});
+
+describe("boardView keeps ended tasks for a day (ADR 0071)", () => {
+  it("shows open tasks of any age and only recently ended ones", () => {
+    const now = new Date("2026-11-18T12:00:00.000Z");
+    const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+    const view = boardView(
+      [
+        task({ id: "old-done", stage: "done", updatedAt: ago(BOARD_ENDED_KEEP_MS + 1) }),
+        task({ id: "old-failed", stage: "failed", updatedAt: ago(3 * BOARD_ENDED_KEEP_MS) }),
+        task({ id: "old-waiting", stage: "needs-owner", updatedAt: ago(5 * BOARD_ENDED_KEEP_MS) }),
+        task({ id: "old-stuck", stage: "stuck", updatedAt: ago(2 * BOARD_ENDED_KEEP_MS) }),
+        task({ id: "new-done", stage: "done", updatedAt: ago(BOARD_ENDED_KEEP_MS - 1) }),
+        task({ id: "working", stage: "working", updatedAt: ago(60_000) }),
+      ],
+      now,
+    );
+    expect(view.rows.map((r) => r.taskId)).toEqual([
+      "old-waiting",
+      "old-stuck",
+      "working",
+      "new-done",
+    ]);
   });
 });
 

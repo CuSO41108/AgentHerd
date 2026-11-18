@@ -1,7 +1,9 @@
-// The agents AgentHerd knows how to download and start (ADR 0031: Pi, Codex for GPT models, and
-// DSH when the owner names it), and where each one's latest release is
-// published (ADR 0024). Like OpenBot, downloads follow upstream's latest release; the digest comes
-// from the publisher (GitHub asset digest, npm integrity, the DSH update feed's sha512).
+// The agents AgentHerd starts, each at the version the maintainers adapted AgentHerd to. Pi and
+// Codex (for GPT models) ship inside the app (ADR 0067): scripts/fetch-agents.ts fetches exactly
+// that version when the app is built. Claude Code (hard coding work, ADR 0069) may not be
+// redistributed: the app uses the owner's own `claude`, or downloads it from Anthropic's npm
+// package when the owner asks. Every fetch checks the publisher's digest (GitHub asset digest, npm
+// integrity). Moving to a newer version is a code change, tested before release.
 
 import type { AgentProfile } from "@agentherd/protocol";
 import type { ArchiveRelease, Digest, NpmRelease, Release } from "./runtimes.ts";
@@ -26,17 +28,26 @@ export interface AgentDef {
   acpArgs: string[];
   /** Env the agent runs with so that writes and commands ask the owner. */
   env: Record<string, string>;
-  /** Latest release for a target (`darwin-arm64`, …); undefined when there is no build for it. */
-  latest?: (target: string, fetch: Fetchers) => Promise<Release | undefined>;
-  /** Supported targets for downloads; omitted means all targets. */
-  targets?: readonly string[];
+  /** The version AgentHerd is adapted to and ships (ADR 0066, 0067). */
+  version?: string;
+  /** The release of `version` for a target (`darwin-arm64`, …); undefined when there is no build. */
+  release?: (target: string, fetch: Fetchers) => Promise<Release | undefined>;
+  /**
+   * Not in the app: downloaded on the owner's computer when they ask (ADR 0069), because its
+   * license does not allow shipping it.
+   */
+  onRequest?: boolean;
   /** npm releases need npm itself, downloaded as the `npm` runtime. */
   npm?: boolean;
+  /**
+   * Files inside the install folder the agent cannot run without, e.g. a platform build npm
+   * fetches as an optional dependency and skips without an error when its download fails.
+   */
+  requires?: (target: string) => readonly string[];
 }
 
 const GITHUB = "https://api.github.com/repos";
 const NPM = "https://registry.npmjs.org";
-const DSH_FEED = "https://download.deepseek.com/dsh-desk/feeds";
 
 interface GithubAsset {
   name: string;
@@ -50,13 +61,14 @@ interface GithubRelease {
   assets: GithubAsset[];
 }
 
-/** Latest GitHub release asset; the version is the tag without a leading "v". */
+/** An asset of the GitHub release tagged `tag`; the version is the tag without a leading "v". */
 export async function githubAsset(
   fetch: Fetchers,
   repo: string,
+  tag: string,
   name: string,
 ): Promise<{ version: string; url: string; digest: Digest; bytes: number } | undefined> {
-  const release = (await fetch.json(`${GITHUB}/${repo}/releases/latest`)) as GithubRelease;
+  const release = (await fetch.json(`${GITHUB}/${repo}/releases/tags/${tag}`)) as GithubRelease;
   const asset = release.assets.find((a) => a.name === name);
   if (asset === undefined) return undefined;
   const [algorithm, value] = (asset.digest ?? "").split(":");
@@ -71,12 +83,13 @@ export async function githubAsset(
   };
 }
 
-/** Latest version of an npm package with its tarball and integrity. */
-export async function npmLatest(
+/** A version of an npm package ("latest" by default) with its tarball and integrity. */
+export async function npmVersion(
   fetch: Fetchers,
   name: string,
+  version = "latest",
 ): Promise<{ version: string; tarball: string; digest: Digest }> {
-  const meta = (await fetch.json(`${NPM}/${name}/latest`)) as {
+  const meta = (await fetch.json(`${NPM}/${name}/${version}`)) as {
     version: string;
     dist: { tarball: string; integrity?: string };
   };
@@ -94,24 +107,52 @@ function split(target: string): { os: string; arch: string } {
   return { os, arch };
 }
 
-async function piLatest(target: string, fetch: Fetchers) {
+/** The Pi version AgentHerd's bridge is adapted to (ADR 0066). */
+export const PI_VERSION = "1.5.0";
+/** codex-acp, Codex's ACP adapter (ADR 0031, 0066). */
+export const CODEX_ACP_VERSION = "2.5.0";
+/** claude-agent-acp, Claude Code's ACP adapter (ADR 0066, 0069). */
+export const CLAUDE_ACP_VERSION = "0.107.2";
+
+async function piRelease(target: string, fetch: Fetchers) {
+  const tag = `v${PI_VERSION}`;
   const { os, arch } = split(target);
   if (!["darwin", "linux", "win32"].includes(os) || !["arm64", "x64"].includes(arch)) {
     return undefined;
   }
   if (os === "win32") {
     // The Windows build is a zip with pi.exe at its top level.
-    const asset = await githubAsset(fetch, "earendil-works/pi", `pi-windows-${arch}.zip`);
+    const asset = await githubAsset(fetch, "earendil-works/pi", tag, `pi-windows-${arch}.zip`);
     return asset === undefined ? undefined : archive("pi", asset, "zip", "pi.exe", "exec");
   }
-  const asset = await githubAsset(fetch, "earendil-works/pi", `pi-${os}-${arch}.tar.gz`);
+  const asset = await githubAsset(fetch, "earendil-works/pi", tag, `pi-${os}-${arch}.tar.gz`);
   if (asset === undefined) return undefined;
   return archive("pi", asset, "tar.gz", "pi/pi", "exec");
 }
 
-function npmAgent(id: string, pkg: string, bin: string) {
+const CODEX_TRIPLES: Record<string, string> = {
+  "darwin-arm64": "aarch64-apple-darwin",
+  "darwin-x64": "x86_64-apple-darwin",
+  "linux-arm64": "aarch64-unknown-linux-musl",
+  "linux-x64": "x86_64-unknown-linux-musl",
+  "win32-arm64": "aarch64-pc-windows-msvc",
+  "win32-x64": "x86_64-pc-windows-msvc",
+};
+
+/**
+ * The Codex CLI inside a codex-acp install: an optional dependency per platform, which npm skips
+ * without an error when its download fails (checked for 2.5.0, CLI 0.165.0).
+ */
+export function codexNativeBinary(target: string): readonly string[] {
+  const triple = CODEX_TRIPLES[target];
+  if (triple === undefined) return [];
+  const exe = target.startsWith("win32-") ? "codex.exe" : "codex";
+  return [`node_modules/@openai/codex-${target}/vendor/${triple}/bin/${exe}`];
+}
+
+function npmAgent(id: string, pkg: string, pinned: string, bin: string) {
   return async (_target: string, fetch: Fetchers): Promise<NpmRelease> => {
-    const { version } = await npmLatest(fetch, pkg);
+    const { version } = await npmVersion(fetch, pkg, pinned);
     return {
       kind: "npm",
       id,
@@ -122,9 +163,18 @@ function npmAgent(id: string, pkg: string, bin: string) {
   };
 }
 
+/**
+ * Claude Code's native CLI, an optional dependency of the Agent SDK per platform
+ * (`@anthropic-ai/claude-agent-sdk-darwin-arm64/claude`); not needed with the owner's own CLI.
+ */
+export function claudeNativeBinary(target: string): readonly string[] {
+  const exe = target.startsWith("win32-") ? "claude.exe" : "claude";
+  return [`node_modules/@anthropic-ai/claude-agent-sdk-${target}/${exe}`];
+}
+
 /** npm itself, used to install npm-published agents. */
 export async function npmRuntime(fetch: Fetchers): Promise<ArchiveRelease> {
-  const npm = await npmLatest(fetch, "npm");
+  const npm = await npmVersion(fetch, "npm");
   return {
     kind: "archive",
     id: "npm",
@@ -138,65 +188,6 @@ export async function npmRuntime(fetch: Fetchers): Promise<ArchiveRelease> {
   };
 }
 
-const DSH_FEEDS: Record<string, string> = { "darwin-arm64": "mac-arm64", "darwin-x64": "mac-x64" };
-
-/** Reads `version`, the zip's url, sha512 and size from DSH's electron-builder feed. */
-export function parseDshFeed(text: string, feedUrl: string) {
-  // Enough YAML for electron-builder feeds: `key: value` and folded `key: >-` + indented lines.
-  const entries: { key: string; value: string }[] = [];
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const m = (lines[i] ?? "").match(/^(\s*)(?:-\s+)?([A-Za-z0-9_]+):\s*(.*)$/);
-    if (m === null) continue;
-    let value = (m[3] ?? "").trim();
-    if (value === ">-" || value === ">" || value === "|" || value === "|-") {
-      const parts: string[] = [];
-      // Column of the key: for "  - url:" it is 4, so "    sha512:" ends the folded value.
-      const indent = (lines[i] ?? "").indexOf(m[2] ?? "");
-      while (i + 1 < lines.length) {
-        const next = lines[i + 1] ?? "";
-        const nextIndent = next.length - next.trimStart().length;
-        if (next.trim() !== "" && nextIndent <= indent) break;
-        parts.push(next.trim());
-        i++;
-      }
-      value = parts.join(" ").trim();
-    }
-    entries.push({ key: m[2] ?? "", value: value.replace(/^['"]|['"]$/g, "") });
-  }
-  const first = (key: string) => entries.find((e) => e.key === key)?.value;
-  const zipAt = entries.findIndex((e) => e.key === "url" && e.value.endsWith(".zip"));
-  const version = first("version");
-  if (version === undefined || zipAt < 0)
-    throw new Error("DeepSeek Harness update feed has no zip");
-  const after = entries.slice(zipAt + 1);
-  const sha512 = after.find((e) => e.key === "sha512")?.value;
-  const size = Number(after.find((e) => e.key === "size")?.value ?? 0);
-  if (sha512 === undefined) throw new Error("DeepSeek Harness update feed has no sha512");
-  const url = new URL(entries[zipAt]?.value ?? "", feedUrl).toString();
-  return { version, url, sha512, size };
-}
-
-async function dshLatest(target: string, fetch: Fetchers) {
-  const feed = DSH_FEEDS[target];
-  if (feed === undefined) return undefined;
-  const feedUrl = `${DSH_FEED}/${feed}/nightly-mac.yml`;
-  const parsed = parseDshFeed(await fetch.text(feedUrl), feedUrl);
-  return archive(
-    "dsh",
-    {
-      version: parsed.version,
-      url: parsed.url,
-      digest: { algorithm: "sha512", encoding: "base64", value: parsed.sha512 },
-      bytes: parsed.size,
-    },
-    "zip",
-    DSH_APP_LAUNCHER,
-    // The launcher needs the whole app; its digest already proves the download.
-    "none",
-  );
-}
-
 function archive(
   id: string,
   asset: { version: string; url: string; digest: Digest; bytes: number },
@@ -207,21 +198,7 @@ function archive(
   return { kind: "archive", id, ...asset, format, executable, check };
 }
 
-/** The CLI launcher inside DeepSeek Harness.app. */
-export const DSH_APP_LAUNCHER = "DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh";
-
 export const AGENTS: AgentDef[] = [
-  {
-    id: "dsh",
-    name: "DeepSeek Harness",
-    envVar: "AGENTHERD_DSH",
-    systemNames: ["dsh"],
-    acpArgs: ["acp"],
-    // read-only: every write and network command becomes a permission request.
-    env: { DSH_PERMISSION_MODE: "read-only" },
-    latest: dshLatest,
-    targets: ["darwin-arm64", "darwin-x64"],
-  },
   {
     id: "pi",
     name: "Pi",
@@ -229,7 +206,8 @@ export const AGENTS: AgentDef[] = [
     systemNames: ["pi"],
     acpArgs: [],
     env: {},
-    latest: piLatest,
+    version: PI_VERSION,
+    release: piRelease,
   },
   {
     id: "codex",
@@ -240,7 +218,34 @@ export const AGENTS: AgentDef[] = [
     // read-only: Codex asks before editing files or using the network. No ChatGPT browser login:
     // AgentHerd hands Codex the owner's GPT model and key (ADR 0031).
     env: { INITIAL_AGENT_MODE: "read-only", NO_BROWSER: "1" },
-    latest: npmAgent("codex", "@agentclientprotocol/codex-acp", "dist/index.js"),
+    version: CODEX_ACP_VERSION,
+    release: npmAgent(
+      "codex",
+      "@agentclientprotocol/codex-acp",
+      CODEX_ACP_VERSION,
+      "dist/index.js",
+    ),
+    requires: codexNativeBinary,
+    npm: true,
+  },
+  {
+    id: "claude",
+    name: "Claude Code",
+    envVar: "AGENTHERD_CLAUDE",
+    systemNames: ["claude-agent-acp"],
+    acpArgs: [],
+    // Asking before edits and commands comes from the settings in its CLAUDE_CONFIG_DIR
+    // (claude-home.ts); no Claude login: the owner's Anthropic-style service supplies the key.
+    env: { NO_BROWSER: "1" },
+    version: CLAUDE_ACP_VERSION,
+    release: npmAgent(
+      "claude",
+      "@agentclientprotocol/claude-agent-acp",
+      CLAUDE_ACP_VERSION,
+      "dist/index.js",
+    ),
+    requires: claudeNativeBinary,
+    onRequest: true,
     npm: true,
   },
 ];

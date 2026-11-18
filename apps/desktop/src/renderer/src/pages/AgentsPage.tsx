@@ -1,5 +1,7 @@
-// Agent: the coding agents AgentHerd picks from (ADR 0031: Codex for GPT models, Pi for the rest). The app
-// downloads each one's latest release (digest checked); 验证 starts it once to prove it works.
+// Agent: the coding agents AgentHerd picks from (Codex for GPT models, Claude Code for hard coding
+// work, Pi for the rest). Pi and Codex ship inside the app (ADR 0067). Claude Code uses the
+// owner's own `claude`; without one, 下载 fetches the version AgentHerd is adapted to (ADR 0069).
+// Nothing is updated here. 验证 starts one once to prove it works.
 
 import type { AgentCheck, AgentView } from "@agentherd/host/api";
 import {
@@ -7,11 +9,9 @@ import {
   CircleCheck,
   Download,
   Loader2,
-  RefreshCw,
   ShieldCheck,
   SquareTerminal,
   Trash2,
-  X,
 } from "lucide-react";
 import { useState } from "react";
 import { Badge, Button, Group, IconTile, Section } from "../components/ui";
@@ -19,53 +19,35 @@ import { isAgentSecurityBlock } from "../platform";
 import { call, useApp } from "../store";
 
 const DESCRIPTIONS: Record<string, string> = {
-  dsh: "DeepSeek 的编程 Agent，用它自己的模型设置。只有你点名要它时才用。",
-  pi: "轻量的开源编程 Agent。GPT 以外的模型都用它跑。",
-  codex: "OpenAI 的 Codex。模型列表里有 GPT 模型时自动下载，GPT 模型用它跑；跑不起来就换 Pi。",
+  pi: "轻量的开源编程 Agent。简单的任务用它跑。",
+  codex: "OpenAI 的 Codex。GPT 模型用它跑；跑不起来就换 Pi。",
+  claude:
+    "Anthropic 的 Claude Code。复杂的编程任务用它，配你模型页里 Anthropic 接口的模型（不用登录 Claude 账号）；跑不起来就换 Pi。",
 };
 
 /** How to sign in, for agents that use their own account. */
 const LOGIN: Record<string, string> = {};
 
 const SOURCES: Record<NonNullable<AgentView["source"]>, string> = {
+  bundled: "App 自带",
   managed: "AgentHerd 下载的",
   system: "你电脑上装的",
-  app: "随 DeepSeek Harness 安装",
   config: "config.json 里配置的",
 };
-
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-}
 
 function StateBadge({ agent }: { agent: AgentView }) {
   switch (agent.state) {
     case "ready":
       return <Badge tone="green">可以用</Badge>;
     case "installing":
-      return <Badge tone="blue">正在下载</Badge>;
-    case "unsupported":
-      return <Badge tone="gray">这台电脑不支持</Badge>;
+      return <Badge tone="blue">下载中</Badge>;
     case "missing":
-      return <Badge tone="amber">{agent.canInstall ? "未下载" : "未安装"}</Badge>;
+      return agent.error !== undefined ? (
+        <Badge tone="red">下载失败</Badge>
+      ) : (
+        <Badge tone="amber">没有</Badge>
+      );
   }
-}
-
-function Progress({ agent }: { agent: AgentView }) {
-  const p = agent.progress;
-  const percent = p !== undefined && p.total > 0 ? Math.round((p.received / p.total) * 100) : 0;
-  return (
-    <div className="flex flex-col gap-1.5 pt-1">
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-control-hover">
-        <div className="h-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
-      </div>
-      <span className="text-ink-muted text-sm">
-        {p === undefined || p.total === 0
-          ? "正在下载和安装…"
-          : `${megabytes(p.received)} / ${megabytes(p.total)}（${percent}%）`}
-      </span>
-    </div>
-  );
 }
 
 function Actions({ agent }: { agent: AgentView }) {
@@ -78,37 +60,36 @@ function Actions({ agent }: { agent: AgentView }) {
   };
   if (agent.state === "installing") {
     return (
-      <Button onClick={() => void act(() => call((h) => h.cancelInstall(agent.id)))}>
-        <X size={13} />
+      <Button
+        disabled={busy}
+        onClick={() => void act(() => call((h) => h.cancelInstall(agent.id)))}
+      >
         取消
       </Button>
     );
   }
-  const ready = agent.state === "ready";
   return (
     <>
       {agent.canInstall && (
         <Button
-          variant={ready ? "secondary" : "primary"}
           disabled={busy}
-          title={ready ? "下载最新版本替换现在这份" : undefined}
+          title={
+            agent.ownCli !== undefined
+              ? "只下载 AgentHerd 适配过的接入层，用你电脑上的 claude"
+              : "从 Anthropic 官方 npm 包下载 AgentHerd 适配过的版本"
+          }
           onClick={() => void act(() => call((h) => h.installAgent(agent.id)))}
         >
-          {busy ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : ready ? (
-            <RefreshCw size={13} />
-          ) : (
-            <Download size={13} />
-          )}
-          {ready ? "更新" : agent.error === undefined ? "下载" : "重新下载"}
+          <Download size={13} />
+          {agent.error === undefined ? "下载" : "重新下载"}
         </Button>
       )}
       {agent.canRemove && (
         <Button
           disabled={busy}
+          title="移除 AgentHerd 下载的这一份"
           onClick={() => {
-            if (window.confirm(`移除下载的 ${agent.name}？正在跑的任务不受影响，以后可以再下载。`))
+            if (window.confirm(`移除 AgentHerd 下载的 ${agent.name}？`))
               void act(() => call((h) => h.removeAgent(agent.id)));
           }}
         >
@@ -120,16 +101,33 @@ function Actions({ agent }: { agent: AgentView }) {
   );
 }
 
+function megabytes(n: number): string {
+  return `${(n / 1024 / 1024).toFixed(0)} MB`;
+}
+
 function detail(agent: AgentView): string {
-  if (agent.state === "missing" && agent.canInstall) {
-    return agent.id === "dsh"
-      ? "从 DeepSeek 官方更新源下载最新版（约 350 MB）；装了桌面版就直接用它"
-      : "下载官方最新版";
+  if (agent.state === "installing") {
+    const p = agent.progress;
+    return p === undefined || p.total === 0
+      ? "正在下载…"
+      : `正在下载 ${megabytes(p.received)} / ${megabytes(p.total)}`;
   }
-  if (agent.state === "ready" && agent.source !== undefined) {
-    return `${SOURCES[agent.source]}${agent.source === "managed" ? `，版本 ${agent.version ?? ""}` : ""}`;
+  if (agent.state === "missing") {
+    if (!agent.onRequest) return "这个 App 里没带，你电脑上也没装。用安装包装的 App 自带它。";
+    const version = agent.adapted === undefined ? "" : ` ${agent.adapted} 版`;
+    return agent.ownCli !== undefined
+      ? `会用你电脑上的 claude（${agent.ownCli}）；点「下载」只下载它的接入层${version}，很小。`
+      : `你电脑上没找到 claude。点「下载」从 Anthropic 官方下载 AgentHerd 适配过的${version}（约 90 MB）。`;
   }
-  return "";
+  if (agent.source === undefined) return "";
+  const from = SOURCES[agent.source];
+  if (agent.version === undefined) return from;
+  const version = `${from}，版本 ${agent.version}${
+    agent.ownCli === undefined ? "" : `，用你电脑上的 claude（${agent.ownCli}）`
+  }`;
+  return agent.adapted !== undefined && agent.adapted !== agent.version
+    ? `${version}（AgentHerd 适配的是 ${agent.adapted}）`
+    : version;
 }
 
 function CheckButton({ agent, onResult }: { agent: AgentView; onResult: (c: AgentCheck) => void }) {
@@ -206,23 +204,24 @@ function AgentRow({ agent }: { agent: AgentView }) {
             <div className="mt-0.5 text-ink-2 text-sm">{description}</div>
           )}
           <div className="mt-0.5 text-ink-muted text-sm">{detail(agent)}</div>
-          {agent.state === "ready" && agent.path !== undefined && agent.source !== "managed" && (
-            <div className="selectable mt-0.5 truncate font-mono text-ink-muted text-xs">
-              {agent.path}
+          {agent.error !== undefined && agent.state !== "installing" && (
+            <div className="selectable mt-0.5 line-clamp-2 font-mono text-danger-text text-xs">
+              {agent.error}
             </div>
           )}
+          {agent.state === "ready" &&
+            agent.path !== undefined &&
+            agent.source !== "managed" &&
+            agent.source !== "bundled" && (
+              <div className="selectable mt-0.5 truncate font-mono text-ink-muted text-xs">
+                {agent.path}
+              </div>
+            )}
           {LOGIN[agent.id] !== undefined && agent.state === "ready" && check === undefined && (
             <div className="mt-0.5 text-ink-muted text-sm">{LOGIN[agent.id]}</div>
           )}
-          {agent.state === "installing" && <Progress agent={agent} />}
           {check !== undefined && agent.state === "ready" && (
             <CheckResult check={check} agent={agent} />
-          )}
-          {agent.error !== undefined && agent.state !== "installing" && (
-            <div className="mt-1 flex items-center gap-1.5 text-danger-text text-sm">
-              <CircleAlert size={13} />
-              下载失败：{agent.error}
-            </div>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -243,8 +242,8 @@ export function AgentsPage() {
         title="编程 Agent"
         hint={
           ready === 0
-            ? "不用选 Agent：AgentHerd 按任务的模型自动挑，GPT 模型用 Codex，其余用 Pi。"
-            : `${ready} 个可以用。不用选：GPT 模型用 Codex，其余用 Pi。`
+            ? "不用选 Agent：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。Pi 和 Codex 跟着 App 装好；Claude Code 用你电脑上的，没有再下载。"
+            : `${ready} 个可以用。不用选：GPT 模型用 Codex，复杂的编程任务用 Claude Code，其余用 Pi。Pi 和 Codex 跟着 App 装好；Claude Code 用你电脑上的，没有再下载。`
         }
       >
         <Group>

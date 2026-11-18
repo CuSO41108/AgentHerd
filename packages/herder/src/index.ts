@@ -11,9 +11,7 @@ export {
   agentModelEnv,
   CODEX_KEY_ENV,
   CODEX_PROVIDER,
-  DSH_KEY_ENV,
-  DSH_PROVIDER,
-  dshModelPatch,
+  claudeCanRun,
   isGptModel,
   type ModelChoice,
   modelChoices,
@@ -36,6 +34,29 @@ export {
   REVIEW_EVERY_TURNS,
   REVIEW_IDLE_MS,
 } from "./herder.ts";
+export {
+  failedStream,
+  LOGIN_FIELD,
+  type LoginResult,
+  loginOf,
+  loginStream,
+  loginsFor,
+  ModelLogins,
+  SecretCredentials,
+  type SubscriptionProvider,
+  subscriptionModel,
+  subscriptionProviders,
+  withAuth,
+} from "./logins.ts";
+export {
+  checkPublic,
+  htmlToText,
+  isPrivateAddress,
+  LOOKUP_TOOL_NAMES,
+  Lookup,
+  type LookupOptions,
+  lookupTools,
+} from "./lookup.ts";
 export {
   HERDER_KINDS,
   LESSONS_MAX,
@@ -84,12 +105,15 @@ export {
   herderFromSettings,
   type MemoryModel,
   memoryModel,
+  notReadyReason,
   PI_KEY_ENV,
   PI_MODEL_ENV,
   type PiModelChoice,
   piModelEnv,
+  requestStream,
   resolveModel,
   serviceKey,
+  serviceReady,
   TEST_TIMEOUT_MS,
   type TestResult,
   testModel,
@@ -105,7 +129,7 @@ export {
   systemPrompt,
   voicePrompt,
 } from "./prompt.ts";
-export { STYLE_SOURCES, stylePrompt } from "./style.ts";
+export { STYLE_SOURCE, stylePrompt } from "./style.ts";
 export {
   fallbackOrder,
   findTasks,

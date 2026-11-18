@@ -1,7 +1,9 @@
-// One model service: its models (with a per-model test), key, edit and delete actions.
+// One model service: its models (with a per-model test), key or sign-in (ADR 0068), edit and
+// delete actions.
 
+import type { SubscriptionView } from "@agentherd/host/api";
 import { CheckCircle2, Loader2, Pencil, Play, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { devOpen } from "../dev-bridge";
 import { applyModels, call, errorText, host, type ServiceView, useApp } from "../store";
 import { providerName } from "./labels";
@@ -9,6 +11,7 @@ import { Modal } from "./Modal";
 import { ModelPanes } from "./ModelPanes";
 import { ProbeButton, useModelProbe } from "./ModelProbe";
 import { FieldNote, SmallField } from "./ServiceForm";
+import { SubscriptionDialog } from "./SubscriptionDialog";
 import { Badge, Button, Dot, Group, IconTile, inputClass } from "./ui";
 
 type TestResult =
@@ -20,6 +23,8 @@ export function ServiceCard({ service }: { service: ServiceView }) {
   const [editing, setEditing] = useState(() => devOpen() === `edit-${service.id}`);
   const [armedDelete, setArmedDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const subscription = service.auth === "subscription";
 
   const remove = async () => {
     setBusy(true);
@@ -41,12 +46,14 @@ export function ServiceCard({ service }: { service: ServiceView }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3 className="truncate font-medium text-ink">{service.name}</h3>
-              <Badge>
-                {service.kind === "builtin"
-                  ? "内置服务商"
-                  : service.api === "anthropic-messages"
-                    ? "Anthropic 兼容"
-                    : "OpenAI 兼容"}
+              <Badge tone={subscription ? "blue" : "gray"}>
+                {subscription
+                  ? "订阅登录"
+                  : service.kind === "builtin"
+                    ? "内置服务商"
+                    : service.api === "anthropic-messages"
+                      ? "Anthropic 兼容"
+                      : "OpenAI 兼容"}
               </Badge>
             </div>
             <div className="selectable mt-0.5 flex min-w-0 items-center gap-1.5 text-ink-muted text-sm">
@@ -56,7 +63,13 @@ export function ServiceCard({ service }: { service: ServiceView }) {
               <span className="text-ink-dim">·</span>
               <span className="flex shrink-0 items-center gap-1">
                 <Dot tone={service.hasKey ? "green" : "amber"} />
-                {service.hasKey ? "Key 已保存" : "Key 未保存"}
+                {subscription
+                  ? service.hasKey
+                    ? "已登录"
+                    : "未登录"
+                  : service.hasKey
+                    ? "Key 已保存"
+                    : "Key 未保存"}
               </span>
             </div>
           </div>
@@ -72,6 +85,11 @@ export function ServiceCard({ service }: { service: ServiceView }) {
               </>
             ) : (
               <>
+                {subscription && (
+                  <Button variant="ghost" onClick={() => setSigningIn(true)}>
+                    {service.hasKey ? "重新登录" : "登录"}
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   编辑
                 </Button>
@@ -84,6 +102,12 @@ export function ServiceCard({ service }: { service: ServiceView }) {
         </div>
       </Group>
       {editing && <EditModelsDialog service={service} onClose={() => setEditing(false)} />}
+      {signingIn && (
+        <SubscriptionDialog
+          again={{ provider: service.provider ?? "", serviceId: service.id }}
+          onClose={() => setSigningIn(false)}
+        />
+      )}
     </>
   );
 }
@@ -197,8 +221,15 @@ function EditableName({
 /** Edits a saved service: its name, key and models, in the same form as adding one. */
 function EditModelsDialog({ service, onClose }: { service: ServiceView; onClose: () => void }) {
   const providers = useApp((s) => s.providers);
-  const catalog =
-    service.kind === "builtin"
+  const subscription = service.auth === "subscription";
+  const [subs, setSubs] = useState<SubscriptionView[]>([]);
+  useEffect(() => {
+    if (subscription)
+      void call((h) => Promise.resolve(h.subscriptions())).then((v) => setSubs(v ?? []));
+  }, [subscription]);
+  const catalog = subscription
+    ? (subs.find((p) => p.provider === service.provider)?.models ?? [])
+    : service.kind === "builtin"
       ? (providers.find((p) => p.provider === service.provider)?.models ?? [])
       : [];
   const [picked, setPicked] = useState<string[]>(service.models);
@@ -265,7 +296,7 @@ function EditModelsDialog({ service, onClose }: { service: ServiceView; onClose:
         </>
       }
     >
-      <div className="shrink-0">
+      <div className={subscription ? "hidden" : "shrink-0"}>
         <SmallField label="API Key">
           <input
             type="password"
@@ -279,7 +310,12 @@ function EditModelsDialog({ service, onClose }: { service: ServiceView; onClose:
       </div>
       <FieldNote
         error={probe.error}
-        hint={probe.note ?? "「测试」用已保存的 Key。去掉的模型如果正被使用，对应用途会被清空。"}
+        hint={
+          probe.note ??
+          (subscription
+            ? "用登录的账号。去掉的模型如果正被使用，对应用途会被清空。"
+            : "「测试」用已保存的 Key。去掉的模型如果正被使用，对应用途会被清空。")
+        }
       />
       <ModelPanes
         options={custom ? probe.models : catalog}

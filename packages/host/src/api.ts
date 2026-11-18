@@ -1,5 +1,6 @@
 // The local API of the AgentHerd host (docs/spec/02-architecture.md §4). The desktop app and the
-// CLI use it; agents do not. Items are read-only here: the owner decides in the channel.
+// CLI use it; agents do not. Items are decided in the channel, or through the desktop pet, which
+// passes the owner's press on as if made in the channel (ADR 0070).
 // These types have no runtime imports, so the renderer can import them too.
 
 import type {
@@ -13,7 +14,7 @@ import type {
   Task,
   TranscriptEntry,
 } from "@agentherd/core";
-import type { HerderStyle, Locale, Mode, Risk } from "@agentherd/protocol";
+import type { Locale, Mode, ReportResult, Risk } from "@agentherd/protocol";
 
 export const API_VERSION = 1;
 
@@ -41,33 +42,43 @@ export interface HostStatus {
   mode: Mode;
   locale: Locale;
   keepAwake: boolean;
-  /** How the Herder talks to the owner (ADR 0053). */
-  herderStyle: HerderStyle;
   /** The owner's Obsidian vault folder, if set (ADR 0059). */
   obsidianVault?: string;
   /** Agent profile ids the owner can start with /run. */
   profiles: string[];
+  /** The desktop pet (ADR 0070). */
+  pet: PetSettings;
 }
 
-/** Where an agent's CLI comes from. */
-export type AgentSource = "managed" | "system" | "app" | "config";
+/**
+ * Where an agent's CLI comes from: inside the app (ADR 0067), a download on this computer (Claude
+ * Code on request, ADR 0069, or an older app's copy), a CLI the owner installed, or a profile in
+ * config.json.
+ */
+export type AgentSource = "bundled" | "managed" | "system" | "config";
 
 export interface AgentView {
   id: string;
   name: string;
-  /** ready: can run tasks. missing: not found and can be downloaded or needs its app. */
-  state: "ready" | "missing" | "installing" | "unsupported";
+  /** ready: can run tasks. missing: not in this app and not installed on the computer. */
+  state: "ready" | "missing" | "installing";
   source?: AgentSource;
   path?: string;
-  /** Version the app downloads. */
+  /** Version of the copy in use, when it ships with the app or an older app downloaded it. */
   version?: string;
-  /** Bytes, while installing. */
+  /** The version AgentHerd is adapted to and ships (ADR 0067). */
+  adapted?: string;
+  /** Not in the app; the owner can download it (ADR 0069). */
+  onRequest?: boolean;
+  /** The owner's own CLI the adapter runs (Claude Code's `claude`). */
+  ownCli?: string;
+  /** Bytes, while downloading. */
   progress?: { received: number; total: number };
-  /** Last install error. */
+  /** Last download error. */
   error?: string;
-  /** The app can download it. */
+  /** The app can download it now (only when missing and not in the app; never an update). */
   canInstall: boolean;
-  /** A downloaded copy the owner can remove. */
+  /** A download the owner can remove. */
   canRemove: boolean;
   /** Model passed to it ("service/model"), when it uses one from the model list. */
   modelRef?: string;
@@ -174,7 +185,42 @@ export interface MemoryView {
 }
 
 export interface ServiceView extends ModelService {
+  /** A key is saved, or the subscription is signed in (ADR 0068). */
   hasKey: boolean;
+}
+
+/** A vendor the owner can sign in to with an account instead of a key (ADR 0068). */
+export interface SubscriptionView {
+  provider: string;
+  name: string;
+  /** Backed by a paid plan (ChatGPT Plus, Claude Max…) rather than a free account. */
+  subscription: boolean;
+  models: { id: string; name: string }[];
+}
+
+export interface LoginPrompt {
+  type: "text" | "secret" | "select" | "manual_code";
+  message: string;
+  placeholder?: string;
+  options?: { id: string; label: string; description?: string }[];
+}
+
+/** A running or finished sign-in; progress comes as "login" events. */
+export interface LoginView {
+  id: string;
+  provider: string;
+  serviceId: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  /** A page to open: the vendor's sign-in page or where to type `userCode`. */
+  url?: string;
+  instructions?: string;
+  /** Device-code flows: the code to type on `url`. */
+  userCode?: string;
+  progress?: string;
+  /** A question the flow waits on; answer with `answerLogin`. */
+  prompt?: LoginPrompt;
+  models?: string[];
+  error?: string;
 }
 
 export interface ModelsView {
@@ -228,9 +274,64 @@ export type ModelProbe =
 export interface SettingsPatch {
   mode?: Mode;
   keepAwake?: boolean;
-  herderStyle?: HerderStyle;
   /** An Obsidian vault folder; "" clears it. */
   obsidianVault?: string;
+  pet?: Partial<PetSettings>;
+}
+
+/** The two figures that come with the app (ADR 0070). */
+export const PET_FIGURES = ["claude", "deepseek"] as const;
+export type PetFigure = (typeof PET_FIGURES)[number];
+
+export interface PetSettings {
+  /** Shown on the desktop. */
+  on: boolean;
+  figure: PetFigure;
+}
+
+export const DEFAULT_PET: PetSettings = { on: true, figure: "deepseek" };
+
+/** One thing AgentHerd sent to the owner, as the pet shows it. */
+export interface PetLine {
+  /** Grows with every new line, so the pet knows when to speak. */
+  id: number;
+  at: string;
+  /**
+   * say: the Herder talking; task: a task's progress; report: a task finished; ask: needs the
+   * owner; owner: what the owner wrote or answered, in the chat app or to the pet (only in
+   * `history`).
+   */
+  kind: "say" | "task" | "report" | "ask" | "error" | "owner";
+  text: string;
+  /** Task title or label. */
+  task?: string;
+  /** Only for reports. */
+  result?: ReportResult;
+}
+
+/** A card waiting for the owner; its buttons work the same as in the chat app. */
+export interface PetPending {
+  target: string;
+  title: string;
+  body: string;
+  options: { action: string; label: string }[];
+  task?: string;
+  /** Open approvals on a combined card. */
+  count?: number;
+}
+
+export interface PetView {
+  /** The chat channel is up, so the owner can talk and press buttons. */
+  connected: boolean;
+  /** The latest line AgentHerd sent; never the owner's own. */
+  last?: PetLine;
+  /** Oldest first. */
+  pending: PetPending[];
+  /**
+   * The Herder's conversation with the owner as herd.db keeps it, both ways, the last lines,
+   * oldest first (the expanded pet). Ids are those of `herder_turns`.
+   */
+  history: PetLine[];
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */
@@ -393,6 +494,15 @@ export interface HostApi {
   setKey(serviceId: string, key: string): Promise<ModelsView>;
   chooseModel(role: ModelRole, ref: ModelRef | null): Promise<ModelsView>;
   testModel(ref: ModelRef): Promise<ModelTest>;
+  /** Vendors pi-ai can sign in to (ADR 0068). */
+  subscriptions(): SubscriptionView[];
+  /**
+   * Starts signing in to `provider`. On success the service `serviceId` (new, or replaced) is
+   * saved with the account's models. Cancels a sign-in still running.
+   */
+  startLogin(provider: string, serviceId: string, name?: string): LoginView;
+  answerLogin(id: string, value: string): LoginView;
+  cancelLogin(id: string): LoginView;
   /** Asks an OpenAI- or Anthropic-compatible service which models it offers (GET /models). */
   probeModels(target: ProbeTarget): Promise<ModelProbe>;
   /** Starts the one-scan Feishu setup; progress comes as "setup" events. */
@@ -407,7 +517,7 @@ export interface HostApi {
   /** Connects the channel again, e.g. after a network failure. */
   reconnect(): Promise<HostStatus>;
   agents(): AgentView[];
-  /** Starts downloading an agent's CLI; progress comes as "agents" events. */
+  /** Starts downloading an agent that is not in the app (ADR 0069); progress as "agents" events. */
   installAgent(id: string): AgentView[];
   cancelInstall(id: string): AgentView[];
   /** Removes a downloaded CLI. */
@@ -447,6 +557,12 @@ export interface HostApi {
   logoutLark(): Promise<LarkView>;
   feeds(): FeedView[];
   setFeed(source: FeedSource, on: boolean): FeedView[];
+  /** What the desktop pet shows (ADR 0070). */
+  pet(): PetView;
+  /** The owner typed this to the pet: it reaches AgentHerd as a chat message. */
+  petSay(text: string): Promise<PetView>;
+  /** The owner pressed a button on a card in the pet's bubble. */
+  petPress(target: string, action: string): Promise<PetView>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -470,6 +586,10 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "setKey",
   "chooseModel",
   "testModel",
+  "subscriptions",
+  "startLogin",
+  "answerLogin",
+  "cancelLogin",
   "probeModels",
   "setupFeishu",
   "cancelSetup",
@@ -503,6 +623,9 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "logoutLark",
   "feeds",
   "setFeed",
+  "pet",
+  "petSay",
+  "petPress",
 ];
 
 export type HostEvent =
@@ -514,7 +637,9 @@ export type HostEvent =
   | { topic: "apps"; data: AppsView }
   | { topic: "socials"; data: SocialView[] }
   | { topic: "watches"; data: WatchView[] }
-  | { topic: "lark"; data: LarkView };
+  | { topic: "lark"; data: LarkView }
+  | { topic: "login"; data: LoginView }
+  | { topic: "pet"; data: PetView };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {

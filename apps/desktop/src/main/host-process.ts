@@ -2,17 +2,34 @@
 // (e.g. `agentherd start` in a terminal). Node in Electron strips TypeScript types, so the host
 // runs from its sources like the CLI does.
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isHostRunning } from "@agentherd/host/server";
 import { app, type UtilityProcess, utilityProcess } from "electron";
 
 let child: UtilityProcess | undefined;
 
+/**
+ * The host's sources: in the packaged app under Resources/host/packages (scripts/package-mac.ts,
+ * laid out like the repo so the host finds pi-acp beside it), in development the repo's.
+ */
 function hostEntry(): string {
-  return (
-    process.env.AGENTHERD_HOST_ENTRY ?? resolve(app.getAppPath(), "../../packages/host/bin/host.ts")
-  );
+  if (process.env.AGENTHERD_HOST_ENTRY !== undefined) return process.env.AGENTHERD_HOST_ENTRY;
+  return app.isPackaged
+    ? join(process.resourcesPath, "host", "packages", "host", "bin", "host.ts")
+    : resolve(app.getAppPath(), "../../packages/host/bin/host.ts");
+}
+
+/**
+ * The agents that ship with the app (ADR 0067): Resources/agents, or in development the folder
+ * `pnpm --filter @agentherd/desktop fetch-agents` fills, when it exists.
+ */
+export function agentsDir(): string | undefined {
+  if (process.env.AGENTHERD_AGENTS !== undefined) return process.env.AGENTHERD_AGENTS;
+  const dir = app.isPackaged
+    ? join(process.resourcesPath, "agents")
+    : resolve(app.getAppPath(), "agents");
+  return existsSync(dir) ? dir : undefined;
 }
 
 export async function ensureHost(home: string, sock: string): Promise<void> {
@@ -21,10 +38,15 @@ export async function ensureHost(home: string, sock: string): Promise<void> {
     const logDir = join(home, "logs");
     mkdirSync(logDir, { recursive: true, mode: 0o700 });
     const logFile = join(logDir, "host.log");
+    const agents = agentsDir();
     const p = utilityProcess.fork(hostEntry(), [], {
       serviceName: "AgentHerd host",
       stdio: "pipe",
-      env: { ...process.env, AGENTHERD_HOME: home },
+      env: {
+        ...process.env,
+        AGENTHERD_HOME: home,
+        ...(agents === undefined ? {} : { AGENTHERD_AGENTS: agents }),
+      },
     });
     const log = (chunk: Buffer) => {
       process.stdout.write(chunk);

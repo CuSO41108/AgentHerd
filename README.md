@@ -9,7 +9,7 @@ English · [简体中文](README.zh-CN.md)
 ### Your coding agents, run from Feishu.<br>Tell the Herder what you want. It starts the agents on your machine, follows them, and tells you what they did.
 
 [![macOS | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-111)](docs/spec/02-architecture.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
-[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: DeepSeek Harness](https://img.shields.io/badge/agent-DeepSeek%20Harness-444)](https://github.com/deepseek-ai/deepseek-harness)
+[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/anthropics/claude-code)
 
 [Features](#features) · [How it works](#how-it-works) · [Get started](#get-started) · [Docs](#docs)
 
@@ -25,9 +25,11 @@ English · [简体中文](README.zh-CN.md)
   continue from cards on your phone. One QR scan connects it.
 - **A Herder that talks like a person.** The Herder is a light-model agent that takes your
   messages, starts and follows tasks, and tells you each result in its own words, with the
-  agent's own reply one tap away. Pick how it talks: a capable friend, an opinionated partner,
-  or a crisp secretary. Its 「行动记录」 page in the app shows every step it took and why.
-- **The right agent and model for each task.** Pi, Codex and DeepSeek Harness run through the
+  agent's own reply one tap away. It talks like a capable friend. The app's 「主管」 page shows
+  every step it took and why.
+- **The right agent and model for each task.** Pi and Codex (for GPT models) come inside the app;
+  Claude Code takes hard coding work, using your own `claude` or a download on the **Agent** page,
+  with your own Anthropic-style model service. They run through the
   [Agent Client Protocol](https://agentclientprotocol.com), on your own model services. The
   Herder picks the model, the agent follows from it, and a broken first turn switches to the
   next model.
@@ -49,6 +51,9 @@ English · [简体中文](README.zh-CN.md)
   schedule, and missed runs happen once when your machine wakes.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
   itself. It learns a lesson only when a task went wrong, and finds past results in task records.
+- **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop, says what AgentHerd just told you
+  in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
+  her to talk to the Herder; fold her into a dot when she is in the way.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.
 
@@ -71,8 +76,11 @@ pnpm --filter @agentherd/desktop start
 ```
 
 The first run walks you through it: scan a QR code to connect Feishu, add a model service and
-its key, pick the Herder's model and how it talks. On the **Agent** page, download Pi or Codex
-and press 验证 to check that it starts. Then send the Herder a message in Feishu.
+its key (or sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi and Codex come with the app; on the **Agent**
+page, press 验证 to check that one starts. In development, run
+`pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks.
+`pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and a `.dmg` (not signed
+yet). Then send the Herder a message in Feishu.
 
 <details>
 <summary>Command line, without the app</summary>
@@ -97,4 +105,4 @@ recent decisions with `status`.
 
 AgentHerd is under the [MIT License](LICENSE).
 
-<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md).</sub>
+<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md). The desktop pet's figures are drawn by ZipZipPipe and come from [llm-pet](https://github.com/savanna0425/llm-pet); they are not under the MIT License and may not be used commercially ([notice](apps/desktop/src/renderer/src/pet/figures/NOTICE.md)).</sub>

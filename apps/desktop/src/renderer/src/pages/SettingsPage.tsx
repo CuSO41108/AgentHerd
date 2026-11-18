@@ -1,15 +1,32 @@
-// 设置: the Feishu channel, how approvals work, font size, keep awake, the first run, and where
+// 设置: the Feishu channel, how approvals work, font size, the desktop pet, keep awake, the first run, and where
 // AgentHerd keeps its files. How the Herder talks is on the 主管 page; the owner's apps and
 // platforms are on the 应用连接 page.
 
-import type { SettingsPatch } from "@agentherd/host/api";
-import { Check, Eye, FolderOpen, Hand, Info, MoonStar, Rocket, Type } from "lucide-react";
+import type { PetFigure, SettingsPatch } from "@agentherd/host/api";
+import {
+  Check,
+  Eye,
+  FolderOpen,
+  Hand,
+  Info,
+  MoonStar,
+  Palette,
+  PawPrint,
+  Rocket,
+  Type,
+} from "lucide-react";
 import { useState } from "react";
 import { FeishuSection } from "../components/FeishuSection";
 import { Button, Group, IconTile, Row, Section, Segmented, Switch } from "../components/ui";
 import { FONT_SCALES, setFontScale, useFontScale } from "../font-scale";
+import { FIGURE_CREDIT, FIGURES } from "../pet/figures";
 import { isMac } from "../platform";
 import { call, type Mode, useApp } from "../store";
+
+const PET_FIGURE_OPTIONS = (Object.keys(FIGURES) as PetFigure[]).map((value) => ({
+  value,
+  label: FIGURES[value].name,
+}));
 
 const MODES: { mode: Mode; title: string; hint: string; icon: typeof Eye }[] = [
   {
@@ -95,6 +112,45 @@ export function SettingsPage() {
                 options={FONT_SCALES}
                 value={fontScale}
                 onChange={setFontScale}
+              />
+            }
+          />
+        </Group>
+      </Section>
+
+      <Section title="桌宠">
+        <Group>
+          <Row
+            icon={
+              <IconTile tone="blue">
+                <PawPrint size={15} strokeWidth={1.75} />
+              </IconTile>
+            }
+            title="显示桌宠"
+            description="浮在桌面上，飞书收到的消息她也会说；点她就能跟主管说话、直接批准"
+            trailing={
+              <Switch
+                label="显示桌宠"
+                checked={status.pet?.on ?? false}
+                disabled={busy || status.pet === undefined}
+                onChange={(on) => void update({ pet: { on } })}
+              />
+            }
+          />
+          <Row
+            icon={
+              <IconTile>
+                <Palette size={15} strokeWidth={1.75} />
+              </IconTile>
+            }
+            title="形象"
+            description={FIGURE_CREDIT}
+            trailing={
+              <Segmented
+                label="形象"
+                options={PET_FIGURE_OPTIONS}
+                value={status.pet?.figure ?? "deepseek"}
+                onChange={(figure) => void update({ pet: { figure } })}
               />
             }
           />

@@ -1,0 +1,497 @@
+/* The desktop pet window (ADR 0070): transparent, no page around the pet. */
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root {
+  --pet-bg: rgba(255, 255, 255, 0.97);
+  --pet-ink: #1d1d1f;
+  --pet-muted: #6e6e73;
+  --pet-line: rgba(0, 0, 0, 0.1);
+  --pet-accent: #007cf7;
+  --pet-control: rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pet-bg: rgba(40, 40, 42, 0.97);
+    --pet-ink: #f2f2f7;
+    --pet-muted: #a1a1a6;
+    --pet-line: rgba(255, 255, 255, 0.12);
+    --pet-control: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* Pinned to the bottom-right corner; the window is sized to it (see src/main/pet-window.ts). */
+.pet-root {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px;
+}
+
+.pet-bubble {
+  position: relative;
+  box-sizing: border-box;
+  width: 248px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--pet-bg);
+  color: var(--pet-ink);
+  border: 1px solid var(--pet-line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  margin-right: 36px;
+  animation: pet-pop 0.18s ease-out;
+}
+
+/* The tail points down to the figure. */
+.pet-bubble::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--pet-bg);
+  border-right: 1px solid var(--pet-line);
+  border-bottom: 1px solid var(--pet-line);
+  transform: rotate(45deg);
+}
+
+.pet-task,
+.pet-more,
+.pet-note {
+  color: var(--pet-muted);
+  font-size: 12px;
+}
+
+.pet-title {
+  font-weight: 600;
+  word-break: break-word;
+  padding-right: 10px;
+}
+
+.pet-body {
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--pet-control);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 5.8em;
+  overflow: hidden;
+}
+
+.pet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.pet-actions button {
+  border: 1px solid var(--pet-line);
+  background: var(--pet-control);
+  color: var(--pet-ink);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pet-actions button.primary {
+  background: var(--pet-accent);
+  border-color: var(--pet-accent);
+  color: #fff;
+}
+
+.pet-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pet-more {
+  margin-top: 6px;
+}
+
+.pet-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--pet-line);
+  border-radius: 6px;
+  background: var(--pet-control);
+  color: var(--pet-ink);
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+
+.pet-input:focus {
+  border-color: var(--pet-accent);
+}
+
+.pet-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.pet-link {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--pet-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* The conversation both ways, newest at the bottom: what a click on the pet opens. */
+.pet-chat {
+  width: 360px;
+  padding: 8px 10px 10px;
+}
+
+/* Handles on the top-left corner and the left and top edges: the panel grows away from the
+   figure. Double click one for the default size. */
+.pet-grip {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.pet-grip.top {
+  top: -4px;
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.pet-grip.left {
+  left: -4px;
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.pet-grip.corner {
+  left: -4px;
+  top: -4px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+.pet-grip.corner::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-left: 2px solid var(--pet-muted);
+  border-top: 2px solid var(--pet-muted);
+  border-top-left-radius: 4px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+.pet-chat:hover .pet-grip.corner::before {
+  opacity: 0.7;
+}
+
+.pet-chat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  color: var(--pet-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pet-chat-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pet-x {
+  border: 0;
+  background: none;
+  color: var(--pet-muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pet-chat-list {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 6px;
+  user-select: text;
+  cursor: auto;
+}
+
+.pet-msg {
+  align-self: flex-start;
+  max-width: 86%;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: var(--pet-control);
+}
+
+.pet-msg.mine {
+  align-self: flex-end;
+  background: var(--pet-accent);
+  color: #fff;
+}
+
+.pet-msg.bad {
+  background: rgba(255, 59, 48, 0.12);
+}
+
+.pet-msg-task {
+  color: var(--pet-muted);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.pet-msg-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pet-msg-time {
+  color: var(--pet-muted);
+  font-size: 10px;
+  text-align: right;
+  margin-top: 2px;
+}
+
+.pet-msg.mine .pet-msg-time {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.pet-chat .pet-card {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pet-line);
+}
+
+.pet-stage {
+  position: relative;
+}
+
+.pet-figure {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  transform-origin: 50% 100%;
+  cursor: grab;
+  outline: none;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.18));
+}
+
+.pet-figure:active {
+  cursor: grabbing;
+}
+
+.pet-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.pet-fold {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--pet-line);
+  border-radius: 9px;
+  background: var(--pet-bg);
+  color: var(--pet-muted);
+  font-size: 13px;
+  line-height: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pet-dot {
+  position: relative;
+  border: 2px solid var(--pet-bg);
+  border-radius: 50%;
+  background-color: #dbe7f5;
+  background-repeat: no-repeat;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pet-dot .pet-badge {
+  top: -6px;
+  right: -6px;
+}
+
+.pet-zz,
+.pet-sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pet-zz i {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  font-style: normal;
+  font-weight: 700;
+  color: #7d9cc0;
+  opacity: 0;
+  animation: pet-z 3s ease-in-out infinite;
+}
+
+.pet-zz i:nth-child(2) {
+  animation-delay: 1s;
+}
+
+.pet-zz i:nth-child(3) {
+  animation-delay: 2s;
+}
+
+.pet-sparkles i {
+  position: absolute;
+  font-style: normal;
+  color: #f5b301;
+  animation: pet-spark 0.9s ease-in-out infinite;
+}
+
+.pet-sparkles i:nth-child(1) {
+  left: 8px;
+  top: 20px;
+}
+
+.pet-sparkles i:nth-child(2) {
+  right: 10px;
+  top: 8px;
+  animation-delay: 0.3s;
+}
+
+.pet-sparkles i:nth-child(3) {
+  right: 4px;
+  top: 52px;
+  animation-delay: 0.6s;
+}
+
+/* The frames carry the motion (src/pet/sprite.ts); only the still sleeping frame breathes. */
+.mood-sleeping {
+  animation: pet-sleep 5.8s ease-in-out infinite;
+}
+
+@keyframes pet-sleep {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.015, 1.035);
+  }
+}
+
+@keyframes pet-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.7);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(14px, -22px) scale(1.2);
+  }
+}
+
+@keyframes pet-spark {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes pet-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* More specific than every motion rule above, so it wins without !important. */
+@media (prefers-reduced-motion: reduce) {
+  .pet-root .pet-figure,
+  .pet-root .pet-zz i,
+  .pet-root .pet-sparkles i,
+  .pet-root .pet-bubble {
+    animation: none;
+  }
+}

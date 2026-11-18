@@ -18,6 +18,7 @@
     "@agentherd/acp-client": "workspace:*"
   },
   "devDependencies": {
-    "@agentherd/protocol": "workspace:*"
+    "@agentherd/protocol": "workspace:*",
+    "@earendil-works/pi-ai": "1.5.0"
   }
 }

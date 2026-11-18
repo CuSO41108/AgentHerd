@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentProfile } from "@agentherd/protocol";
-import { AGENTS, agentDef, agentProfile, DSH_APP_LAUNCHER } from "./catalog.ts";
+import { AGENTS, agentDef, agentProfile } from "./catalog.ts";
 import { nodeEnv } from "./runtimes.ts";
 
 const MOCK_BIN = fileURLToPath(new URL("../../mock-agent/bin/mock-agent.ts", import.meta.url));
@@ -118,12 +118,6 @@ export function onPath(
   return undefined;
 }
 
-/** Where the DeepSeek Harness desktop app keeps its CLI. */
-export const DSH_APP_BIN = `/Applications/${DSH_APP_LAUNCHER}`;
-
-/** The CLI launcher inside the Windows install folder of DeepSeek Harness. */
-export const DSH_WINDOWS_LAUNCHER = "resources\\runtime\\cli\\bin\\dsh.cmd";
-
 /** Runs `reg.exe`; throws when it fails or finds nothing. */
 export type RegQuery = (args: string[]) => string;
 
@@ -140,69 +134,6 @@ const regQuery: RegQuery = (args) => {
     stdio: ["ignore", "pipe", "ignore"],
   });
 };
-
-/**
- * Install folders of DeepSeek Harness from the uninstall entries in `reg query /s /f ... /d`
- * output: an entry whose DisplayName starts with the app name, through its DisplayIcon
- * (`<folder>\DeepSeek Harness.exe,0`) or InstallLocation fallback. The installer may put the app in any folder.
- */
-export function dshInstallDirs(output: string): string[] {
-  const dirs: string[] = [];
-  let name = "";
-  let icon = "";
-  let installLocation = "";
-  const flush = () => {
-    if (name.startsWith("DeepSeek Harness")) {
-      if (icon !== "") dirs.push(win32.dirname(icon));
-      else if (installLocation !== "") dirs.push(installLocation);
-    }
-    name = "";
-    icon = "";
-    installLocation = "";
-  };
-  for (const line of output.split(/\r?\n/)) {
-    if (line.startsWith("HKEY_")) {
-      flush();
-      continue;
-    }
-    const value = /^\s+(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/.exec(line);
-    if (value === null) continue;
-    const data = (value[2] ?? "").trim();
-    if (value[1] === "DisplayName") name = data;
-    if (value[1] === "DisplayIcon") icon = data.replace(/,-?\d+$/, "").replace(/^"(.*)"$/, "$1");
-    if (value[1] === "InstallLocation") installLocation = data.replace(/^"(.*)"$/, "$1");
-  }
-  flush();
-  return dirs;
-}
-
-/**
- * Where the DeepSeek Harness desktop app may keep its CLI: the macOS bundle; on Windows the
- * launcher in each install folder the uninstall entries name (per-user, then all users + WOW6432Node).
- */
-export function dshAppBins(
-  platform: NodeJS.Platform = process.platform,
-  query: RegQuery = regQuery,
-): string[] {
-  if (platform === "darwin") return [DSH_APP_BIN];
-  if (platform !== "win32") return [];
-  const keys = [
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-    "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-    "HKLM\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-  ];
-  const bins: string[] = [];
-  for (const key of keys) {
-    let output: string;
-    try {
-      output = query(["query", key, "/s", "/f", "DeepSeek Harness", "/d"]);
-    } catch {
-      continue;
-    }
-    for (const dir of dshInstallDirs(output)) bins.push(win32.join(dir, DSH_WINDOWS_LAUNCHER));
-  }
-  return [...new Set(bins)];
-}
 
 /** The Codex CLI inside the package folder of OpenAI's Codex (ChatGPT) desktop app. */
 export const CODEX_WINDOWS_CLI = "app\\resources\\codex.exe";
@@ -269,11 +200,8 @@ export function mockProfile(script: string): AgentProfile {
 }
 
 /**
- * Finds an agent's CLI without the app's downloads: its env variable (`AGENTHERD_DSH`, …), then
- * its command on `PATH`, then (DSH) the desktop app. On Windows the DSH app comes before PATH:
- * the `dsh` there is usually the separate npm launcher, which serves ACP only when its own
- * `acp` profile bundle is installed, while the app ships every profile.
- * @param appBins Default: dshAppBins(platform), asked only for DSH.
+ * Finds an agent's CLI without the app's downloads: its env variable (`AGENTHERD_PI`, …), then
+ * its command on `PATH`.
  * @returns The path, or `undefined` when it is not installed.
  */
 export function findAgent(
@@ -281,20 +209,12 @@ export function findAgent(
   env: NodeJS.ProcessEnv = process.env,
   exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
-  appBins: () => string[] = () => dshAppBins(platform),
 ): string | undefined {
   const def = agentDef(id);
   if (def === undefined) return undefined;
   const explicit = envValue(env, def.envVar);
   if (explicit !== undefined && explicit !== "") return explicit;
-  const app = () => (id === "dsh" ? appBins().find((p) => exists(p)) : undefined);
-  if (platform === "win32") {
-    const fromApp = app();
-    if (fromApp !== undefined) return fromApp;
-  }
-  const found = onPath(def.systemNames, envValue(env, "PATH"), exists, platform);
-  if (found !== undefined) return found;
-  return platform === "win32" ? undefined : app();
+  return onPath(def.systemNames, envValue(env, "PATH"), exists, platform);
 }
 
 /**
@@ -328,9 +248,36 @@ export function builtinProfile(
   return def === undefined ? undefined : agentProfile(def, bin, extraEnv);
 }
 
+/** Env naming the Claude Code CLI that claude-agent-acp runs (read by the Agent SDK). */
+export const CLAUDE_EXECUTABLE_ENV = "CLAUDE_CODE_EXECUTABLE";
+
+/**
+ * The owner's own Claude Code CLI (ADR 0069): `AGENTHERD_CLAUDE_CLI`, `claude` on PATH, or where
+ * Anthropic's installers put it (an app started from Finder has a short PATH).
+ */
+export function localClaude(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string | undefined {
+  const named = envValue(env, "AGENTHERD_CLAUDE_CLI");
+  if (named !== undefined && named !== "") return named;
+  const onSystem = onPath(["claude"], envValue(env, "PATH"), exists, platform);
+  if (onSystem !== undefined) return onSystem;
+  if (platform === "win32") return undefined;
+  return [
+    join(home, ".local", "bin", "claude"),
+    join(home, ".claude", "local", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ].find((p) => exists(p));
+}
+
 /**
  * Env an agent needs from the machine besides its catalog env: for Codex, `CODEX_PATH` naming
- * the Codex desktop app's CLI when there is one and the owner set none, so codex-acp runs it.
+ * the Codex desktop app's CLI when there is one and the owner set none, so codex-acp runs it; for
+ * Claude Code, `CLAUDE_CODE_EXECUTABLE` naming the owner's own `claude` (localClaude).
  * @param clis Default: codexAppClis(platform), asked only for Codex.
  */
 export function agentEnv(
@@ -339,7 +286,13 @@ export function agentEnv(
   exists: (path: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
   clis: () => string[] = () => codexAppClis(platform),
+  home: string = homedir(),
 ): Record<string, string> {
+  if (id === "claude") {
+    if ((envValue(env, CLAUDE_EXECUTABLE_ENV) ?? "") !== "") return {};
+    const cli = localClaude(env, exists, platform, home);
+    return cli === undefined ? {} : { [CLAUDE_EXECUTABLE_ENV]: cli };
+  }
   if (id !== "codex" || (envValue(env, "CODEX_PATH") ?? "") !== "") return {};
   const cli = clis().find((p) => exists(p));
   return cli === undefined ? {} : { CODEX_PATH: cli };
@@ -372,7 +325,7 @@ export function resolveProfile(id: string, opts: ResolveOptions): AgentProfile {
     const bin = (opts.find ?? ((x: string) => findAgent(x)))(id);
     if (bin === undefined) {
       throw new Error(
-        `${def.name} not found. Download it on the Agent page of the desktop app, or set ${def.envVar}.`,
+        `${def.name} not found. It comes with the desktop app; otherwise install it or set ${def.envVar}.`,
       );
     }
     const extra = (opts.agentEnv ?? ((x: string) => agentEnv(x)))(id);

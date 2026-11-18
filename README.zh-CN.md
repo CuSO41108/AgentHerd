@@ -9,7 +9,7 @@
 ### 在飞书里指挥你的 Coding Agent。<br>跟主管说你要什么，它在你的电脑上启动 Agent、盯着进度，做完用自己的话告诉你。
 
 [![macOS | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-111)](docs/spec/02-architecture.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
-[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: DeepSeek Harness](https://img.shields.io/badge/agent-DeepSeek%20Harness-444)](https://github.com/deepseek-ai/deepseek-harness)
+[![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/anthropics/claude-code)
 
 [主要功能](#主要功能) · [怎么工作](#怎么工作) · [开始使用](#开始使用) · [文档](#文档)
 
@@ -23,9 +23,10 @@
 
 - **飞书就是遥控器。** 发一条消息就能派活；在手机上用卡片回答问题、批准、继续任务。扫一次码就接好。
 - **会说人话的主管。** 主管是一个用轻量模型的 Agent：接你的消息，启动并跟进任务，每个结果都用自己的话告诉你，
-  Agent 的原话点一下就能看。说话风格可以选：能干的朋友、有主见的搭档或干练的秘书。
-  它每一步做了什么、为什么做，在 App 的「行动记录」里都看得到。
-- **每个任务用对的 Agent 和模型。** Pi、Codex、DeepSeek Harness 通过
+  Agent 的原话点一下就能看。它说话像个能干的朋友。
+  它每一步做了什么、为什么做，在 App 的「主管」页都看得到。
+- **每个任务用对的 Agent 和模型。** Pi 和 Codex（GPT 模型用它）随 App 一起装好；复杂的编程任务交给
+  Claude Code，用你电脑上的 `claude`，没有就在「Agent」页下载，模型用你自己的 Anthropic 接口服务。它们通过
   [Agent Client Protocol](https://agentclientprotocol.com) 运行，用你自己的模型服务。主管选模型，Agent 跟着模型走；
   第一轮就出错时自动换下一个模型。
 - **任务能一直接着做。** 每个任务在项目的隐藏副本里干活，结束后保留，之后还能继续。App 里能看到每个任务的完整对话。
@@ -39,7 +40,9 @@
   Notion 通过 Composio 连接，Obsidian 笔记库会交给每个任务。
 - **一句话建定时任务。** 「工作日每天 9 点看看有没有新 issue」，主管就建好；电脑睡着时错过的，醒来只补跑一次。
 - **记忆有用不啰嗦。** 整段对话都保留，旧的部分由主管自己折叠。只有任务出了问题才记一条经验，以前的结果去任务记录里查。
-- **只在本机运行。** 没有 AgentHerd 服务器，Key 存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
+- **桌宠。** 大肥鱼或 Claude 娘浮在桌面上：飞书收到什么她就说什么，任务做完会开心，有事要你点头时带着「同意 / 拒绝」等你。
+  点她就能跟主管说话，嫌碍事可以收成一个小圆点。
+- **只在本机运行。** 没有 AgentHerd 服务器，Key 和订阅登录凭据存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
 
 ## 怎么工作
 
@@ -57,8 +60,9 @@ pnpm install
 pnpm --filter @agentherd/desktop start
 ```
 
-第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key，给主管选模型和说话风格。在「Agent」页下载 Pi 或 Codex，
-点「验证」确认能启动。然后在飞书里给主管发条消息就行。
+第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key（也可以用 ChatGPT、Claude、Copilot 等订阅账号登录），给主管选模型。Pi 和 Codex 随 App
+自带，在「Agent」页点「验证」确认能启动。开发时先运行一次 `pnpm --filter @agentherd/desktop fetch-agents`，
+把它们放到开发版找得到的地方；`pnpm --filter @agentherd/desktop package:mac` 打出 `AgentHerd.app` 和 `.dmg`（暂未签名）。然后在飞书里给主管发条消息就行。
 
 <details>
 <summary>不用 App，用命令行</summary>
@@ -82,4 +86,4 @@ node packages/cli/bin/agentherd.ts start
 
 AgentHerd 使用 [MIT 许可证](LICENSE)。
 
-<sub>主管的循环 fork 自 [Pi](https://github.com/earendil-works/pi) 的 agent loop（MIT，[`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)）。上下文管理用的是 [billion-context](https://github.com/ranxianglei/billion-context) 的 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT，另加一条署名条款），代码复制在 [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md)。详见[参考项目](docs/references.md)。</sub>
+<sub>主管的循环 fork 自 [Pi](https://github.com/earendil-works/pi) 的 agent loop（MIT，[`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)）。上下文管理用的是 [billion-context](https://github.com/ranxianglei/billion-context) 的 [acp-kernel](https://github.com/ranxianglei/acp-kernel)（MIT，另加一条署名条款），代码复制在 [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md)。详见[参考项目](docs/references.md)。桌宠形象由画师 ZipZipPipe 绘制，来自 [llm-pet](https://github.com/savanna0425/llm-pet)，不在 MIT 许可证范围内，不可商用（[说明](apps/desktop/src/renderer/src/pet/figures/NOTICE.md)）。</sub>

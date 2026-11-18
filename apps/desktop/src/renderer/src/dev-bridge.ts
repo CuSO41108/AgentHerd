@@ -8,13 +8,17 @@
 //   empty            like ready, with no tasks
 //   no-agent         like empty, with no agent profiles
 //   offline          like ready, then the connection to the host drops
-//   pi-failed        like empty, and the last Pi download failed
 // `?open=` opens a dialog at once, for screenshots (see `devOpen`):
 //   add-service      the 添加服务 chooser
 //   add-builtin      the 添加服务 form of OpenRouter, with a few models chosen
 //   add-custom       the 添加服务 form of an OpenAI-compatible address
 //   edit-<id>        the edit dialog of the service <id> (deepseek, gateway)
 //   task-<id>        the conversation of the task <id> (s2 has one)
+//   subscription     the 用订阅登录 vendor list (ADR 0068)
+//   chat             the expanded pet with the conversation (/pet.html)
+// The pet window (/pet.html, ADR 0070) uses the same bridge; `?pet=` picks what it shows:
+//   waiting          an approval waits for the owner
+//   done             a task just finished
 
 import type {
   AgentView,
@@ -23,9 +27,11 @@ import type {
   HostEvent,
   HostStatus,
   LarkView,
+  LoginView,
   MemoryView,
   ModelsView,
   ModelTiersView,
+  PetView,
   RemoteHost,
   SchedulesView,
   SetupState,
@@ -38,6 +44,7 @@ import {
   hoursFromNow,
   PLACEHOLDER_QR,
   providers,
+  SAMPLE_SUBSCRIPTIONS,
   sampleFeeds,
   sampleHerderActivity,
   sampleLark,
@@ -52,16 +59,7 @@ import {
 
 type Listener<T> = (value: T) => void;
 
-const SIMS = [
-  "fresh",
-  "bound",
-  "network",
-  "ready",
-  "empty",
-  "no-agent",
-  "offline",
-  "pi-failed",
-] as const;
+const SIMS = ["fresh", "bound", "network", "ready", "empty", "no-agent", "offline"] as const;
 
 type Sim = (typeof SIMS)[number];
 
@@ -98,9 +96,70 @@ function installFakeBridge(): void {
     mode: "observe",
     locale: "zh-CN",
     keepAwake: true,
-    herderStyle: "friend",
-    profiles: sim === "no-agent" ? [] : ["dsh"],
+    profiles: sim === "no-agent" ? [] : ["pi"],
+    pet: { on: true, figure: "deepseek" },
   };
+
+  const petSim = new URLSearchParams(window.location.search).get("pet");
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const petHistory: PetView["history"] = [
+    { id: 1, at: minutesAgo(42), kind: "owner", text: "帮我小红书搜一下西岸智塔附近好吃的面条" },
+    { id: 2, at: minutesAgo(41), kind: "say", text: "好，我开个任务去小红书搜，挑走路能到的。" },
+    {
+      id: 3,
+      at: minutesAgo(32),
+      kind: "report",
+      task: "小红书：西岸智塔附近面馆",
+      result: "done",
+      text: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n1. 阿娘面馆：黄鱼面，排队快\n2. 味千拉面：豚骨汤浓",
+    },
+    { id: 4, at: minutesAgo(3), kind: "owner", text: "第一家几点关门？" },
+    { id: 5, at: minutesAgo(2), kind: "say", text: "早上好，昨晚的两个任务都做完了。" },
+  ];
+  let petLineId = petHistory.length;
+  let pet: PetView = {
+    connected: sim !== "fresh" && sim !== "network",
+    last: petHistory.at(-1),
+    history: petHistory,
+    pending:
+      petSim === "waiting"
+        ? [
+            {
+              target: "item-1",
+              task: "清理旧日志",
+              title: "运行 rm -rf ./logs/*",
+              body: "rm -rf ./logs/*",
+              options: [
+                { action: "allow", label: "同意" },
+                { action: "deny", label: "拒绝" },
+                { action: "skip", label: "跳过" },
+              ],
+            },
+          ]
+        : [],
+  };
+  const petLine = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">) => {
+    petLineId++;
+    const next = { ...line, id: petLineId, at: new Date().toISOString() };
+    pet = { ...pet, history: [...pet.history, next].slice(-80) };
+    return next;
+  };
+  const petSays = (line: Omit<NonNullable<PetView["last"]>, "id" | "at">): void => {
+    pet = { ...pet, last: petLine(line) };
+    emit({ topic: "pet", data: structuredClone(pet) });
+  };
+  if (petSim === "done") {
+    setTimeout(
+      () =>
+        petSays({
+          kind: "report",
+          task: "修登录 401",
+          result: "done",
+          text: "登录修好了，测试都过了，PR 已开。",
+        }),
+      1500,
+    );
+  }
 
   const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
 
@@ -146,6 +205,31 @@ function installFakeBridge(): void {
     emit({ topic: "socials", data: structuredClone(socials) });
   };
 
+  let login: LoginView | undefined;
+  const finishLogin = (vendor: (typeof SAMPLE_SUBSCRIPTIONS)[number]): void => {
+    if (login === undefined) return;
+    const ids = vendor.models.map((m) => m.id);
+    keys.set(login.serviceId, "signed-in");
+    const others = models.services.filter((s) => s.id !== login?.serviceId);
+    models = {
+      ...models,
+      services: [
+        ...others,
+        {
+          id: login.serviceId,
+          name: vendor.name,
+          kind: "builtin",
+          provider: vendor.provider,
+          auth: "subscription",
+          models: ids,
+          hasKey: true,
+        },
+      ],
+    };
+    login = { ...login, status: "done", models: ids, prompt: undefined };
+    emit({ topic: "login", data: structuredClone(login) });
+    emit({ topic: "models", data: structuredClone(models) });
+  };
   const emit = (event: HostEvent): void => {
     for (const l of eventListeners) l(event);
   };
@@ -182,30 +266,35 @@ function installFakeBridge(): void {
     id,
     name,
     state: "missing",
-    canInstall: true,
+    canInstall: false,
     canRemove: false,
     ...extra,
   });
-  let agents: AgentView[] = [
+  const bundled = (id: string, name: string, version: string): AgentView => ({
+    id,
+    name,
+    state: "ready",
+    source: "bundled",
+    version,
+    adapted: version,
+    path: `/Applications/AgentHerd.app/Contents/Resources/agents/${id}/${version}`,
+    canInstall: false,
+    canRemove: false,
+  });
+  const claudeMissing = missing("claude", "Claude Code", {
+    adapted: "0.107.2",
+    onRequest: true,
+    canInstall: true,
+    ...(sim === "no-agent" ? {} : { ownCli: "/Users/me/.local/bin/claude" }),
+  });
+  let agents: AgentView[] =
     sim === "no-agent"
-      ? missing("dsh", "DeepSeek Harness")
-      : {
-          id: "dsh",
-          name: "DeepSeek Harness",
-          state: "ready",
-          source: "app",
-          path: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
-          canInstall: false,
-          canRemove: false,
-        },
-    missing(
-      "pi",
-      "Pi",
-      sim === "pi-failed" ? { error: "download failed: HTTP 503 for https://github.com/…" } : {},
-    ),
-    missing("codex", "Codex"),
-  ];
-  let installTimer: ReturnType<typeof setInterval> | undefined;
+      ? [
+          missing("pi", "Pi", { adapted: "1.5.0" }),
+          missing("codex", "Codex", { adapted: "2.5.0" }),
+          claudeMissing,
+        ]
+      : [bundled("pi", "Pi", "1.5.0"), bundled("codex", "Codex", "2.5.0"), claudeMissing];
   const setAgents = (next: AgentView[]): AgentView[] => {
     agents = next;
     const ids = agents.filter((a) => a.state === "ready").map((a) => a.id);
@@ -216,7 +305,8 @@ function installFakeBridge(): void {
   };
   const patch = (id: string, change: Partial<AgentView>): AgentView[] =>
     setAgents(agents.map((a) => (a.id === id ? ({ ...a, ...change } as AgentView) : a)));
-  const reset = (a: AgentView): AgentView => missing(a.id, a.name);
+  const reset = (a: AgentView): AgentView =>
+    a.id === "claude" ? claudeMissing : missing(a.id, a.name);
 
   // The fake places models by a few names; the real rules are in packages/herder/src/model-guide.ts.
   let placed: Record<Tier, string[]> | null = null;
@@ -290,6 +380,27 @@ function installFakeBridge(): void {
     logoutLark: () => {
       lark = { state: "signed-out", version: "1.4.0" };
       return delay(lark);
+    },
+    pet: () => delay(pet),
+    petSay: (text) => {
+      if (!pet.connected)
+        return Promise.reject(new Error("AgentHerd 还没连上飞书，先在 App 里设置好"));
+      petLine({ kind: "owner", text });
+      emit({ topic: "pet", data: structuredClone(pet) });
+      setTimeout(() => petSays({ kind: "say", text: `收到：「${text}」。我这就去办。` }), 1200);
+      return delay(pet);
+    },
+    petPress: (target, action) => {
+      const card = pet.pending.find((p) => p.target === target);
+      if (card === undefined) return Promise.reject(new Error("这件事已经处理过了"));
+      pet = { ...pet, pending: pet.pending.filter((p) => p !== card) };
+      emit({ topic: "pet", data: structuredClone(pet) });
+      petSays({
+        kind: "task",
+        task: card.task ?? "",
+        text: action === "allow" ? "你同意了，继续干活。" : "好的，这步不做了。",
+      });
+      return delay(pet);
     },
     feeds: () => delay(feeds),
     setFeed: (source, on) => {
@@ -372,40 +483,29 @@ function installFakeBridge(): void {
     },
     agents: () => delay(agents),
     installAgent: (id) => {
-      const npm = id === "codex";
-      const total = npm ? 0 : 48_027_930;
+      const total = 87 * 1024 * 1024;
       let received = 0;
-      const current = agents.find((a) => a.id === id) as AgentView;
-      patch(id, { ...reset(current), state: "installing", progress: { received, total } });
-      installTimer = setInterval(() => {
-        received = npm ? received + 1 : Math.min(total, received + 4_000_000);
-        if (npm ? received < 8 : received < total) {
-          patch(id, { progress: { received: npm ? 0 : received, total } });
+      const tick = setInterval(() => {
+        received += total / 8;
+        if (agents.find((a) => a.id === id)?.state !== "installing") return clearInterval(tick);
+        if (received < total) {
+          patch(id, { progress: { received, total } });
           return;
         }
-        clearInterval(installTimer);
-        setAgents(
-          agents.map((a) =>
-            a.id === id
-              ? {
-                  id,
-                  name: a.name,
-                  state: "ready",
-                  source: "managed",
-                  version: "1.0.0",
-                  canInstall: true,
-                  canRemove: true,
-                }
-              : a,
-          ),
-        );
-      }, 300);
-      return delay(agents);
+        clearInterval(tick);
+        patch(id, {
+          state: "ready",
+          source: "managed",
+          version: "0.107.2",
+          path: `~/.agentherd/runtimes/${id}/0.107.2`,
+          progress: undefined,
+          canInstall: false,
+          canRemove: true,
+        });
+      }, 400);
+      return delay(patch(id, { state: "installing", progress: { received: 0, total } }));
     },
-    cancelInstall: (id) => {
-      clearInterval(installTimer);
-      return delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a))));
-    },
+    cancelInstall: (id) => delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a)))),
     removeAgent: (id) => delay(setAgents(agents.map((a) => (a.id === id ? reset(a) : a)))),
     verifyAgent: (id) => {
       const loginNeeded = false;
@@ -542,6 +642,47 @@ function installFakeBridge(): void {
       }
       return delay({ ok: true, reply: `你好，我是 ${ref.model}。` }, 900);
     },
+    subscriptions: () => delay(SAMPLE_SUBSCRIPTIONS),
+    startLogin: (provider, serviceId) => {
+      const vendor = SAMPLE_SUBSCRIPTIONS.find((v) => v.provider === provider);
+      if (vendor === undefined) return Promise.reject(new Error(`cannot sign in to "${provider}"`));
+      login = {
+        id: `login-${Date.now()}`,
+        provider,
+        serviceId,
+        status: "running",
+        ...(provider === "github-copilot"
+          ? { userCode: "8F2A-61C4", url: "https://github.com/login/device" }
+          : {
+              url: "https://auth.example.com/authorize",
+              instructions: "在浏览器里登录；如果没有自动跳回来，把地址栏里的代码贴到下面。",
+              prompt: { type: "manual_code", message: "粘贴登录后的代码", placeholder: "code" },
+            }),
+      };
+      const id = login.id;
+      if (provider === "github-copilot") {
+        setTimeout(() => {
+          if (login?.id === id && login.status === "running") finishLogin(vendor);
+        }, 4000);
+      }
+      return delay(structuredClone(login));
+    },
+    answerLogin: (id) => {
+      if (login?.id !== id) return Promise.reject(new Error("no such sign-in"));
+      const vendor = SAMPLE_SUBSCRIPTIONS.find((v) => v.provider === login?.provider);
+      login = { ...login, prompt: undefined, progress: "正在换取令牌…" };
+      emit({ topic: "login", data: structuredClone(login) });
+      setTimeout(() => {
+        if (vendor !== undefined) finishLogin(vendor);
+      }, 800);
+      return delay(structuredClone(login));
+    },
+    cancelLogin: (id) => {
+      if (login?.id !== id) return Promise.reject(new Error("no such sign-in"));
+      login = { ...login, status: "cancelled", prompt: undefined };
+      emit({ topic: "login", data: structuredClone(login) });
+      return delay(structuredClone(login));
+    },
     probeModels: (target) => {
       const saved = models.services.find((x) => x.id === target.serviceId);
       const base = (target.baseUrl ?? saved?.baseUrl ?? "").replace(/\/+$/, "");
@@ -603,7 +744,8 @@ function installFakeBridge(): void {
         const { obsidianVault: _, ...kept } = status;
         status = obsidianVault === "" ? kept : { ...kept, obsidianVault };
       }
-      status = { ...status, ...rest };
+      const { pet: petPatch, ...others } = rest;
+      status = { ...status, ...others, pet: { ...status.pet, ...petPatch } };
       emit({ topic: "status", data: structuredClone(status) });
       return delay(status);
     },

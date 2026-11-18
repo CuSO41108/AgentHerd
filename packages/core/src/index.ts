@@ -1,7 +1,13 @@
 export type { AppCall } from "./app-calls.ts";
 export { approveAppCalls } from "./app-calls.ts";
 export type { BoardOptions } from "./board.ts";
-export { BOARD_DEBOUNCE_MS, BOARD_MAX_ROWS, Board, boardView } from "./board.ts";
+export {
+  BOARD_DEBOUNCE_MS,
+  BOARD_ENDED_KEEP_MS,
+  BOARD_MAX_ROWS,
+  Board,
+  boardView,
+} from "./board.ts";
 export type { Clock, Timer } from "./clock.ts";
 export { FakeClock, systemClock } from "./clock.ts";
 export type { Command } from "./commands.ts";
@@ -108,6 +114,7 @@ export {
   chooseModel,
   emptyModelSettings,
   formatModelRef,
+  isSubscription,
   MODEL_ROLES,
   type ModelRef,
   type ModelRole,
@@ -115,6 +122,7 @@ export {
   type ModelSettings,
   modelFor,
   modelKeyAccount,
+  modelLoginAccount,
   parseModelRef,
   putService,
   removeService,

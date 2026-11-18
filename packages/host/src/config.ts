@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ModelSettings, SecretStore } from "@agentherd/core";
 import type { ModelTiers } from "@agentherd/herder";
-import type { AgentProfile, ChannelBinding, HerderStyle, Locale, Mode } from "@agentherd/protocol";
+import type { AgentProfile, ChannelBinding, Locale, Mode } from "@agentherd/protocol";
 
 export interface CliConfig {
   channel?: ChannelBinding;
@@ -19,8 +19,6 @@ export interface CliConfig {
   models?: ModelSettings;
   /** Keep the Mac awake while tasks run (desktop app). */
   keepAwake?: boolean;
-  /** How the Herder talks to the owner (ADR 0053); missing means the default style. */
-  herderStyle?: HerderStyle;
   /** Where the owner dragged models to (ADR 0028); models not here are placed by name. */
   modelTiers?: Partial<ModelTiers>;
   /** Connected apps (docs/spec/09-agent-tools.md §3). The Composio key is in secrets.json. */
@@ -31,6 +29,8 @@ export interface CliConfig {
   feedsOff?: ("github-trending" | "hacker-news" | "arxiv")[];
   /** The owner's Obsidian vault, told to every new task (ADR 0059). */
   obsidianVault?: string;
+  /** The desktop pet (ADR 0070); DEFAULT_PET where missing. */
+  pet?: Partial<import("./api.ts").PetSettings>;
 }
 
 export function agentherdHome(env: NodeJS.ProcessEnv = process.env): string {

@@ -22,10 +22,9 @@ flowchart TB
     DB[("herd.db")]
   end
   subgraph Bottom["Agents (bottom)"]
-    A1["dsh acp"]
-    A2["claude-agent-acp"]
-    A3["codex-acp"]
-    A4["any ACP agent"]
+    A1["pi-acp (Pi)"]
+    A2["codex-acp"]
+    A3["any ACP agent"]
     CFG["Agents' own permission configs<br/>(for terminal sessions)"]
   end
   UI["Desktop app (manage only)"]
@@ -33,7 +32,7 @@ flowchart TB
   INB <--> HD
   HD --> RULES
   HD <--> REG <--> ACPC
-  ACPC <-- "ACP over stdio" --> A1 & A2 & A3 & A4
+  ACPC <-- "ACP over stdio" --> A1 & A2 & A3
   RULES --> EXP -- "write own block" --> CFG
   UI <-- "local API" --> REG & RULES & INB
   REG & HD & INB --> DB
@@ -111,7 +110,9 @@ Rules:
   `testModel`, `probeModels` (GET `/models` of an OpenAI- or Anthropic-compatible service, so
   the owner ticks models instead of typing ids), `setupFeishu`, `cancelSetup`, `setupState`,
   `updateSettings`, `transcript` (a task's conversation), `herderActivity` (what the Herder did,
-  see 08 §6). Later: `rule.*`, `export.*`.
+  see 08 §6), `pet`, `petSay`, `petPress` (the desktop pet, ADR 0070: what it shows, and the
+  owner's message or button press, delivered to the herd as if from the channel). Later:
+  `rule.*`, `export.*`.
 
 ## 5. Storage
 
@@ -126,7 +127,9 @@ All state is under `~/.agentherd/` (overridable by `AGENTHERD_HOME`):
 | `backups/` | Copies of agent config files before each export |
 
 Secrets (Feishu App Secret, model API keys) are stored in `<home>/secrets.json` (mode 600, in
-the mode 700 home), keyed `feishu:<appId>` and `model:<serviceId>`. Not the macOS keychain: the
+the mode 700 home), keyed `feishu:<appId>`, `model:<serviceId>` and, for a service signed in with
+a plan (ADR 0068), `model-login:<serviceId>` (the vendor's refresh and access tokens; agents only
+get a short token per request). Not the macOS keychain: the
 owner did not want them there, and its per-program access prompts appeared every time a different
 binary (node, Electron) read an item. The host process holds them, so the desktop app and the CLI
 share them; the renderer and

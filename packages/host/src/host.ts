@@ -1,6 +1,7 @@
 // The AgentHerd host: owns the config, the Herd, the Herder and the channel, and answers the local
 // API (./api.ts). `agentherd start` and the desktop app both run one host; only one per home.
 
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import {
   FEED_SOURCES,
   type GhRun,
   Herd,
+  isSubscription,
   type JsonRpcMessage,
   type ModelRef,
   type ModelRole,
@@ -26,25 +28,29 @@ import {
 import {
   activityTurns,
   agentForModel,
-  builtinBaseUrls,
   builtinProviders,
   fallbackOrder,
   herderFromSettings,
-  isGptModel,
+  LOGIN_FIELD,
+  loginsFor,
   MemoryWorker,
   memoryModel,
   modelChoices,
   modelLaunchFor,
+  PI_MODEL_ENV,
   piModelEnv,
   placeModels,
+  requestStream,
   resolveModel,
   serviceKey,
+  serviceReady,
+  subscriptionProviders,
   TIERS,
   type TierPlacement,
   testModel,
 } from "@agentherd/herder";
 import type { AgentProfile, Channel, Locale, Mode, SetupUI } from "@agentherd/protocol";
-import { DEFAULT_HERDER_STYLE, DEFAULT_LOCALE, HERDER_STYLES } from "@agentherd/protocol";
+import { DEFAULT_LOCALE } from "@agentherd/protocol";
 import QRCode from "qrcode";
 import { Agents } from "./agents.ts";
 import type {
@@ -60,11 +66,16 @@ import type {
   ItemSummary,
   LarkLogin,
   LarkView,
+  LoginView,
   MemoryView,
   ModelProbe,
   ModelsView,
   ModelTest,
   ModelTiersView,
+  PetFigure,
+  PetLine,
+  PetSettings,
+  PetView,
   ProbeTarget,
   ProviderView,
   SchedulesView,
@@ -75,20 +86,24 @@ import type {
   SocialPlatform,
   SocialTest,
   SocialView,
+  SubscriptionView,
   TasksView,
   Tier,
   TranscriptView,
   WatchView,
 } from "./api.ts";
+import { DEFAULT_PET, PET_FIGURES } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
+import { withClaudeHome } from "./claude-home.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
-import { dshPatchArgs, writeDshPatch } from "./dsh-patch.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
+import { LoginRun } from "./model-logins.ts";
+import { historyOf, PET_HISTORY_MAX, PetFeed } from "./pet.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -110,11 +125,6 @@ export const AGENT_DOWN_MS = 30 * 60_000;
 
 export interface HostOptions {
   home: string;
-  /**
-   * Download the agents the model list needs (ADR 0031): Pi always, Codex when a GPT model is in
-   * the list. Off in tests.
-   */
-  autoInstallAgents?: boolean;
   /** Run background memory jobs (task cases, reviews) with a cheap model. Off in tests. */
   memoryJobs?: boolean;
   userHome?: string;
@@ -128,10 +138,13 @@ export interface HostOptions {
   /** Profiles override (tests). Default: availableProfiles(). */
   profiles?: () => AgentProfile[];
   log?: (line: string) => void;
-  /** Where downloaded agent CLIs go. Default: <home>/runtimes. */
+  /** The agents that ship with the app (ADR 0067), in RuntimeStore layout. */
+  agentsDir?: string;
+  /** Agent copies an older app downloaded. Default: <home>/runtimes. */
   runtimes?: RuntimeStore;
-  /** Agent definitions and release lookups (tests). Default: catalog.ts. */
+  /** Agent definitions (tests). Default: catalog.ts. */
   catalog?: AgentDef[];
+  /** Release lookups for agents downloaded on request (tests). Default: catalog.ts. */
   fetchers?: Fetchers;
   /** HTTP for probeModels (tests). Default: global fetch. */
   fetch?: typeof fetch;
@@ -141,8 +154,6 @@ export interface HostOptions {
   exists?: (path: string) => boolean;
   /** Options for verifyAgent (tests). */
   verify?: VerifyOptions;
-  /** The DeepSeek Harness app's CLI (tests). */
-  dshApp?: string;
   /** The MCP socket agents reach the gateway on (mcp-socket.ts). Without it, agents get none. */
   mcpSocket?: string;
 }
@@ -153,6 +164,11 @@ const HERDER_ACTIVITY_TURNS = 200;
 const HERDER_INCIDENTS_MAX = 2000;
 /** Herder audit kinds the turns already show. */
 const HERDER_ROUTINE = new Set(["herder.turn", "herder.tool", "herder.answer"]);
+
+/** The JSON-RPC method Pi's login extension calls (packages/pi-acp/extension/login.ts). */
+const MODEL_AUTH_METHOD = "agentherd/modelAuth";
+const PI_AUTH_SOCKET_ENV = "AGENTHERD_PI_AUTH_SOCKET";
+const PI_AUTH_TOKEN_ENV = "AGENTHERD_PI_AUTH_TOKEN";
 
 export class Host implements HostApi {
   private readonly opts: HostOptions;
@@ -166,6 +182,10 @@ export class Host implements HostApi {
   private channelError: string | undefined;
   private herderReason: string | undefined;
   private herderRef: string | undefined;
+  /** The running or last subscription sign-in (ADR 0068). */
+  private loginRun: LoginRun | undefined;
+  /** Socket tokens Pi uses to ask for a subscription token, by the service they may ask for. */
+  private readonly modelGrants = new Map<string, string>();
   private readonly modelChecks = new Map<
     string,
     { result: { ok: true } | { ok: false; message: string }; until: number }
@@ -184,17 +204,20 @@ export class Host implements HostApi {
   /** 飞书 through lark-cli, and the news sources (ADR 0059). */
   private readonly larkCli: Lark;
   private readonly feedList: Feeds;
+  /** What the desktop pet sees of the chat (ADR 0070). */
+  private readonly petFeed: PetFeed;
 
   constructor(opts: HostOptions) {
     this.opts = opts;
     this.agentList = new Agents({
-      store: opts.runtimes ?? new RuntimeStore(join(opts.home, "runtimes")),
+      ...(opts.agentsDir === undefined ? {} : { bundled: new RuntimeStore(opts.agentsDir) }),
+      downloaded: opts.runtimes ?? new RuntimeStore(join(opts.home, "runtimes")),
       ...(opts.env === undefined ? {} : { env: { ...process.env, ...opts.env } }),
       ...(opts.catalog === undefined ? {} : { catalog: opts.catalog }),
+      ...(opts.exists === undefined ? {} : { exists: opts.exists }),
       ...(opts.fetchers === undefined ? {} : { fetchers: opts.fetchers }),
       ...(opts.target === undefined ? {} : { target: opts.target }),
-      ...(opts.exists === undefined ? {} : { exists: opts.exists }),
-      ...(opts.dshApp === undefined ? {} : { dshApp: opts.dshApp }),
+      ...(opts.userHome === undefined ? {} : { userHome: opts.userHome }),
       onChange: () => this.agentsChanged(),
       log: (line) => this.log(line),
     });
@@ -203,6 +226,13 @@ export class Host implements HostApi {
       userId: () => this.composioUserId(),
       emit: (data) => this.emit({ topic: "apps", data }),
       log: (line) => this.log(line),
+    });
+    this.petFeed = new PetFeed({
+      changed: () => this.emit({ topic: "pet", data: this.pet() }),
+      echo: (text) =>
+        (this.config().locale ?? DEFAULT_LOCALE) === "en"
+          ? `(said to the desktop pet) ${text}`
+          : `（在桌宠里说）${text}`,
     });
     this.socialList = new Socials({
       home: opts.home,
@@ -385,33 +415,10 @@ export class Host implements HostApi {
 
   private saveSettings(models: ModelSettings): void {
     writeConfig(this.opts.home, { ...this.config(), models });
-    this.installNeededAgents();
-  }
-
-  /** Agents the model list needs: Pi always, Codex when a GPT model is listed (ADR 0031). */
-  neededAgents(): string[] {
-    const gpt = this.settings().services.some((s) => s.models.some((m) => isGptModel(m)));
-    return gpt ? ["pi", "codex"] : ["pi"];
-  }
-
-  private installNeededAgents(): void {
-    if (this.opts.autoInstallAgents !== true || this.stopped) return;
-    const views = this.agentList.views([], {});
-    for (const id of this.neededAgents()) {
-      const view = views.find((v) => v.id === id);
-      if (view?.state !== "missing" || !view.canInstall || view.error !== undefined) continue;
-      this.log(`[agents] downloading ${id}, which the model list needs`);
-      try {
-        this.agentList.install(id);
-      } catch (error) {
-        this.log(`[agents] could not download ${id}: ${(error as Error).message}`);
-      }
-    }
   }
 
   /** Starts following tasks if a channel is bound. */
   async start(): Promise<void> {
-    this.installNeededAgents();
     void this.appList.load();
     this.socialList.start();
     await this.restartHerd();
@@ -419,8 +426,36 @@ export class Host implements HostApi {
 
   /** One message from an agent's `agentherd` MCP server, for the running herd. */
   mcp(token: string, msg: JsonRpcMessage): Promise<JsonRpcMessage | undefined> {
+    const granted = this.modelGrants.get(token);
+    if (granted !== undefined) return this.modelAuth(granted, msg);
     if (this.herd === undefined) throw new UnknownTokenError();
     return this.herd.mcp(token, msg);
+  }
+
+  /**
+   * A short-lived token for Pi's next request to a subscription model (ADR 0068). The grant
+   * names one service; Pi never gets the refresh token.
+   */
+  private async modelAuth(
+    serviceId: string,
+    msg: JsonRpcMessage,
+  ): Promise<JsonRpcMessage | undefined> {
+    if (msg.method === "notifications/hello") return undefined;
+    const id = msg.id ?? null;
+    const params = (msg.params ?? {}) as { service?: unknown };
+    if (msg.method !== MODEL_AUTH_METHOD || params.service !== serviceId) {
+      return { jsonrpc: "2.0", id, error: { code: -32601, message: "not allowed" } };
+    }
+    const service = this.settings().services.find((s) => s.id === serviceId);
+    if (service === undefined) {
+      return { jsonrpc: "2.0", id, error: { code: -32000, message: `no service "${serviceId}"` } };
+    }
+    try {
+      const auth = await loginsFor(this.opts.secrets).auth(service);
+      return { jsonrpc: "2.0", id, result: auth };
+    } catch (error) {
+      return { jsonrpc: "2.0", id, error: { code: -32000, message: (error as Error).message } };
+    }
   }
 
   async stop(): Promise<void> {
@@ -460,19 +495,11 @@ export class Host implements HostApi {
     const herd = new Herd({
       home: this.opts.home,
       userHome: this.opts.userHome ?? homedir(),
-      channel: this.opts.createChannel(locale),
+      channel: this.petFeed.wrap(this.opts.createChannel(locale)),
       binding: config.channel,
       mode: config.mode ?? "assist",
       locale,
       profiles: this.herdProfiles(),
-      // Read on every use, so a change from the settings page or the chat applies at once.
-      herderStyle: {
-        get: () => this.config().herderStyle ?? DEFAULT_HERDER_STYLE,
-        set: (style) => {
-          writeConfig(this.opts.home, { ...this.config(), herderStyle: style });
-          this.emitStatus();
-        },
-      },
       github: { run: this.opts.gh ?? runGh(withSystemProxy()) },
       socials: () => this.socialList.sources(),
       feeds: {
@@ -481,6 +508,7 @@ export class Host implements HostApi {
       },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
+      herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -504,13 +532,9 @@ export class Host implements HostApi {
             ref,
             this.opts.env,
           );
-          const env =
-            profileId === "codex" ? withCodexHome(this.opts.home, launch.env) : launch.env;
-          if (launch.dshPatch === undefined) return { env };
-          return {
-            env,
-            args: dshPatchArgs(writeDshPatch(this.opts.home, launch.dshPatch)),
-          };
+          if (profileId === "codex") return { env: withCodexHome(this.opts.home, launch.env) };
+          if (profileId === "claude") return { env: withClaudeHome(this.opts.home, launch.env) };
+          return { env: this.withModelGrant(launch.env) };
         },
         check: (ref) => this.checkModel(ref),
         next: (profileId, failed, tried) => this.nextModel(profileId, failed, tried),
@@ -626,6 +650,11 @@ export class Host implements HostApi {
     return this.agents();
   }
 
+  /** Waits for agent downloads (tests). */
+  agentsIdle(): Promise<void> {
+    return this.agentList.idle();
+  }
+
   removeAgent(id: string): AgentView[] {
     this.agentList.remove(id);
     return this.agents();
@@ -641,14 +670,15 @@ export class Host implements HostApi {
     return check;
   }
 
-  /** Waits for agent downloads (tests). */
-  agentsIdle(): Promise<void> {
-    return this.agentList.idle();
-  }
-
   private herderFactory() {
-    const choice = herderFromSettings(this.settings(), this.opts.secrets, this.opts.env, () =>
-      this.placement(),
+    const gh = this.opts.gh ?? runGh(withSystemProxy());
+    const choice = herderFromSettings(
+      this.settings(),
+      this.opts.secrets,
+      this.opts.env,
+      () => this.placement(),
+      // The owner's own GitHub sign-in, when there is one, lifts GitHub's limit (ADR 0071).
+      { githubToken: () => gh(["auth", "token"]) },
     );
     return "factory" in choice ? choice.factory : undefined;
   }
@@ -708,10 +738,37 @@ export class Host implements HostApi {
       mode: this.herd?.getMode() ?? config.mode ?? "assist",
       locale: config.locale ?? DEFAULT_LOCALE,
       keepAwake: config.keepAwake ?? false,
-      herderStyle: config.herderStyle ?? DEFAULT_HERDER_STYLE,
       ...(config.obsidianVault ? { obsidianVault: config.obsidianVault } : {}),
       profiles: this.profileList.map((p) => p.id),
+      pet: petSettings(config),
     };
+  }
+
+  pet(): PetView {
+    const last = this.petFeed.last;
+    return {
+      connected: this.petFeed.connected,
+      ...(last === undefined ? {} : { last }),
+      pending: this.petFeed.pending(),
+      history: this.petHistory(),
+    };
+  }
+
+  /** The Herder's conversation as herd.db keeps it: it reaches back past restarts. */
+  private petHistory(): PetLine[] {
+    const store = this.herd?.store;
+    if (store === undefined) return [];
+    return historyOf(store.herderTurns(PET_HISTORY_MAX), (id) => store.task(id)?.task.title);
+  }
+
+  async petSay(text: string): Promise<PetView> {
+    await this.petFeed.say(text);
+    return this.pet();
+  }
+
+  async petPress(target: string, action: string): Promise<PetView> {
+    await this.petFeed.press(target, action);
+    return this.pet();
   }
 
   tasks(): TasksView {
@@ -833,12 +890,28 @@ export class Host implements HostApi {
     return builtinProviders();
   }
 
+  /** Pi with a subscription model gets a socket and a token to ask for its tokens on. */
+  private withModelGrant(env: Record<string, string>): Record<string, string> {
+    const raw = env[PI_MODEL_ENV];
+    if (raw === undefined || this.opts.mcpSocket === undefined) return env;
+    let service: unknown;
+    try {
+      service = (JSON.parse(raw) as Record<string, unknown>)[LOGIN_FIELD];
+    } catch {
+      return env;
+    }
+    if (typeof service !== "string") return env;
+    const token = randomBytes(24).toString("hex");
+    this.modelGrants.set(token, service);
+    return { ...env, [PI_AUTH_SOCKET_ENV]: this.opts.mcpSocket, [PI_AUTH_TOKEN_ENV]: token };
+  }
+
   models(): ModelsView {
     const settings = this.settings();
     return {
       services: settings.services.map((s) => ({
         ...s,
-        hasKey: serviceKey(s, this.opts.secrets, this.opts.env) !== undefined,
+        hasKey: serviceReady(s, this.opts.secrets, this.opts.env),
       })),
       roles: settings.roles,
     };
@@ -855,6 +928,7 @@ export class Host implements HostApi {
   async removeService(serviceId: string): Promise<ModelsView> {
     this.saveSettings(removeService(this.settings(), serviceId));
     this.opts.secrets.delete(modelKeyAccount(serviceId));
+    loginsFor(this.opts.secrets).logout(serviceId);
     await this.applyModels();
     return this.models();
   }
@@ -880,13 +954,74 @@ export class Host implements HostApi {
     const service = this.settings().services.find((s) => s.id === ref.serviceId);
     if (service === undefined) return { ok: false, message: `no service "${ref.serviceId}"` };
     try {
+      if (!serviceReady(service, this.opts.secrets, this.opts.env) && isSubscription(service)) {
+        return { ok: false, message: `service "${service.id}" is not signed in` };
+      }
       return await testModel(
         resolveModel(service, ref.model),
         serviceKey(service, this.opts.secrets, this.opts.env),
+        undefined,
+        requestStream(this.opts.secrets, () => this.settings().services),
       );
     } catch (error) {
       return { ok: false, message: (error as Error).message };
     }
+  }
+
+  subscriptions(): SubscriptionView[] {
+    return subscriptionProviders();
+  }
+
+  startLogin(provider: string, serviceId: string, name?: string): LoginView {
+    const vendor = subscriptionProviders().find((p) => p.provider === provider);
+    if (vendor === undefined) throw new Error(`cannot sign in to "${provider}"`);
+    const id = serviceId.trim();
+    if (id === "") throw new Error("service id is empty");
+    const other = this.settings().services.find((s) => s.id === id);
+    if (other !== undefined && (!isSubscription(other) || other.provider !== provider)) {
+      throw new Error(`service "${id}" already exists`);
+    }
+    this.loginRun?.cancel();
+    const run = new LoginRun({
+      serviceId: id,
+      provider,
+      run: (interaction) => loginsFor(this.opts.secrets).login(id, provider, interaction),
+      done: async (models) => {
+        const keep = other?.models.filter((m) => models.includes(m)) ?? [];
+        await this.putService({
+          id,
+          name: name?.trim() || other?.name || vendor.name,
+          kind: "builtin",
+          provider,
+          auth: "subscription",
+          models: keep.length > 0 ? keep : models,
+        });
+        // Same service, new account: the Herder must ask with the new sign-in.
+        this.herderRef = undefined;
+        await this.applyModels();
+      },
+      changed: (data) => this.emit({ topic: "login", data }),
+    });
+    this.loginRun = run;
+    run.start();
+    return run.view();
+  }
+
+  answerLogin(id: string, value: string): LoginView {
+    const run = this.currentLogin(id);
+    run.answer(value);
+    return run.view();
+  }
+
+  cancelLogin(id: string): LoginView {
+    const run = this.currentLogin(id);
+    run.cancel();
+    return run.view();
+  }
+
+  private currentLogin(id: string): LoginRun {
+    if (this.loginRun?.id !== id) throw new Error("no such sign-in");
+    return this.loginRun;
   }
 
   async probeModels(target: ProbeTarget): Promise<ModelProbe> {
@@ -988,13 +1123,13 @@ export class Host implements HostApi {
       this.herd?.setMode(patch.mode);
     }
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
-    if (patch.herderStyle !== undefined) {
-      if (!HERDER_STYLES.includes(patch.herderStyle)) {
-        throw new Error(
-          `herderStyle must be one of ${HERDER_STYLES.join(", ")}, not "${patch.herderStyle}"`,
-        );
+    if (patch.pet !== undefined) {
+      const pet: PetSettings = { ...petSettings(config), ...patch.pet };
+      if (typeof pet.on !== "boolean") throw new Error("pet.on must be true or false");
+      if (!PET_FIGURES.includes(pet.figure)) {
+        throw new Error(`pet.figure must be one of ${PET_FIGURES.join(", ")}`);
       }
-      next.herderStyle = patch.herderStyle;
+      next.pet = pet;
     }
     if (patch.obsidianVault !== undefined) {
       const vault = patch.obsidianVault.trim().replace(/^~(?=[/\\]|$)/, homedir());
@@ -1040,7 +1175,8 @@ export class Host implements HostApi {
   }
 
   /**
-   * After `failed` broke a task before it acted: Codex hands the same model to Pi (ADR 0031);
+   * After `failed` broke a task before it acted: Codex and Claude Code hand the same model to Pi
+   * (ADR 0031, 0069);
    * otherwise the next model in fallback order that answers (ADR 0030), in the agent that model
    * gets.
    */
@@ -1050,8 +1186,8 @@ export class Host implements HostApi {
     tried: readonly string[],
   ): Promise<{ profileId: string; model: string } | undefined> {
     const ids = this.profileList.map((p) => p.id);
-    if (profileId === "codex" && ids.includes("pi")) {
-      this.agentDown("codex");
+    if ((profileId === "codex" || profileId === "claude") && ids.includes("pi")) {
+      this.agentDown(profileId);
       return { profileId: "pi", model: failed };
     }
     this.modelChecks.set(failed, {
@@ -1059,7 +1195,7 @@ export class Host implements HostApi {
       until: Date.now() + 120_000,
     });
     const choices = modelChoices(this.settings(), ids);
-    const auto = profileId === "pi" || profileId === "codex";
+    const auto = profileId === "pi" || profileId === "codex" || profileId === "claude";
     for (const ref of fallbackOrder(
       choices,
       failed,
@@ -1068,7 +1204,11 @@ export class Host implements HostApi {
     )) {
       if (tried.includes(ref)) continue;
       if ((await this.checkModel(ref)).ok) {
-        return { profileId: auto ? agentForModel(ref, ids) : profileId, model: ref };
+        const runners = choices.find((c) => c.ref === ref)?.agents;
+        return {
+          profileId: auto ? agentForModel(ref, ids, profileId === "claude", runners) : profileId,
+          model: ref,
+        };
       }
     }
     return undefined;
@@ -1111,7 +1251,17 @@ function cleanService(s: ModelService): ModelService {
     models: s.models.map((m) => m.trim()).filter((m) => m !== ""),
   };
   if (s.kind === "builtin" && s.provider !== undefined) base.provider = s.provider;
+  if (s.kind === "builtin" && s.auth === "subscription") base.auth = "subscription";
   if (s.kind === "openai-compatible" && s.baseUrl !== undefined) base.baseUrl = s.baseUrl.trim();
   if (s.kind === "openai-compatible" && s.api === "anthropic-messages") base.api = s.api;
   return base;
+}
+
+/** The pet settings with defaults filled in; an unknown figure falls back to the default. */
+function petSettings(config: CliConfig): PetSettings {
+  const saved = config.pet ?? {};
+  const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
+    ? (saved.figure as PetFigure)
+    : DEFAULT_PET.figure;
+  return { on: typeof saved.on === "boolean" ? saved.on : DEFAULT_PET.on, figure };
 }

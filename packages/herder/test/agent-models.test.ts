@@ -5,7 +5,6 @@ import {
   agentModelEnv,
   CODEX_KEY_ENV,
   codexCanRun,
-  DSH_KEY_ENV,
   isGptModel,
   modelChoices,
   modelEnvFor,
@@ -46,12 +45,12 @@ function secrets(values: Record<string, string>): SecretStore {
 
 describe("agent models", () => {
   it("lists which agents can run each model", () => {
-    const choices = modelChoices(settings, ["dsh", "pi", "codex"]);
+    const choices = modelChoices(settings, ["pi", "codex", "claude"]);
     expect(choices).toEqual([
-      { ref: "deepseek/deepseek-v4-pro", agents: ["dsh", "pi"] },
-      { ref: "anthropic/claude-sonnet-4-5", agents: ["dsh", "pi"] },
-      { ref: "gw/m1", agents: ["dsh", "pi", "codex"] },
-      { ref: "gw/gpt-6.1-sol", agents: ["dsh", "pi", "codex"] },
+      { ref: "deepseek/deepseek-v4-pro", agents: ["pi"] },
+      { ref: "anthropic/claude-sonnet-4-5", agents: ["pi", "claude"] },
+      { ref: "gw/m1", agents: ["pi", "codex"] },
+      { ref: "gw/gpt-6.1-sol", agents: ["pi", "codex"] },
     ]);
   });
 
@@ -62,11 +61,22 @@ describe("agent models", () => {
     for (const id of ["deepseek-v4-pro", "claude-opus-5-5", "glm-5.3", "gemini-pro", "kimi-k3"]) {
       expect(isGptModel(id)).toBe(false);
     }
-    expect(agentForModel("gw/gpt-6.1-sol", ["dsh", "pi", "codex"])).toBe("codex");
-    expect(agentForModel("gw/gpt-6.1-sol", ["dsh", "pi"])).toBe("pi");
+    expect(agentForModel("gw/gpt-6.1-sol", ["pi", "codex"])).toBe("codex");
+    expect(agentForModel("gw/gpt-6.1-sol", ["pi"])).toBe("pi");
     expect(agentForModel("deepseek/deepseek-v4-pro", ["pi", "codex"])).toBe("pi");
-    expect(agentForModel(undefined, ["dsh", "pi", "codex"])).toBe("pi");
+    expect(agentForModel(undefined, ["pi", "codex"])).toBe("pi");
     expect(() => agentForModel(undefined, [])).toThrow(/no agent/);
+  });
+
+  it("gives hard coding tasks to Claude Code when it runs the model; GPT still goes to Codex (ADR 0066)", () => {
+    const ids = ["pi", "codex", "claude"];
+    const ref = "anthropic/claude-sonnet-4-5";
+    expect(agentForModel(ref, ids, true, ["pi", "claude"])).toBe("claude");
+    expect(agentForModel(ref, ids, false, ["pi", "claude"])).toBe("pi");
+    // Claude Code cannot run it, or is not installed: Pi.
+    expect(agentForModel("deepseek/deepseek-v4-pro", ids, true, ["pi"])).toBe("pi");
+    expect(agentForModel(ref, ["pi", "codex"], true, ["pi", "claude"])).toBe("pi");
+    expect(agentForModel("gw/gpt-6.1-sol", ids, true, ["pi", "codex", "claude"])).toBe("codex");
   });
 
   it("builds the env of each agent, with the key in its own variable", () => {
@@ -94,32 +104,22 @@ describe("agent models", () => {
     expect(codex?.MODEL_PROVIDER).toBe("agentherd");
     expect(codex?.CODEX_CONFIG).not.toContain("k1");
     expect(codex?.[CODEX_KEY_ENV]).toBe("k1");
-    expect(agentModelEnv("dsh", model, "k1")).toEqual({ [DSH_KEY_ENV]: "k1" });
-    expect(agentModelEnv("dsh", { ...model, api: "google-generative-ai" }, "k1")).toBeUndefined();
+    // Claude Code only takes Anthropic-style models.
+    expect(agentModelEnv("claude", model, "k1")).toBeUndefined();
   });
 
-  it("hands DSH the model as a patch overlay that holds no key", () => {
-    const store = secrets({ "model:gw": "sk-gw" });
-    const launch = modelLaunchFor(settings, store, "dsh", "gw/m1", {});
-    expect(launch.env).toEqual({ [DSH_KEY_ENV]: "sk-gw" });
-    expect(JSON.stringify(launch.dshPatch)).not.toContain("sk-gw");
-    expect(launch.dshPatch).toEqual([
-      {
-        id: "llm-pi-ai",
-        config: {
-          providers: {
-            agentherd: expect.objectContaining({
-              apiKeyEnv: DSH_KEY_ENV,
-              api: "openai-completions",
-              baseURL: "https://gw.example/v1",
-              models: [expect.objectContaining({ id: "m1" })],
-            }),
-          },
-        },
-      },
-      { id: "acp", config: { provider: "agentherd", model: "m1" } },
-    ]);
-    expect(modelLaunchFor(settings, store, "pi", "gw/m1", {}).dshPatch).toBeUndefined();
+  it("hands Claude Code the model, the key and every model alias in env (ADR 0066)", () => {
+    const store = secrets({ "model:anthropic": "sk-ant" });
+    const launch = modelLaunchFor(settings, store, "claude", "anthropic/claude-sonnet-4-5", {});
+    expect(launch.env).toMatchObject({
+      ANTHROPIC_API_KEY: "sk-ant",
+      ANTHROPIC_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_SMALL_FAST_MODEL: "claude-sonnet-4-5",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    });
+    expect(launch.env.ANTHROPIC_BASE_URL).toMatch(/^https:\/\/api\.anthropic\.com/);
+    expect(() => modelLaunchFor(settings, store, "claude", "gw/m1", {})).toThrow(/cannot run/);
   });
 
   it("Codex runs any model of the owner's own services, but not built-ins without Responses", () => {

@@ -1,15 +1,22 @@
-// The agents the owner can run, where each CLI comes from, and downloads of their latest releases
-// (catalog.ts, runtimes.ts). The host keeps one Agents and rebuilds profiles when it changes.
+// The agents the owner can run and where each CLI comes from: the copy that ships inside the app
+// (ADR 0067), at the version AgentHerd is adapted to (catalog.ts), a CLI the owner names, or one
+// on PATH. Claude Code is not in the app (ADR 0069): the owner's own `claude` runs it, and the app
+// downloads the adapted version only when the owner asks (no updates, no downloads on its own).
+// The host keeps one Agents and rebuilds profiles when it changes.
 
 import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentProfile } from "@agentherd/protocol";
 import type { AgentSource, AgentView } from "./api.ts";
 import { AGENTS, type AgentDef, type Fetchers, httpFetchers, npmRuntime } from "./catalog.ts";
-import { agentEnv, codexAppClis, dshAppBins, envValue, onPath } from "./profiles.ts";
+import { agentEnv, CLAUDE_EXECUTABLE_ENV, codexAppClis, envValue, onPath } from "./profiles.ts";
 import { currentTarget, type InstallProgress, type RuntimeStore } from "./runtimes.ts";
 
 export interface AgentsOptions {
-  store: RuntimeStore;
+  /** The agents that ship with the app (Resources/agents; scripts/fetch-agents.ts in dev). */
+  bundled?: RuntimeStore;
+  /** Downloads on the owner's computer (<home>/runtimes): Claude Code, and an older app's copies. */
+  downloaded?: RuntimeStore;
   env?: NodeJS.ProcessEnv;
   /** Agent definitions (tests pass local ones). */
   catalog?: AgentDef[];
@@ -18,10 +25,10 @@ export interface AgentsOptions {
   exists?: (path: string) => boolean;
   /** Default: process.platform (decides how PATH is searched). */
   platform?: NodeJS.Platform;
-  /** The DeepSeek Harness desktop app's CLI, when installed. */
-  dshApp?: string;
   /** The Codex desktop app's CLI candidates. Default: codexAppClis(platform). */
   codexApps?: string[];
+  /** The owner's home (where Anthropic's installer puts `claude`). Default: os.homedir(). */
+  userHome?: string;
   onChange: () => void;
   log?: (line: string) => void;
 }
@@ -54,49 +61,58 @@ export class Agents {
     return this.opts.env ?? process.env;
   }
 
+  private get target(): string {
+    return this.opts.target ?? currentTarget();
+  }
+
   private exists(path: string): boolean {
     return (this.opts.exists ?? existsSync)(path);
   }
 
-  /** Where `id` runs from: its env variable, then the app's download, then PATH and the DSH app. */
+  /**
+   * Where `id` runs from: its env variable, the copy in the app, a download on this computer,
+   * then PATH.
+   */
   find(id: string): AgentPath | undefined {
     const def = this.catalog.find((d) => d.id === id);
     if (def === undefined) return undefined;
     const explicit = envValue(this.env, def.envVar);
     if (explicit !== undefined && explicit !== "") return { path: explicit, source: "system" };
-    const managed = this.opts.store.installed(id);
-    if (managed !== undefined) {
-      return { path: managed.path, source: "managed", version: managed.version };
+    const bundled = this.opts.bundled?.installed(id);
+    if (bundled !== undefined) {
+      return { path: bundled.path, source: "bundled", version: bundled.version };
     }
-    const platform = this.opts.platform ?? process.platform;
-    const app = (): AgentPath | undefined => {
-      if (id !== "dsh") return undefined;
-      const path = this.dshApps(platform).find((p) => this.exists(p));
-      return path === undefined ? undefined : { path, source: "app" };
-    };
-    // On Windows the app comes first: the `dsh` on PATH is usually the npm launcher, which
-    // lacks the `acp` profile unless installed separately (see findAgent).
-    if (platform === "win32") {
-      const fromApp = app();
-      if (fromApp !== undefined) return fromApp;
+    const downloaded = this.opts.downloaded?.installed(id);
+    // A download without its CLI build runs only with the owner's own CLI (extraEnv).
+    if (downloaded !== undefined && this.runnable(def, downloaded.version)) {
+      return { path: downloaded.path, source: "managed", version: downloaded.version };
     }
     const onSystem = onPath(
       def.systemNames,
       envValue(this.env, "PATH"),
       (p) => this.exists(p),
-      platform,
+      this.opts.platform ?? process.platform,
     );
-    if (onSystem !== undefined) return { path: onSystem, source: "system" };
-    return platform === "win32" ? undefined : app();
+    return onSystem === undefined ? undefined : { path: onSystem, source: "system" };
   }
 
-  private appBins: string[] | undefined;
+  /** Required files (AgentDef.requires) absent from the download of `version`. */
+  private missingFiles(def: AgentDef, version: string): string[] {
+    if (def.requires === undefined || this.opts.downloaded === undefined) return [];
+    const root = this.opts.downloaded.dir(def.id, version);
+    return def.requires(this.target).filter((file) => !this.exists(join(root, file)));
+  }
 
-  /** The DSH app's CLI candidates; the registry is read once per host. */
-  private dshApps(platform: NodeJS.Platform): string[] {
-    if (this.opts.dshApp !== undefined) return [this.opts.dshApp];
-    this.appBins ??= dshAppBins(platform);
-    return this.appBins;
+  private runnable(def: AgentDef, version: string): boolean {
+    // An older app's copies (Pi, Codex) are kept as they are; the check is for downloads now.
+    if (def.onRequest !== true) return true;
+    return this.missingFiles(def, version).length === 0 || this.ownCli(def.id) !== undefined;
+  }
+
+  /** The owner's own CLI an adapter runs (Claude Code's `claude`), when there is one. */
+  ownCli(id: string): string | undefined {
+    if (id !== "claude") return undefined;
+    return this.extraEnv(id)[CLAUDE_EXECUTABLE_ENV] ?? envValue(this.env, CLAUDE_EXECUTABLE_ENV);
   }
 
   private codexClis: string[] | undefined;
@@ -113,6 +129,7 @@ export class Agents {
         this.codexClis ??= this.opts.codexApps ?? codexAppClis(platform);
         return this.codexClis;
       },
+      this.opts.userHome,
     );
   }
 
@@ -139,13 +156,17 @@ export class Agents {
   }
 
   private view(def: AgentDef): AgentView {
-    const base = { id: def.id, name: def.name };
+    const own = this.ownCli(def.id);
+    const base = {
+      id: def.id,
+      name: def.name,
+      ...(def.version === undefined ? {} : { adapted: def.version }),
+      ...(def.onRequest === true ? { onRequest: true } : {}),
+      ...(own === undefined ? {} : { ownCli: own }),
+    };
     const error = this.errors.get(def.id);
     const withError = error === undefined ? {} : { error };
     const install = this.installs.get(def.id);
-    const target = this.opts.target ?? currentTarget();
-    const canInstall =
-      def.latest !== undefined && (def.targets === undefined || def.targets.includes(target));
     if (install !== undefined) {
       return {
         ...base,
@@ -157,7 +178,13 @@ export class Agents {
     }
     const found = this.find(def.id);
     if (found === undefined) {
-      return { ...base, state: "missing", canInstall, canRemove: false, ...withError };
+      return {
+        ...base,
+        state: "missing",
+        canInstall: def.onRequest === true && def.release !== undefined,
+        canRemove: this.opts.downloaded?.installed(def.id) !== undefined,
+        ...withError,
+      };
     }
     return {
       ...base,
@@ -165,17 +192,26 @@ export class Agents {
       source: found.source,
       path: found.path,
       ...(found.version === undefined ? {} : { version: found.version }),
-      // A download replaces the copy in use with the latest release.
-      canInstall: canInstall && found.source === "managed",
+      // No updates from the app: the version is the one in the catalog.
+      canInstall: false,
       canRemove: found.source === "managed",
       ...withError,
     };
   }
 
-  /** Starts a download of the latest release; onChange fires on progress and at the end. */
+  /**
+   * Downloads the adapted version of an agent that is not in the app (ADR 0069), only when the
+   * owner asks; onChange fires on progress and at the end. With the owner's own CLI at hand only
+   * the adapter comes down, not the CLI build.
+   */
   install(id: string): void {
     const def = this.catalog.find((d) => d.id === id);
-    if (def?.latest === undefined) throw new Error(`AgentHerd cannot download "${id}"`);
+    if (def?.release === undefined || def.onRequest !== true) {
+      throw new Error(`AgentHerd does not download "${id}"; it comes with the app`);
+    }
+    if (this.find(id) !== undefined) {
+      throw new Error(`${def.name} is installed; AgentHerd does not update agents`);
+    }
     if (this.installs.has(id)) return;
     const install: Install = { progress: { received: 0, total: 0 }, abort: new AbortController() };
     this.installs.set(id, install);
@@ -204,24 +240,24 @@ export class Agents {
     onProgress: (p: InstallProgress) => void,
     signal: AbortSignal,
   ): Promise<string> {
+    const store = this.opts.downloaded;
+    if (store === undefined) throw new Error("no place to download agents to");
     const fetchers = this.opts.fetchers ?? httpFetchers;
-    const target = this.opts.target ?? currentTarget();
-    const release = await def.latest?.(target, fetchers);
-    if (release === undefined) throw new Error(`${def.name} has no build for ${target}`);
+    const release = await def.release?.(this.target, fetchers);
+    if (release === undefined) throw new Error(`${def.name} has no build for ${this.target}`);
     let npmCli: string | undefined;
     if (release.kind === "npm") {
       const npm = await npmRuntime(fetchers);
-      npmCli = (await this.opts.store.install(npm, { signal })).path;
+      npmCli = (await store.install(npm, { signal })).path;
     }
-    // With the Codex app's CLI at hand, skip the CLI build npm would add (over 100 MB).
-    const local = release.kind === "npm" && "CODEX_PATH" in this.extraEnv(def.id);
-    const installed = await this.opts.store.install(
-      local ? { ...release, omitOptional: true } : release,
-      {
-        onProgress,
-        signal,
-        ...(npmCli === undefined ? {} : { npmCli }),
-      },
+    const own = this.ownCli(def.id) !== undefined;
+    const installed = await store.install(
+      release.kind !== "npm"
+        ? release
+        : own
+          ? { ...release, omitOptional: true }
+          : { ...release, requires: def.requires?.(this.target) ?? [] },
+      { onProgress, signal, ...(npmCli === undefined ? {} : { npmCli }) },
     );
     return installed.path;
   }
@@ -230,12 +266,13 @@ export class Agents {
     this.installs.get(id)?.abort.abort();
   }
 
+  /** Removes a download; the copy in the app (or on PATH) takes over. */
   remove(id: string): void {
-    if (this.opts.store.installed(id) === undefined) {
+    if (this.opts.downloaded?.installed(id) === undefined) {
       throw new Error(`"${id}" was not downloaded by AgentHerd`);
     }
     if (this.installs.has(id)) throw new Error("wait for the download to finish or cancel it");
-    this.opts.store.remove(id);
+    this.opts.downloaded.remove(id);
     this.errors.delete(id);
     this.opts.onChange();
   }

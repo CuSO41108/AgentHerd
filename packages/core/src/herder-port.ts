@@ -3,7 +3,7 @@ import type { SourceState } from "./source-health.ts";
 // What the Herd and the Herder know about each other (docs/spec/04-herder.md §1). The core does
 // not import the Herder or any model library: the CLI or the app passes a factory.
 
-import type { HerderStyle, Locale, ReportResult } from "@agentherd/protocol";
+import type { Locale, ReportResult } from "@agentherd/protocol";
 import type { OutboundStep } from "@agentherd/rules";
 import type { IntakeRequest } from "./intake.ts";
 import type { HerdReport } from "./mcp-gateway.ts";
@@ -169,10 +169,6 @@ export interface HerderHost {
   removeSchedule?(id: string): boolean;
   /** Watched sources that are failing now (ADR 0050). */
   sources?(): SourceState[];
-  /** How the Herder talks (ADR 0053); absent → the default style. */
-  style?(): HerderStyle;
-  /** Changes it when the owner asks in chat. */
-  setStyle?(style: HerderStyle): void;
   /** How each informational notice reaches the owner (ADR 0061). */
   noticeLevels?(): Record<NoticeKind, NoticeLevel>;
   /** Changes one when the owner asks (「合并了不用告诉我」); throws on an unknown kind or level. */

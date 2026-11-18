@@ -71,6 +71,11 @@ export interface NpmRelease {
   executable: string;
   /** Leave out optional dependencies (an agent's platform build the machine already has). */
   omitOptional?: boolean;
+  /**
+   * Files that must exist after the install, e.g. a platform build npm fetches as an optional
+   * dependency: npm skips a failed optional download without an error.
+   */
+  requires?: readonly string[];
 }
 
 export type Release = ArchiveRelease | NpmRelease;
@@ -165,7 +170,13 @@ export class RuntimeStore {
    */
   async install(release: Release, opts: InstallOptions = {}): Promise<Installed> {
     const current = this.installed(release.id);
-    if (current?.version === release.version) return current;
+    const complete =
+      release.kind !== "npm" ||
+      (release.requires ?? []).every((file) =>
+        existsSync(join(this.dir(release.id, release.version), file)),
+      );
+    // The same version again only when its download lacks a required file.
+    if (current?.version === release.version && complete) return current;
     const parent = join(this.root, release.id);
     mkdirSync(parent, { recursive: true, mode: 0o700 });
     const staging = join(parent, `.installing-${randomUUID()}`);
@@ -286,6 +297,12 @@ async function npmInstall(release: NpmRelease, staging: string, opts: InstallOpt
   }
   if (!existsSync(join(staging, release.executable))) {
     throw new Error(`${release.package} has no ${release.executable}`);
+  }
+  if (release.omitOptional === true) return;
+  for (const file of release.requires ?? []) {
+    if (!existsSync(join(staging, file))) {
+      throw new Error(`${release.package}: npm did not install ${file}; download it again`);
+    }
   }
 }
 

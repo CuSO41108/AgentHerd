@@ -2,9 +2,9 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeChannel } from "@agentherd/channel-fake";
-import type { Herd, SecretStore } from "@agentherd/core";
+import { type Herd, type SecretStore, Store } from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostEvent, SettingsPatch } from "../src/api.ts";
+import type { HostEvent } from "../src/api.ts";
 import { readConfig, writeConfig } from "../src/config.ts";
 import { Host } from "../src/host.ts";
 import { connectHost, isHostRunning, serveApi, socketPath } from "../src/server.ts";
@@ -164,26 +164,44 @@ describe("Host", () => {
     expect(() => t.host.updateSettings({ mode: "auto" })).toThrow(/observe or assist/);
   });
 
-  it("saves the Herder's style and lets the Herder read and change it", async () => {
+  it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
     const t = makeHost(true);
+    expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
+    expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [] });
     await t.host.start();
-    expect(t.host.status().herderStyle).toBe("friend");
-    expect(t.host.updateSettings({ herderStyle: "secretary" })).toMatchObject({
-      herderStyle: "secretary",
+    expect(t.host.pet().connected).toBe(true);
+
+    expect(t.host.updateSettings({ pet: { figure: "claude" } }).pet).toEqual({
+      on: true,
+      figure: "claude",
     });
-    expect(readConfig(t.home)).toMatchObject({ herderStyle: "secretary" });
-    // A style the app does not know is refused, as an old or broken client could send one.
-    const bad = JSON.parse('{"herderStyle":"boss"}') as SettingsPatch;
-    expect(() => t.host.updateSettings(bad)).toThrow(/herderStyle must be one of/);
-    // The Herd reads the style on every use and writes it back when the owner asks in chat.
-    const internals = t.host as unknown as {
-      herd?: { opts: { herderStyle?: { get(): string; set(style: "partner"): void } } };
-    };
-    const style = internals.herd?.opts.herderStyle;
-    expect(style?.get()).toBe("secretary");
-    style?.set("partner");
-    expect(readConfig(t.home)).toMatchObject({ herderStyle: "partner" });
-    expect(t.host.status().herderStyle).toBe("partner");
+    expect(t.host.updateSettings({ pet: { on: false } }).pet).toEqual({
+      on: false,
+      figure: "claude",
+    });
+    expect(readConfig(t.home).pet).toEqual({ on: false, figure: "claude" });
+    expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
+      /claude, deepseek/,
+    );
+
+    await t.host.petSay("在吗");
+    const chat = t.channels[0];
+    expect(chat?.messages[0]?.view).toEqual({ kind: "text", text: "（在桌宠里说）在吗" });
+    // No Herder here, so the herd answers by itself; the pet shows that answer.
+    await until(() => (t.host.pet().last?.id ?? 0) > 0);
+    expect(t.events.some((e) => e.topic === "pet")).toBe(true);
+    // The expanded pet shows the Herder's conversation as herd.db keeps it, from before this
+    // start too (none here: no Herder).
+    expect(t.host.pet().history).toEqual([]);
+    const db = Store.open(join(t.home, "herd.db"));
+    db.addHerderTurn("owner", "昨天的话");
+    db.addHerderTurn("herder", "昨天的回答");
+    db.close();
+    expect(t.host.pet().history.map((l) => [l.kind, l.text])).toEqual([
+      ["owner", "昨天的话"],
+      ["say", "昨天的回答"],
+    ]);
+    await expect(t.host.petPress("nothing", "allow")).rejects.toThrow("这件事已经处理过了");
   });
 
   it("shows the Herder's schedules and lets the owner pause and remove them (ADR 0055)", async () => {
@@ -269,19 +287,6 @@ describe("Host", () => {
       model: "gw/gpt-6-luna",
     });
     expect(internals.herdProfiles().map((p) => p.id)).toEqual(["pi"]);
-  });
-
-  it("needs Codex only when a GPT model is in the list (ADR 0031)", async () => {
-    const t = makeHost(false);
-    expect(t.host.neededAgents()).toEqual(["pi"]);
-    await t.host.putService({
-      id: "gw",
-      name: "Gateway",
-      kind: "openai-compatible",
-      baseUrl: "https://gw.example/v1",
-      models: ["deepseek-flash", "gpt-6.1-sol"],
-    });
-    expect(t.host.neededAgents()).toEqual(["pi", "codex"]);
   });
 
   it("places models in tiers by name, keeps where the owner drags them, and resets", async () => {

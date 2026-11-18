@@ -20,6 +20,7 @@ import {
   Tray,
 } from "electron";
 import { ensureHost, ownsHost, stopOwnedHost } from "./host-process.ts";
+import { PetWindow } from "./pet-window.ts";
 
 app.setName("AgentHerd");
 app.setAppUserModelId("com.agentherd.desktop");
@@ -35,9 +36,12 @@ let client: HostClient | undefined;
 let connected = false;
 let keepAwakeId: number | undefined;
 let quitting = false;
+/** Made once the app is ready (it needs the screen). */
+let pet: PetWindow | undefined;
 
 function send(channel: string, payload: unknown): void {
   if (win !== undefined && !win.isDestroyed()) win.webContents.send(channel, payload);
+  pet?.send(channel, payload);
 }
 
 function setConnected(value: boolean): void {
@@ -55,7 +59,11 @@ function applyKeepAwake(on: boolean): void {
 }
 
 function onHostEvent(event: HostEvent): void {
-  if (event.topic === "status") applyKeepAwake(event.data.keepAwake);
+  if (event.topic === "status") {
+    applyKeepAwake(event.data.keepAwake);
+    // An older host has no pet settings: no pet.
+    if (process.env.AGENTHERD_CAPTURE === undefined) pet?.set(event.data.pet?.on === true);
+  }
   send("host:event", event);
 }
 
@@ -111,6 +119,7 @@ function showWindow(): void {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+  if (process.platform === "darwin") app.focus({ steal: true });
 }
 
 function createTray(): void {
@@ -190,6 +199,9 @@ function createWindow(): void {
   });
   created.on("closed", () => {
     if (win === created) win = undefined;
+    // The pet window would keep the app running with no way back in; outside macOS (and without
+    // the Windows tray) closing the main window quits, as before.
+    if (process.platform !== "darwin" && tray === undefined && !quitting) app.quit();
   });
   created.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("https://")) void shell.openExternal(url);
@@ -230,12 +242,19 @@ app.whenReady().then(() => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null);
   // In development the bundle is node_modules' Electron.app; show the AgentHerd icon anyway.
   app.dock?.setIcon(APP_ICON);
+  pet = new PetWindow({
+    preload: join(import.meta.dirname, "../preload/index.cjs"),
+    rendererDir: join(import.meta.dirname, "../renderer"),
+    ...(process.env.ELECTRON_RENDERER_URL === undefined
+      ? {}
+      : { devUrl: process.env.ELECTRON_RENDERER_URL }),
+    openApp: showWindow,
+  });
   createWindow();
   createTray();
   void connect();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  // The pet counts as a window; the dock icon brings back the main one.
+  app.on("activate", () => showWindow());
 });
 
 app.on("window-all-closed", () => {

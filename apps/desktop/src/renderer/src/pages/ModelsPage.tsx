@@ -1,12 +1,13 @@
-// 模型: Pi's model, the tiers tasks pick from (ADR 0028), and the list of model services with
-// their keys (ADR 0021). The Herder's model is chosen on the 主管 page.
+// 模型: the Herder's model, the tiers tasks pick from (ADR 0028), and the list of model services
+// with their keys (ADR 0021) or account sign-ins (ADR 0068).
 
-import { Boxes, Plus } from "lucide-react";
+import { Boxes, KeyRound, Plus } from "lucide-react";
 import { useState } from "react";
 import { AddServiceDialog } from "../components/AddServiceDialog";
 import { ModelTiers } from "../components/ModelTiers";
 import { RolePicker } from "../components/RolePicker";
 import { ServiceCard } from "../components/ServiceCard";
+import { SubscriptionDialog } from "../components/SubscriptionDialog";
 import { Button, EmptyState, Group, Section } from "../components/ui";
 import { devOpen } from "../dev-bridge";
 import { useApp } from "../store";
@@ -34,25 +35,43 @@ export function ServiceList() {
   const services = useApp((s) => s.models?.services);
   const [preview] = useState(previewAdd);
   const [adding, setAdding] = useState(preview !== null);
+  const [signingIn, setSigningIn] = useState(devOpen() === "subscription");
   const list = [...(services ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   const add = (
     <Button variant={list.length === 0 ? "primary" : "secondary"} onClick={() => setAdding(true)}>
       <Plus size={14} /> 添加服务
     </Button>
   );
+  const login = (
+    <Button onClick={() => setSigningIn(true)}>
+      <KeyRound size={14} /> 用订阅登录
+    </Button>
+  );
   return (
     <Section
       title="模型服务"
-      hint="Key 只保存在本机，保存后不再显示"
-      actions={list.length > 0 ? add : undefined}
+      hint="Key 和登录凭据只保存在本机，保存后不再显示"
+      actions={
+        list.length > 0 ? (
+          <>
+            {login}
+            {add}
+          </>
+        ) : undefined
+      }
     >
       {list.length === 0 ? (
         <Group>
           <EmptyState
             icon={<Boxes size={18} strokeWidth={1.75} />}
             title="还没有模型服务"
-            text="添加一个服务商（比如 DeepSeek），或一个自定义服务（OpenAI 或 Anthropic 格式）。"
-            action={add}
+            text="添加一个服务商（比如 DeepSeek），或一个自定义服务（OpenAI 或 Anthropic 格式）；也可以用 ChatGPT、Copilot 等账号登录。"
+            action={
+              <div className="flex gap-2">
+                {add}
+                {login}
+              </div>
+            }
           />
         </Group>
       ) : (
@@ -62,6 +81,7 @@ export function ServiceList() {
           ))}
         </div>
       )}
+      {signingIn && <SubscriptionDialog onClose={() => setSigningIn(false)} />}
       {adding && (
         <AddServiceDialog
           onClose={() => setAdding(false)}
@@ -76,9 +96,7 @@ export function ServiceList() {
 export function ModelsPage() {
   return (
     <div className="flex flex-col gap-7">
-      <Section title="Pi 用的模型" hint="选了就生效；选完会顺手试一下能不能用">
-        <RolePicker />
-      </Section>
+      <RolePicker />
       <ModelTiers />
       <ServiceList />
     </div>

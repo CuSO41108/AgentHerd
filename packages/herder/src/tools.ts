@@ -532,7 +532,7 @@ const sessionStartSchema = obj({
   profile: opt(
     str({
       description:
-        "Only when the owner names an agent (e.g. dsh). Omit otherwise: AgentHerd picks the agent from the model.",
+        "Only when the owner names an agent (pi, codex, claude for Claude Code). Omit otherwise: AgentHerd picks the agent from the model and `hard`.",
     }),
   ),
   name: str({
@@ -541,6 +541,12 @@ const sessionStartSchema = obj({
   }),
   ownerText: str({ description: "The owner's request, copied exactly from their message" }),
   addedContext: opt(str({ description: "Anything you add, sent below the owner's words" })),
+  hard: opt(
+    bool({
+      description:
+        "true for a hard coding task: a large change across files, design work, a bug nobody has found yet. It goes to Claude Code with an Anthropic-style model when there is one. Omit for simple tasks (small fixes, looking things up, writing text, running commands): Pi does those. GPT models always go to Codex.",
+    }),
+  ),
   model: opt(
     str({
       description:
@@ -575,12 +581,6 @@ const askSchema = obj({
   options: arr(str(), { minItems: 1, maxItems: 4 }),
 });
 const notifySchema = obj({ text: str() });
-const styleSchema = obj({
-  style: oneOf(["friend", "partner", "secretary"] as const, {
-    description:
-      "friend: a capable friend, warm and brief; partner: has opinions and says them; secretary: result first, no small talk",
-  }),
-});
 const findSchema = obj({
   name: str({ description: "The project's name as the owner said it, e.g. pi-desktop" }),
 });
@@ -737,7 +737,7 @@ export function herderTools(
           ...(open.length === 0 ? ["(none)"] : open.map(taskLine)),
           "Ended tasks, newest first (kept across restarts; session_prompt continues one in the same folder and model):",
           ...(ended.length === 0 ? ["(none)"] : ended.map(taskLine)),
-          `Agents: AgentHerd picks one from the model (GPT models run in Codex, the rest in Pi). Installed: ${host
+          `Agents: AgentHerd picks one (GPT models run in Codex; hard coding tasks, session_start hard, in Claude Code with an Anthropic-style model; the rest in Pi). Installed: ${host
             .profiles()
             .map((p) => `${p.id} (${p.name})`)
             .join(", ")}`,
@@ -795,11 +795,13 @@ export function herderTools(
           ownerText: string;
           addedContext?: string;
           model?: string;
+          hard?: boolean;
           allowed?: OutboundStep[];
         },
       ) => {
         const t = turn();
         if (t.kind === "event") throw new Error("tasks start only when the owner asks");
+        const hard = args.hard === true;
         if (!isVerbatim(args.ownerText, t.ownerText)) {
           throw new Error("ownerText must be the owner's words copied exactly from their message");
         }
@@ -811,23 +813,31 @@ export function herderTools(
         const models = host
           .models()
           .filter((m) =>
-            named === undefined ? m.agents.includes(agentForModel(m.ref, ids)) : true,
+            named === undefined
+              ? m.agents.includes(agentForModel(m.ref, ids, hard, m.agents))
+              : true,
           );
         const tiers = modelTiers?.() ?? placeModels(modelsByName(models).map((m) => m.name));
-        const preferred = TIERS.flatMap((tier) => tiers[tier]).find((entry) =>
+        const runs = (entry: { model: string }, agent?: string) =>
           models.some(
             (m) =>
               m.ref.slice(m.ref.indexOf("/") + 1) === entry.model &&
-              (named === undefined ? m.agents.length > 0 : m.agents.includes(named)),
-          ),
-        );
+              (agent === undefined ? m.agents.length > 0 : m.agents.includes(agent)),
+          );
+        const order = TIERS.flatMap((tier) => tiers[tier]);
+        // A hard task prefers a model Claude Code runs (ADR 0066); without one, the usual order.
+        const preferred =
+          (named === undefined && hard && ids.includes("claude")
+            ? order.find((entry) => runs(entry, "claude"))
+            : undefined) ?? order.find((entry) => runs(entry, named));
         const asked = args.model?.trim() || preferred?.model;
         if (asked === undefined) {
           throw new Error("no configured model can run this task; configure models in AgentHerd");
         }
         const picked = await pickService(host, asked, named, tiers, models);
         const model = picked.ref;
-        const profile = named ?? agentForModel(model, ids);
+        const profile =
+          named ?? agentForModel(model, ids, hard, models.find((m) => m.ref === model)?.agents);
         const given = args.project?.trim() || undefined;
         const cwd = given === undefined ? undefined : resolveProject(host, given);
         if (cwd !== undefined && !t.pickedDirs.some((d) => samePath(d, cwd))) {
@@ -1040,22 +1050,6 @@ export function herderTools(
     },
   ];
   const all = tools.map((t) => t as unknown as AgentTool);
-  const setStyle = host.setStyle;
-  if (setStyle !== undefined) {
-    const styleTool = {
-      name: "style_set",
-      label: "Change how you talk",
-      description:
-        "Changes how you talk to the owner, only when the owner asks for it. Takes effect from your next message.",
-      parameters: styleSchema,
-      execute: async (_id: string, args: { style: "friend" | "partner" | "secretary" }) => {
-        ownerOnly(turn, "change how you talk");
-        setStyle(args.style);
-        return ok(`style is now ${args.style}`);
-      },
-    };
-    all.push(styleTool as unknown as AgentTool);
-  }
   if (host.watchMail !== undefined) {
     all.push(...mailTools(host, turn).map((t) => t as unknown as AgentTool));
   }

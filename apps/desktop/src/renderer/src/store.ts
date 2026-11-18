@@ -9,6 +9,7 @@ import type {
   HostEvent,
   HostStatus,
   LarkView,
+  LoginView,
   ModelsView,
   ProviderView,
   RemoteHost,
@@ -36,8 +37,6 @@ export type Mode = HostStatus["mode"];
 export type Page =
   | "tasks"
   | "herders"
-  | "herder-style"
-  | "herder-activity"
   | "memory"
   | "schedules"
   | "connections"
@@ -66,6 +65,8 @@ interface AppState {
   watches: WatchView[] | undefined;
   /** 应用连接 › 飞书 (lark-cli); loaded when the page shows, then kept by "lark" events. */
   lark: LarkView | undefined;
+  /** The running or last model sign-in (模型 › 用订阅登录), kept by "login" events. */
+  login: LoginView | undefined;
   /** 应用连接 › 资讯; loaded when the page shows. */
   feeds: FeedView[] | undefined;
   providers: ProviderView[];
@@ -86,8 +87,6 @@ interface AppState {
 const PAGES: readonly Page[] = [
   "tasks",
   "herders",
-  "herder-style",
-  "herder-activity",
   "memory",
   "schedules",
   "connections",
@@ -124,6 +123,7 @@ export const useApp = create<AppState>()((set, get) => ({
   socials: undefined,
   watches: undefined,
   lark: undefined,
+  login: undefined,
   feeds: undefined,
   providers: [],
   setup: undefined,
@@ -150,12 +150,6 @@ export const useApp = create<AppState>()((set, get) => ({
 }));
 
 let nextToastId = 1;
-
-/** Pages opened from another page, not from the sidebar; the sidebar marks their parent. */
-export const PARENT_PAGE: Partial<Record<Page, Page>> = {
-  "herder-style": "herders",
-  "herder-activity": "herders",
-};
 
 export function bridge(): Bridge {
   return window.agentherd;
@@ -225,6 +219,9 @@ function applyEvent(event: HostEvent): void {
       break;
     case "lark":
       useApp.setState({ lark: event.data });
+      break;
+    case "login":
+      useApp.setState({ login: event.data });
       break;
     case "setup":
       useApp.setState({ setup: event.data });

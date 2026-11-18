@@ -5,7 +5,6 @@ import type {
   AgentProfile,
   Channel,
   ChannelBinding,
-  HerderStyle,
   Locale,
   MessageRef,
   Mode,
@@ -79,8 +78,6 @@ export interface HerdOptions {
   backgroundCheckMinutes?: number;
   /** Language of the texts the owner reads. Default: Chinese. */
   locale?: Locale;
-  /** How the Herder talks (ADR 0053): read on every Herder turn, set when the owner asks in chat. */
-  herderStyle?: { get(): HerderStyle; set(style: HerderStyle): void };
   /** Creates the Herder. Without it, plain messages get the list of commands. */
   herder?: HerderFactory;
   /** Models a task can run with. Without it, agents use their own settings. */
@@ -115,6 +112,8 @@ export interface HerdOptions {
   socialPollMinutes?: number;
   /** Called when watched things change, for the app. */
   watchesChanged?: () => void;
+  /** Called after a line of the Herder's conversation is kept in `herder_turns` (the desktop pet). */
+  herderTurnAdded?: () => void;
   /** A watched source failing this long is told to the owner (default 30, ADR 0050). */
   sourceDownMinutes?: number;
   /**

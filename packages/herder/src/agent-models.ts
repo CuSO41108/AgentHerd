@@ -6,7 +6,15 @@ import type { ModelService, ModelSettings, SecretStore } from "@agentherd/core";
 import { parseModelRef } from "@agentherd/core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getProviders } from "@earendil-works/pi-ai/compat";
-import { PI_KEY_ENV, PI_MODEL_ENV, resolveModel, serviceKey } from "./models.ts";
+import { loginOf } from "./logins.ts";
+import {
+  notReadyReason,
+  PI_KEY_ENV,
+  PI_MODEL_ENV,
+  resolveModel,
+  serviceKey,
+  serviceReady,
+} from "./models.ts";
 
 /** Env names for agents that read the key from a variable named in their config. */
 export const CODEX_KEY_ENV = "AGENTHERD_CODEX_KEY";
@@ -18,61 +26,32 @@ export function isGptModel(id: string): boolean {
 }
 
 /**
- * The agent for a model when the owner does not name one (ADR 0031): Codex for GPT models,
- * Pi for everything else. Falls back to Pi when Codex is not installed, and to the first agent
- * when Pi is not either.
+ * The agent for a model when the owner does not name one (ADR 0031, 0066): Codex for GPT models;
+ * Claude Code for a hard coding task when it can run the model (`runners`, the agents that can);
+ * Pi for everything else. Falls back to Pi when the chosen agent is not installed, and to the
+ * first agent when Pi is not either.
  */
-export function agentForModel(ref: string | undefined, agentIds: readonly string[]): string {
+export function agentForModel(
+  ref: string | undefined,
+  agentIds: readonly string[],
+  hard = false,
+  runners?: readonly string[],
+): string {
   const id = ref === undefined ? "" : ref.slice(ref.indexOf("/") + 1);
   if (ref !== undefined && isGptModel(id) && agentIds.includes("codex")) return "codex";
+  if (hard && agentIds.includes("claude") && runners?.includes("claude") === true) return "claude";
   if (agentIds.includes("pi")) return "pi";
-  const first = agentIds.find((a) => a !== "dsh") ?? agentIds[0];
+  const first = agentIds[0];
   if (first === undefined) throw new Error("no agent installed");
   return first;
 }
 
-/** DSH reads the key from this variable, named in the provider it gets through `--patch`. */
-export const DSH_KEY_ENV = "AGENTHERD_DSH_KEY";
-export const DSH_PROVIDER = "agentherd";
-/** The wire APIs DSH's pi-ai providers speak (dsh-llm-pi-ai config schema). */
-const DSH_APIS: readonly string[] = [
-  "openai-completions",
-  "openai-responses",
-  "anthropic-messages",
-];
-
 /**
- * The patch overlay (`dsh --patch <file>`) that makes `dsh acp` use the model: one provider named
- * "agentherd" in place of the profile's providers, and the ACP route pointed at it. It holds no
- * key; DSH reads that from `DSH_KEY_ENV`.
+ * Claude Code speaks only Anthropic's Messages API (ADR 0066), with a key: a subscription sign-in
+ * (ADR 0068) keeps its token in the host, so those models run in Pi (ADR 0069).
  */
-export function dshModelPatch(model: Model<Api>): unknown[] {
-  return [
-    {
-      id: "llm-pi-ai",
-      config: {
-        providers: {
-          [DSH_PROVIDER]: {
-            displayName: "AgentHerd",
-            apiKeyEnv: DSH_KEY_ENV,
-            api: model.api,
-            baseURL: model.baseUrl,
-            ...(model.headers === undefined ? {} : { headers: model.headers }),
-            models: [
-              {
-                id: model.id,
-                name: model.name,
-                input: model.input,
-                ...(model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
-                ...(model.maxTokens > 0 ? { maxTokens: model.maxTokens } : {}),
-              },
-            ],
-          },
-        },
-      },
-    },
-    { id: "acp", config: { provider: DSH_PROVIDER, model: model.id } },
-  ];
+export function claudeCanRun(model: Model<Api>): boolean {
+  return model.api === "anthropic-messages" && loginOf(model) === undefined;
 }
 
 /**
@@ -84,6 +63,9 @@ export function dshModelPatch(model: Model<Api>): unknown[] {
  * without Responses fails Codex's first turn and the task moves to Pi (ADR 0043).
  */
 export function codexCanRun(model: Model<Api>): boolean {
+  // Subscription tokens are fetched per request through Pi's bridge (ADR 0068); Codex would need
+  // the account's refresh token, which never leaves the host.
+  if (loginOf(model) !== undefined) return false;
   if (model.api === "openai-responses") return true;
   if (model.api !== "openai-completions") return false;
   if (isGptModel(model.id)) return true;
@@ -92,10 +74,13 @@ export function codexCanRun(model: Model<Api>): boolean {
 
 /**
  * The env that makes an agent use a model, or `undefined` when the agent cannot use it.
- * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0).
+ * - pi: any pi-ai model, through the bridge's model extension (verified with Pi 1.5.0). A
+ *   subscription model carries its service id; the host adds the socket Pi asks for tokens on.
  * - codex: models `codexCanRun` accepts, as a custom provider in `CODEX_CONFIG` (read by
  *   codex-acp).
- * - dsh: OpenAI- and Anthropic-style models; the key goes in env, the model in `dshModelPatch`.
+ * - claude: Anthropic-style models (`claudeCanRun`), through the env Claude Code reads. Every
+ *   model alias (haiku, sonnet, opus and the background model) is the chosen model, so no call
+ *   goes to a model the service does not have.
  */
 export function agentModelEnv(
   agentId: string,
@@ -123,9 +108,24 @@ export function agentModelEnv(
         MODEL_PROVIDER: CODEX_PROVIDER,
         [CODEX_KEY_ENV]: key ?? "none",
       };
-    case "dsh":
-      if (!DSH_APIS.includes(model.api)) return undefined;
-      return { [DSH_KEY_ENV]: key ?? "none" };
+    case "claude": {
+      if (!claudeCanRun(model)) return undefined;
+      const headers = Object.entries(model.headers ?? {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\n");
+      return {
+        ANTHROPIC_BASE_URL: model.baseUrl,
+        ANTHROPIC_API_KEY: key ?? "none",
+        ANTHROPIC_MODEL: model.id,
+        ANTHROPIC_DEFAULT_OPUS_MODEL: model.id,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: model.id,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: model.id,
+        ANTHROPIC_SMALL_FAST_MODEL: model.id,
+        CLAUDE_CODE_SUBAGENT_MODEL: model.id,
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        ...(headers === "" ? {} : { ANTHROPIC_CUSTOM_HEADERS: headers }),
+      };
+    }
     default:
       return undefined;
   }
@@ -177,8 +177,6 @@ export function modelEnvFor(
 
 export interface AgentLaunch {
   env: Record<string, string>;
-  /** For DSH: the `--patch` overlay that selects the model (`dshModelPatch`). */
-  dshPatch?: unknown[];
 }
 
 /**
@@ -198,11 +196,9 @@ export function modelLaunchFor(
     throw new Error(`model "${ref}" is not in the model list`);
   }
   const model = resolveModel(service, id);
+  if (!serviceReady(service, secrets, env)) throw new Error(notReadyReason(service));
   const key = serviceKey(service, secrets, env);
-  if (key === undefined && service.kind === "builtin") {
-    throw new Error(`no key for service "${service.id}"`);
-  }
   const out = agentModelEnv(agentId, model, key);
   if (out === undefined) throw new Error(`agent "${agentId}" cannot run model "${ref}"`);
-  return agentId === "dsh" ? { env: out, dshPatch: dshModelPatch(model) } : { env: out };
+  return { env: out };
 }

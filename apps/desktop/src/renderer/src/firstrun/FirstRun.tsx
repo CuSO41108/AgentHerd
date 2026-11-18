@@ -10,20 +10,18 @@ import { useServiceDraft } from "../components/ServiceDraft";
 import { ServiceChooser, ServiceForm } from "../components/ServiceForm";
 import { Button } from "../components/ui";
 import { devOpen } from "../dev-bridge";
-import { FIRST_HERDER_STYLE, type HerderStyle } from "../herder-styles";
 import { isMac } from "../platform";
-import { call, useApp } from "../store";
+import { useApp } from "../store";
 import {
   DoneBody,
   FeishuBody,
   HerderBody,
   ServiceListBody,
-  StyleBody,
   useHerderChoice,
 } from "./FirstRunSteps";
 import "./first-run.css";
 
-type Step = "welcome" | "feishu" | "service" | "herder" | "style" | "done";
+type Step = "welcome" | "feishu" | "service" | "herder" | "done";
 /** The parts of the service step: the saved list, the grid of services, then one form. */
 type ServicePart = "list" | "pick" | "form";
 
@@ -36,9 +34,9 @@ const WIDE = "w-full max-w-[880px]";
 const FILL = "h-[max(300px,calc(100vh-296px))]";
 const UP_TO = "max-h-[max(200px,calc(100vh-296px))]";
 
-const ORDER: readonly Step[] = ["welcome", "feishu", "service", "herder", "style", "done"];
+const ORDER: readonly Step[] = ["welcome", "feishu", "service", "herder", "done"];
 /** The steps that get a dot; 欢迎 does not. */
-const DOTTED: readonly Step[] = ["feishu", "service", "herder", "style", "done"];
+const DOTTED: readonly Step[] = ["feishu", "service", "herder", "done"];
 
 /** Runs a state change as a view transition where the browser has them (fade and blur). */
 function transition(change: () => void) {
@@ -81,10 +79,6 @@ export function FirstRun() {
   const flow = useFeishuSetup();
   const draft = useServiceDraft();
   const herder = useHerderChoice();
-  const [style, setStyle] = useState<HerderStyle>(
-    () => useApp.getState().status?.herderStyle ?? FIRST_HERDER_STYLE,
-  );
-  const [savingStyle, setSavingStyle] = useState(false);
   // Dev previews (`?open=first-run-pick` / `first-run-form`, fake bridge only) start at the
   // service step.
   const [preview] = useState(() => devOpen()?.match(/^first-run-(pick|form)$/)?.[1] ?? null);
@@ -131,15 +125,6 @@ export function FirstRun() {
 
   const saveService = async () => {
     if (await draft.save()) go("herder");
-  };
-
-  const saveStyle = async () => {
-    setSavingStyle(true);
-    const next = await call((h) => h.updateSettings({ herderStyle: style }));
-    setSavingStyle(false);
-    if (next === undefined) return;
-    useApp.setState({ status: next });
-    go("done");
   };
 
   let title = "";
@@ -198,13 +183,6 @@ export function FirstRun() {
       body = <HerderBody herder={herder} />;
       ready = herderRef !== undefined && herder.testing === null;
       reason = herderRef === undefined ? "先选一个模型" : undefined;
-      break;
-    case "style":
-      title = "主管怎么跟你说话";
-      hint = "三种说话方式，都是同一件事的汇报。之后在「主管」页随时能换，也可以直接跟主管说。";
-      body = <StyleBody style={style} onChoose={setStyle} />;
-      busy = savingStyle;
-      onPrimary = () => void saveStyle();
       break;
     case "done":
       title = "准备好了";

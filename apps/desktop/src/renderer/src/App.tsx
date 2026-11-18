@@ -5,7 +5,6 @@ import {
   Boxes,
   Brain,
   CalendarClock,
-  ChevronLeft,
   ListTodo,
   Loader2,
   type LucideIcon,
@@ -21,8 +20,6 @@ import { Dot, Toasts } from "./components/ui";
 import { FirstRun } from "./firstrun/FirstRun";
 import { AgentsPage } from "./pages/AgentsPage";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
-import { HerderActivityPage } from "./pages/HerderActivityPage";
-import { HerderStylePage } from "./pages/HerderStylePage";
 import { HerdersPage } from "./pages/HerdersPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { ModelsPage } from "./pages/ModelsPage";
@@ -30,7 +27,7 @@ import { SchedulesPage } from "./pages/SchedulesPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { isMac } from "./platform";
-import { PARENT_PAGE, type Page, startStore, useApp } from "./store";
+import { type Page, startStore, useApp } from "./store";
 
 const NAV: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: "tasks", label: "任务", icon: ListTodo },
@@ -47,15 +44,7 @@ const HEADERS: Record<Page, { title: string; hint: string }> = {
   tasks: { title: "任务", hint: "Agent 在做什么，哪些在等你" },
   herders: {
     title: "主管",
-    hint: "在飞书里回答你、帮你开任务、跟进进度；不会替你批准任何请求",
-  },
-  "herder-style": {
-    title: "说话风格",
-    hint: "主管跟你说话的方式；随时可以换，也可以直接在飞书里跟主管说",
-  },
-  "herder-activity": {
-    title: "行动记录",
-    hint: "主管每一轮因为什么开始、做了哪些事、回了你什么",
+    hint: "主管每一轮因为什么开始、做了哪些事、回了你什么；它不会替你批准任何请求",
   },
   memory: {
     title: "记忆",
@@ -69,9 +58,9 @@ const HEADERS: Record<Page, { title: string; hint: string }> = {
     title: "应用连接",
     hint: "Agent 能用的账号和资讯来源",
   },
-  models: { title: "模型", hint: "模型服务和 Key，Pi 和各档任务用哪个模型" },
+  models: { title: "模型", hint: "模型服务、Key 和订阅登录，主管和各档任务用哪个模型" },
   agents: { title: "Agent", hint: "替你干活的编程 Agent；主管开任务时按模型自动挑" },
-  settings: { title: "设置", hint: "飞书、审批方式、外观、电源和数据目录" },
+  settings: { title: "设置", hint: "飞书、审批方式、外观、桌宠、电源和数据目录" },
 };
 
 function Sidebar() {
@@ -94,7 +83,7 @@ function Sidebar() {
       </div>
       <nav className="flex flex-col gap-px px-2.5">
         {NAV.map(({ page: p, label, icon: Icon }) => {
-          const active = page === p || PARENT_PAGE[page] === p;
+          const active = page === p;
           return (
             <button
               key={p}
@@ -162,10 +151,6 @@ function PageBody({ page }: { page: Page }) {
       return <TasksPage />;
     case "herders":
       return <HerdersPage />;
-    case "herder-style":
-      return <HerderStylePage />;
-    case "herder-activity":
-      return <HerderActivityPage />;
     case "memory":
       return <MemoryPage />;
     case "schedules":
@@ -188,8 +173,6 @@ export function App() {
   const loaded = useApp((s) => s.loaded);
   useEffect(() => startStore(), []);
   const header = HEADERS[page];
-  const parent = PARENT_PAGE[page];
-  const setPage = useApp((s) => s.setPage);
   return (
     <>
       {/* Under the first run the shell stays in the DOM, hidden, so a click on a
@@ -205,16 +188,6 @@ export function App() {
             {/* Both reserve the scrollbar's width, so the title lines up with the content. */}
             <header className="app-drag flex min-h-[88px] shrink-0 flex-col justify-end overflow-hidden px-8 pb-5 [scrollbar-gutter:stable]">
               <div className="mx-auto w-full max-w-[760px]">
-                {parent !== undefined && (
-                  <button
-                    type="button"
-                    onClick={() => setPage(parent)}
-                    className="app-no-drag -ml-1 mb-1 flex items-center gap-0.5 rounded px-1 text-ink-muted text-sm hover:text-ink"
-                  >
-                    <ChevronLeft size={14} />
-                    {HEADERS[parent].title}
-                  </button>
-                )}
                 <h1 className="font-semibold text-ink text-xl tracking-[-0.2px]">{header.title}</h1>
                 <p className="mt-0.5 text-ink-muted text-md">{header.hint}</p>
               </div>

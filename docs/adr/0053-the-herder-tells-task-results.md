@@ -1,6 +1,6 @@
 # ADR 0053: The Herder tells task results in its own words, in a style the owner picks
 
-- Status: Accepted
+- Status: Accepted; decision 6 (three styles) superseded by [ADR 0065](0065-one-herder-voice-and-a-trail-only-herder-page.md)
 - Date: 2026-11-09
 - Amends: [ADR 0019](0019-relay-verbatim-board-and-reports.md) (who writes the report body),
   [ADR 0049](0049-short-messages-written-by-the-agent.md) (the agent's short text and the summary
@@ -56,7 +56,7 @@ one tap below; the second costs one cheap call per report, a few seconds and a f
    your reply and tells the owner; end each turn with what you did or found, where the results
    are, and what is left or needs the owner; no long code or logs. No more "under 300 characters,
    conclusion first", and no summary turn. `herd_report` keeps its 100-word summary.
-6. **Three styles, picked by the owner.** `HerderStyle` = `friend` (default) | `partner` |
+6. **Three styles, picked by the owner** (superseded by ADR 0065: one voice, the friend). `HerderStyle` = `friend` (default) | `partner` |
    `secretary`, each copied nearly word for word from a real persona:
    - 能干的朋友 `friend`: open-instinct `PERSONA.md` (warm, direct, say less, one idea per message).
    - 有主见的搭档 `partner`: OpenClaw's `SOUL.md` template (have opinions, not a corporate drone,

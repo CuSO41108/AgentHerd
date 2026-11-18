@@ -13,7 +13,6 @@ import type {
 } from "@agentherd/core";
 import { REVIEW_JOB } from "@agentherd/core";
 import { Agent, type AgentMessage, type AgentTool, type StreamFn } from "@agentherd/herder-loop";
-import { DEFAULT_HERDER_STYLE, type HerderStyle } from "@agentherd/protocol";
 import { guardCheck } from "@agentherd/rules";
 import { type Api, isContextOverflow, type Model } from "@earendil-works/pi-ai";
 import {
@@ -26,6 +25,7 @@ import {
   withoutMarksDeep,
 } from "./context.ts";
 import { errorKind, HELD_RETRY_MS, RETRY_DELAYS_MS, shortError } from "./errors.ts";
+import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts";
 import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import {
@@ -68,6 +68,8 @@ export interface HerderOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Clock in ms, for tests. */
   now?: () => number;
+  /** How web_search and web_read reach the web (ADR 0071); false leaves them out. */
+  lookup?: LookupOptions | false;
 }
 
 /** A model the Herder can run on. */
@@ -152,8 +154,6 @@ export class Herder implements HerderPort {
   /** When the last turn ran; after a long pause the memory in the system prompt is rebuilt. */
   private lastTurnAt = 0;
   private ownerTurnsSinceReview = 0;
-  /** The style in the system prompt now. */
-  private style: HerderStyle = DEFAULT_HERDER_STYLE;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
   /** Pending messages this Herder already queued, so a resume does not queue them twice. */
   private readonly queuedPending = new Set<string>();
@@ -194,6 +194,7 @@ export class Herder implements HerderPort {
             ...(this.host.memory === undefined
               ? []
               : memoryTools(this.host.memory, () => this.turn, this.host.embedder)),
+            ...(opts.lookup === false ? [] : lookupTools(opts.lookup)),
           ].map(withoutMarksInArgs),
           ...this.context.tools(),
         ],
@@ -633,8 +634,7 @@ export class Herder implements HerderPort {
 
   /** The rules, then how to fold, then the memory: what changes least comes first, for the cache. */
   private fullSystemPrompt(): string {
-    this.style = this.host.style?.() ?? DEFAULT_HERDER_STYLE;
-    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt(this.style)}\n\n${this.context.systemPrompt()}`;
+    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}`;
     const snapshot = this.host.memory === undefined ? "" : memorySnapshot(this.host.memory);
     return snapshot === "" ? base : `${base}\n\n${snapshot}`;
   }
@@ -647,9 +647,7 @@ export class Herder implements HerderPort {
     const now = this.now();
     const stale = this.lastTurnAt !== 0 && now - this.lastTurnAt >= MEMORY_REFRESH_MS;
     this.lastTurnAt = now;
-    // A new style takes effect at once (ADR 0053); it costs one cache miss.
-    const restyled = (this.host.style?.() ?? DEFAULT_HERDER_STYLE) !== this.style;
-    if (!restyled && (!stale || this.host.memory === undefined)) return;
+    if (!stale || this.host.memory === undefined) return;
     const first = this.agent.state.messages[0];
     if (first?.role !== "system") return;
     const prompt = this.fullSystemPrompt();
@@ -688,7 +686,13 @@ export class Herder implements HerderPort {
     if (message === undefined) return { ok: true };
     const added = this.agent.state.messages.slice(before);
     // Folding or reading the conversation changed nothing outside it, so the turn may run again.
-    const acted = added.some((m) => m.role === "toolResult" && !CONTEXT_TOOL_NAMES.has(m.toolName));
+    // Folding the conversation or looking something up changes nothing outside.
+    const acted = added.some(
+      (m) =>
+        m.role === "toolResult" &&
+        !CONTEXT_TOOL_NAMES.has(m.toolName) &&
+        !LOOKUP_TOOL_NAMES.has(m.toolName),
+    );
     const lead = leadingSystem(this.agent.state.messages);
     this.agent.state.messages = this.agent.state.messages.slice(0, before);
     this.context.rollback(before - lead);
