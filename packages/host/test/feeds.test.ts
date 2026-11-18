@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Feeds, parseArxiv, parseTrending } from "../src/feeds.ts";
-import { Lark, type Run, runFile } from "../src/lark.ts";
+import { Lark, nativeLarkCli, type Run, runFile } from "../src/lark.ts";
 
 const TRENDING = `<html><article class="Box-row">
   <h2 class="h3 lh-condensed"><a href="/meta/astryx" class="Link"><svg><path d="M8 .25a.75"></path></svg>
@@ -196,6 +196,24 @@ describe("飞书 through lark-cli (ADR 0059)", () => {
     lark.find = () => undefined;
     expect((await lark.check()).state).toBe("missing");
     expect((await lark.test()).message).toContain("自动安装");
+  });
+
+  it("starts the lark-cli.exe behind an npm shim on Windows, so no terminal flashes", () => {
+    const exe = "C:\\nodejs\\node_modules\\@larksuite\\cli\\bin\\lark-cli.exe";
+    const files = new Set(["C:\\nodejs\\lark-cli.cmd", exe]);
+    const lark = new Lark({
+      changed: () => {},
+      dirs: ["C:\\nodejs"],
+      platform: "win32",
+      env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+      exists: (p) => files.has(p),
+      qr: async () => "",
+    });
+    expect(lark.find()).toBe(exe);
+    // No exe next to the shim (another install layout): the shim still works.
+    files.delete(exe);
+    expect(lark.find()).toBe("C:\\nodejs\\lark-cli.cmd");
+    expect(nativeLarkCli("C:\\tools\\lark-cli.exe", () => true)).toBeUndefined();
   });
 
   it("counts a user token lark-cli refreshes by itself as signed in", async () => {

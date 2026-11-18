@@ -52,6 +52,24 @@ const LOGIN_WAIT_MS = 10 * 60_000;
 
 const MAX_BUFFER = 8 * 1024 * 1024;
 
+/**
+ * On Windows, the lark-cli.exe behind an npm shim. The shim runs `node scripts/run.js`, which
+ * starts the exe without `windowsHide`, so every check flashed a terminal window on the owner's
+ * desktop. Started directly, the exe is hidden like any other child.
+ */
+export function nativeLarkCli(shim: string, exists: (p: string) => boolean): string | undefined {
+  if (!/\.(cmd|ps1|bat)$/i.test(shim) && win32.extname(shim) !== "") return undefined;
+  const exe = win32.join(
+    win32.dirname(shim),
+    "node_modules",
+    "@larksuite",
+    "cli",
+    "bin",
+    "lark-cli.exe",
+  );
+  return exists(exe) ? exe : undefined;
+}
+
 export const runFile: Run = (file, args, opts = {}) =>
   new Promise((resolve) => {
     const line = commandLine(file, args);
@@ -181,7 +199,10 @@ export class Lark {
     const path = [...(this.opts.dirs ?? []), searchPath(env, plat), ...extraWin]
       .filter((d) => d !== "")
       .join(sep);
-    return onPath(["lark-cli"], path, exists, plat, envValue(env, "PATHEXT"));
+    const found = onPath(["lark-cli"], path, exists, plat, envValue(env, "PATHEXT"));
+    return found === undefined || plat !== "win32"
+      ? found
+      : (nativeLarkCli(found, exists) ?? found);
   }
 
   /** Looks again: installed, set up, signed in. */
