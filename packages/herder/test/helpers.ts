@@ -180,6 +180,8 @@ export function fakeHost(
     toolNotes?: string[];
     /** A news source answer; reads are recorded in rec.state "feeds" (ADR 0059). */
     feed?: FeedItem[];
+    /** Tencent WeStock mock state and quote response (ADR 0076). */
+    westock?: { enabled: boolean; cliReady: boolean; quote?: string };
     /** Where small news goes, kept in memory (ADR 0061). */
     notices?: Record<NoticeKind, NoticeLevel>;
     /** What each task's agent was sent and wrote, by task id (task_read, ADR 0062). */
@@ -270,6 +272,19 @@ export function fakeHost(
             const reads = (rec.state.get("feeds") as unknown[] | undefined) ?? [];
             rec.state.set("feeds", [...reads, { source, query, mark }]);
             return opts.feed ?? [];
+          },
+        }),
+    ...(opts.westock === undefined
+      ? {}
+      : {
+          westock: () => ({
+            enabled: opts.westock?.enabled ?? true,
+            cliReady: opts.westock?.cliReady ?? false,
+          }),
+          stockQuote: async (query: string) => {
+            const reads = (rec.state.get("quotes") as unknown[] | undefined) ?? [];
+            rec.state.set("quotes", [...reads, query]);
+            return opts.westock?.quote ?? `mock quote for ${query}`;
           },
         }),
     getState: <T>(key: string) => rec.state.get(key) as T | undefined,

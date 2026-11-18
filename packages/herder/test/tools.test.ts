@@ -196,6 +196,35 @@ describe("tools", () => {
     ]);
   });
 
+  it("stock_quote returns market quotes when enabled and hides when disabled (ADR 0076)", async () => {
+    const enabled = tools(
+      {},
+      {
+        westock: {
+          enabled: true,
+          cliReady: true,
+          quote: "- 腾讯控股 (hk00700): 412.60 HKD (+1.53%)",
+        },
+      },
+    );
+    expect(enabled.names).toContain("stock_quote");
+    const quoteRes = await enabled.call("stock_quote", { query: "腾讯控股" });
+    expect(quoteRes).toContain("腾讯控股 (hk00700)");
+    expect(enabled.rec.state.get("quotes")).toEqual(["腾讯控股"]);
+    const listed = await enabled.call("session_list", {});
+    expect(listed).toContain("deep research CLI (westock): ready for tasks");
+
+    const disabled = tools(
+      {},
+      {
+        westock: { enabled: false, cliReady: false },
+      },
+    );
+    expect(disabled.names).not.toContain("stock_quote");
+    const offList = await disabled.call("session_list", {});
+    expect(offList).toContain("turned off in 设置 › 应用连接");
+  });
+
   it("session_start passes the steps leaving the Mac the owner asked for (ADR 0056)", async () => {
     const dir = tmpdir();
     const { call, rec } = tools({ ownerText: `在 ${dir} 里修一下构建，做完推上去开个 PR` });

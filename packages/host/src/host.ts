@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import {
   chooseModel,
   emptyModelSettings,
@@ -90,6 +90,8 @@ import type {
   Tier,
   TranscriptView,
   WatchView,
+  WestockTest,
+  WestockView,
 } from "./api.ts";
 import { DEFAULT_PET, PET_FIGURES } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
@@ -110,6 +112,7 @@ import { RuntimeStore } from "./runtimes.ts";
 import { combineApps, Socials } from "./socials.ts";
 import { type VerifyOptions, verifyProfile } from "./verify.ts";
 import { deleteWatch, pauseWatch, watchViews } from "./watches.ts";
+import { Westock, type WestockRun } from "./westock.ts";
 
 export const HOST_VERSION = "0.0.0";
 
@@ -155,6 +158,8 @@ export interface HostOptions {
   verify?: VerifyOptions;
   /** The MCP socket agents reach the gateway on (mcp-socket.ts). Without it, agents get none. */
   mcpSocket?: string;
+  /** Command runner for checking the `westock` CLI binary (tests). */
+  westockRun?: WestockRun;
 }
 
 /** Turns 主管 › 行动记录 shows by default. */
@@ -203,6 +208,8 @@ export class Host implements HostApi {
   /** 飞书 through lark-cli, and the news sources (ADR 0059). */
   private readonly larkCli: Lark;
   private readonly feedList: Feeds;
+  /** 腾讯自选股 live quotes + official westock CLI (ADR 0076). */
+  private readonly westockCli: Westock;
   /** What the desktop pet sees of the chat (ADR 0070). */
   private readonly petFeed: PetFeed;
 
@@ -254,6 +261,23 @@ export class Host implements HostApi {
       },
     });
     this.feedList = new Feeds({ home: opts.home, off: () => this.config().feedsOff ?? [] });
+    this.westockCli = new Westock({
+      home: opts.home,
+      enabled: () => !(this.config().westockOff ?? false),
+      ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
+      ...(opts.westockRun === undefined ? {} : { run: opts.westockRun }),
+      ...(opts.exists === undefined ? {} : { exists: opts.exists }),
+      ...(opts.target === undefined ? {} : { target: opts.target }),
+      ...(opts.env === undefined ? {} : { env: opts.env }),
+      changed: () => {
+        this.emit({ topic: "westock", data: this.westockCli.current() });
+        if (this.herd !== undefined) {
+          this.profileList = this.buildProfiles();
+          this.herd.setProfiles(this.herdProfiles());
+        }
+      },
+      log: (line) => this.log(line),
+    });
   }
 
   lark(): Promise<LarkView> {
@@ -290,11 +314,34 @@ export class Host implements HostApi {
     return this.feeds();
   }
 
+  westock(): Promise<WestockView> {
+    return this.westockCli.check();
+  }
+
+  setWestockEnabled(on: boolean): Promise<WestockView> {
+    writeConfig(this.opts.home, { ...this.config(), westockOff: !on });
+    return Promise.resolve(this.westockCli.syncEnabled());
+  }
+
+  installWestock(): Promise<WestockView> {
+    return this.westockCli.install();
+  }
+
+  removeWestock(): Promise<WestockView> {
+    return this.westockCli.remove();
+  }
+
+  testWestock(query?: string): Promise<WestockTest> {
+    return this.westockCli.test(query);
+  }
+
   /** What every new task is told about this Mac's tools (ADR 0059). */
   private toolNotes(): string[] {
     const notes: string[] = [];
     const lark = this.larkCli.note();
     if (lark !== undefined) notes.push(lark);
+    const westock = this.westockCli.note();
+    if (westock !== undefined) notes.push(westock);
     const vault = this.config().obsidianVault;
     if (vault !== undefined && vault !== "") {
       notes.push(
@@ -422,6 +469,7 @@ export class Host implements HostApi {
   async start(): Promise<void> {
     void this.appList.load();
     this.socialList.start();
+    void this.westockCli.check();
     await this.restartHerd();
   }
 
@@ -463,6 +511,7 @@ export class Host implements HostApi {
     this.stopped = true;
     this.agentList.stop();
     this.socialList.stop();
+    this.westockCli.stop();
     this.setupRun++;
     await this.stopHerd();
   }
@@ -507,6 +556,13 @@ export class Host implements HostApi {
         on: () => FEED_SOURCES.filter((f) => this.feedList.on(f)),
         read: (source, query, mark) => this.feedList.read(source, query, mark),
       },
+      westock: {
+        state: () => ({
+          enabled: this.westockCli.current().enabled,
+          cliReady: this.westockCli.cliReady(),
+        }),
+        quote: (query) => this.westockCli.quote(query),
+      },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
       herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
@@ -516,7 +572,11 @@ export class Host implements HostApi {
         : {
             mcpServer: (token: string) => mcpServerFor(this.opts.mcpSocket as string, token),
             apps: () =>
-              combineApps([this.socialList.tools(this.appList.appTools()), this.feedList.tools()]),
+              combineApps([
+                this.socialList.tools(this.appList.appTools()),
+                this.feedList.tools(),
+                this.westockCli.tools(),
+              ]),
             appNames: () => this.appList.connectedNames(),
           }),
       agentModels: {
@@ -533,9 +593,10 @@ export class Host implements HostApi {
             ref,
             this.opts.env,
           );
-          if (profileId === "codex") return { env: withCodexHome(this.opts.home, launch.env) };
-          if (profileId === "claude") return { env: withClaudeHome(this.opts.home, launch.env) };
-          return { env: this.withModelGrant(launch.env) };
+          const withPath = this.withToolPath(launch.env);
+          if (profileId === "codex") return { env: withCodexHome(this.opts.home, withPath) };
+          if (profileId === "claude") return { env: withClaudeHome(this.opts.home, withPath) };
+          return { env: this.withModelGrant(withPath) };
         },
         check: (ref) => this.checkModel(ref),
         next: (profileId, failed, tried) => this.nextModel(profileId, failed, tried),
@@ -608,9 +669,11 @@ export class Host implements HostApi {
     });
     // Pi keeps its sessions here so an old task can be continued after a restart (ADR 0039).
     const sessionDir = join(this.opts.home, "pi-sessions");
-    return profiles.map((p) =>
-      p.id === "pi" ? { ...p, env: { ...p.env, AGENTHERD_PI_SESSION_DIR: sessionDir } } : p,
-    );
+    return profiles.map((p) => {
+      const base =
+        p.id === "pi" ? { ...p, env: { ...p.env, AGENTHERD_PI_SESSION_DIR: sessionDir } } : p;
+      return { ...base, env: this.withToolPath(base.env) };
+    });
   }
 
   /** Installed agents minus the ones sitting out after a failed start. */
@@ -903,6 +966,23 @@ export class Host implements HostApi {
 
   providers(): ProviderView[] {
     return builtinProviders();
+  }
+
+  /** Prepends `<home>/bin` (`westock`, etc.) to `PATH` when present without duplicating `Path`/`PATH` (ADR 0076). */
+  private withToolPath(env: Record<string, string>): Record<string, string> {
+    const dir = this.westockCli.binDir();
+    if (dir === undefined) return env;
+    const plat = this.opts.target?.startsWith("win32-") ? "win32" : process.platform;
+    const sep = plat === "win32" ? win32.delimiter : posix.delimiter;
+    const base = this.opts.env ?? process.env;
+    const pathKey =
+      Object.keys(env).find((k) => k.toUpperCase() === "PATH") ??
+      Object.keys(base).find((k) => k.toUpperCase() === "PATH") ??
+      "PATH";
+    const current = env[pathKey] ?? base[pathKey] ?? "";
+    const parts = current.split(sep).filter((p) => p !== "");
+    if (parts.includes(dir)) return env;
+    return { ...env, [pathKey]: current === "" ? dir : `${dir}${sep}${current}` };
   }
 
   /** Pi with a subscription model gets a socket and a token to ask for its tokens on. */

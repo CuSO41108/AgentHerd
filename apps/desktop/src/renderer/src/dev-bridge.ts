@@ -39,6 +39,8 @@ import type {
   SocialView,
   Tier,
   WatchView,
+  WestockTest,
+  WestockView,
 } from "@agentherd/host/api";
 import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
@@ -424,6 +426,15 @@ function installFakeBridge(): void {
   let watches: WatchView[] = sampleWatches(sim === "empty" || sim === "no-agent");
   let lark: LarkView = sampleLark(sim === "empty" || sim === "no-agent");
   let feeds: FeedView[] = sampleFeeds();
+  let westock: WestockView = {
+    enabled: true,
+    cliState: "missing",
+    supported: true,
+  };
+  const setWestock = (next: WestockView): void => {
+    westock = next;
+    emit({ topic: "westock", data: structuredClone(westock) });
+  };
   /** Changes 飞书 and tells the page, as the host's "lark" event does. */
   const setLark = (next: LarkView): void => {
     lark = next;
@@ -683,6 +694,38 @@ function installFakeBridge(): void {
     setFeed: (source, on) => {
       feeds = feeds.map((f) => (f.source === source ? { ...f, on } : f));
       return delay(feeds);
+    },
+    westock: () => delay(structuredClone(westock)),
+    setWestockEnabled: (on) => {
+      setWestock({ ...westock, enabled: on });
+      return delay(structuredClone(westock));
+    },
+    installWestock: async () => {
+      setWestock({ ...westock, cliState: "installing", problem: undefined });
+      await new Promise((r) => setTimeout(r, 350));
+      setWestock({
+        enabled: westock.enabled,
+        cliState: "ready",
+        supported: true,
+        version: "0.0.2",
+        managed: true,
+        path: "~/.agentherd/bin/westock",
+      });
+      return structuredClone(westock);
+    },
+    removeWestock: () => {
+      setWestock({ enabled: westock.enabled, cliState: "missing", supported: true });
+      return delay(structuredClone(westock));
+    },
+    testWestock: (): Promise<WestockTest> => {
+      const cliLabel = westock.cliState === "ready" ? " · westock v0.0.2 就绪" : "";
+      return delay({
+        ok: true,
+        message: `实时行情正常：上证指数 3328.45 (+0.62%) · 腾讯控股 412.60 (+1.53%)${cliLabel}`,
+        sample:
+          "- 上证指数 (sh000001): 3328.45 (+20.51 / +0.62%) | 开 3310.12 昨收 3307.94 区间 3302.18-3334.90 | 成交额 6420.15亿 CNY\n- 腾讯控股 (hk00700): 412.60 HKD (+6.20 / +1.53%) | 开 408.00 昨收 406.40 区间 407.20-415.00 | 成交额 98.42亿 HKD | PE 19.80\nSource: 腾讯财经实时行情 (qt.gtimg.cn) · Objective market data for reference only, not investment advice.",
+        westock: structuredClone(westock),
+      });
     },
     socials: () => delay(socials),
     enableSocial: (platform) => {

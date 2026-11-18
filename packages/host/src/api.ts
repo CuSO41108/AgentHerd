@@ -386,6 +386,35 @@ export interface FeedView {
   on: boolean;
 }
 
+/** Official `@tencent-adm/westock-data` CLI install status in 应用连接 (ADR 0076). */
+export type WestockCliState = "missing" | "installing" | "ready" | "failed";
+
+/** Tencent WeStock (腾讯自选股) connection state in 设置 › 应用连接 (ADR 0076). */
+export interface WestockView {
+  /** Whether built-in live stock quotes (`stock_quote` / `WESTOCK_QUOTE`) are enabled. */
+  enabled: boolean;
+  /** Install status of the official `westock` research CLI (`@tencent-adm/westock-data`). */
+  cliState: WestockCliState;
+  /** True when the current OS/architecture has an official prebuilt `westock` CLI release. */
+  supported: boolean;
+  /** Installed `westock` CLI version when ready. */
+  version?: string;
+  /** True when installed inside AgentHerd's managed `bin` folder. */
+  managed?: boolean;
+  /** Resolved executable path when ready. */
+  path?: string;
+  /** Failure reason when `cliState === "failed"`. */
+  problem?: string;
+}
+
+/** What 腾讯自选股 › 连接测试 found. */
+export interface WestockTest {
+  ok: boolean;
+  message: string;
+  sample?: string;
+  westock: WestockView;
+}
+
 /** Everything the host offers. Each method is one request on the socket. */
 export type Tier = "strong" | "balanced" | "fast";
 
@@ -585,6 +614,11 @@ export interface HostApi {
   logoutLark(): Promise<LarkView>;
   feeds(): FeedView[];
   setFeed(source: FeedSource, on: boolean): FeedView[];
+  westock(): Promise<WestockView>;
+  setWestockEnabled(on: boolean): Promise<WestockView>;
+  installWestock(): Promise<WestockView>;
+  removeWestock(): Promise<WestockView>;
+  testWestock(query?: string): Promise<WestockTest>;
   /** What the desktop pet shows (ADR 0070). */
   pet(): PetView;
   /** The owner typed this to the pet: it reaches AgentHerd as a chat message. */
@@ -653,6 +687,11 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "logoutLark",
   "feeds",
   "setFeed",
+  "westock",
+  "setWestockEnabled",
+  "installWestock",
+  "removeWestock",
+  "testWestock",
   "pet",
   "petSay",
   "petPress",
@@ -669,6 +708,7 @@ export type HostEvent =
   | { topic: "socials"; data: SocialView[] }
   | { topic: "watches"; data: WatchView[] }
   | { topic: "lark"; data: LarkView }
+  | { topic: "westock"; data: WestockView }
   | { topic: "login"; data: LoginView }
   | { topic: "pet"; data: PetView };
 
