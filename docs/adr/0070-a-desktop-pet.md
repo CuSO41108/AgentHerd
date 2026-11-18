@@ -34,8 +34,16 @@
    `{kind: "action", target, action, from: ownerId}` and `petSay(text)` delivers
    `{kind: "message", text, from: ownerId}` to the herd, exactly what a press or a message in
    Feishu delivers. So the inbox, asks, offers and the Herder need no change, and the Feishu card
-   closes too. A typed message is also posted to the chat as 「（在桌宠里说）…」, so the Feishu
-   conversation still reads in order. A press on a card that is no longer open is refused
+   closes too. What the owner types is also shown in the chat as 「（在桌宠里说）…」, so the Feishu
+   conversation still reads in order. It is not a message of its own: a Feishu bot message
+   always rings, and the owner does not want the desktop to ring for words they wrote
+   (「飞书里可以发，但是不要弹提示和声音到我桌面来，因为这是用户发的」). The send API has no
+   silent flag (its only `system` message is a divider of at most 10 characters). So the line
+   waits, up to 2 minutes, and is quoted on top of the Herder's next answer (its own text or a
+   question; not a task's message, an offer, a report or a card), which rings anyway. Several
+   lines typed before the answer are quoted together; an update in place of that message keeps
+   the quote. With no answer in 2 minutes, or when the channel stops, the line is posted alone.
+   A press on a card that is no longer open is refused
    ("这件事已经处理过了"); with no channel connected, both are refused.
 3. **Mood from state, not from a model.** The pet's mood follows the host: something waits for
    the owner → waiting; a report or error just came → celebrate or error for 6 s; a task is
@@ -94,6 +102,11 @@
   already says that much.
 - **The pet calls a model for its own lines (Claude Code `/buddy`)** — costs a call per line and
   can say things AgentHerd did not; fixed lines and AgentHerd's own text are enough.
+- **The typed line as a message of its own** — the first version; the bot's message rang on the
+  owner's desktop for words the owner had just written.
+- **Leave the typed line out of Feishu** — Feishu would hold answers to questions it never shows.
+- **Send the line as the owner (user token)** — the owner's own messages do not ring, but it needs a
+  second Feishu sign-in and a user scope.
 - **A host API that decides items directly** — would duplicate the inbox's rules (owner check,
   batch cards, asks, offers); delivering the same inbound as Feishu reuses all of them.
 - **One still frame per mood with CSS motion (the DSH whale's way)** — the first version; a
@@ -108,7 +121,9 @@
 - The local API can now answer cards (`petPress`) and send messages (`petSay`), only as the bound
   owner and only through the inbox's rules; anyone who can reach the socket (mode 600) could
   already change settings.
-- What the owner types in the pet shows in Feishu with a 「（在桌宠里说）」 prefix.
+- What the owner types in the pet shows in Feishu with a 「（在桌宠里说）」 prefix, on top of the
+  Herder's answer. A task's message or report that comes before the answer shows above it. During
+  a relay the agent's text is a task's message, so the line comes alone after 2 minutes.
 - After a restart the pet does not know older open cards until they change; Feishu still has
   them.
 - The bundled art cannot be shipped commercially as it is.

@@ -186,9 +186,12 @@ describe("Host", () => {
 
     await t.host.petSay("在吗");
     const chat = t.channels[0];
-    expect(chat?.messages[0]?.view).toEqual({ kind: "text", text: "（在桌宠里说）在吗" });
     // No Herder here, so the herd answers by itself; the pet shows that answer.
     await until(() => (t.host.pet().last?.id ?? 0) > 0);
+    // What the owner typed rides on the answer, so the chat app rings only once.
+    expect(chat?.messages[0]?.view).toMatchObject({
+      text: expect.stringMatching(/^（在桌宠里说）在吗\n\n/),
+    });
     expect(t.events.some((e) => e.topic === "pet")).toBe(true);
     // The expanded pet shows the Herder's conversation as herd.db keeps it, from before this
     // start too (none here: no Herder).
