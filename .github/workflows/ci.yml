@@ -1,0 +1,77 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CI: "true"
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check Policy-Sync mirror
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const sync = (f) => fs.readFileSync(f, "utf8").match(/^Policy-Sync:\s*(.+)$/m)?.[1]?.trim();
+            const a = sync("AGENTS.md"), c = sync("CLAUDE.md");
+            if (!a || a !== c) {
+              console.error(`Policy-Sync mismatch: AGENTS.md=${a} vs CLAUDE.md=${c}`);
+              process.exit(1);
+            }
+          '
+      - name: Lint and typecheck
+        run: pnpm check
+
+  test-build:
+    name: Test & Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache Electron binary
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Electron binary
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+        run: node apps/desktop/node_modules/electron/install.js
+      - name: Run tests
+        run: pnpm test
+      - name: Build desktop app
+        run: pnpm --filter @agentherd/desktop build
