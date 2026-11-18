@@ -1,11 +1,12 @@
-// Choosing a model from the list for a role (ADR 0021): the select itself, and a row with a
-// 试一下 button (the Herder's model on the 模型 page).
+// Choosing a model from the list for a role (ADR 0021): a custom grouped selector and a 试一下
+// row for the Herder's model on the 模型 page.
 
 import type { ModelTest } from "@agentherd/host/api";
-import { Bot, Check, CircleAlert, Loader2 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { Bot, CircleAlert, CircleCheck, Loader2, Play } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
 import { applyModels, call, type ModelRef, type ModelRole, useApp } from "../store";
-import { Button, Group, IconTile, inputClass, Row } from "./ui";
+import { Select, type SelectSection } from "./Select";
+import { Button, Group, IconTile, Row } from "./ui";
 
 const NONE = "";
 
@@ -22,11 +23,11 @@ function decode(value: string): ModelRef | null {
   return null;
 }
 
-/** A select over every listed model; picking one saves it for the role right away. */
+/** A grouped selector over every listed model; picking one saves it for the role right away. */
 export function RoleSelect({
   modelRole,
   label,
-  className = "w-60",
+  className = "w-72 max-w-[42vw]",
   onChosen,
 }: {
   modelRole: ModelRole;
@@ -42,6 +43,41 @@ export function RoleSelect({
   const current = ref === undefined ? NONE : encode(ref);
   const listed = services.some((s) => s.id === ref?.serviceId && s.models.includes(ref.model));
 
+  const sections = useMemo<SelectSection[]>(() => {
+    const topOptions: SelectSection["options"] = [
+      { value: NONE, label: "不选", muted: true },
+      ...(ref !== undefined && !listed
+        ? [
+            {
+              value: current,
+              label: ref.model,
+              tag: ref.serviceId,
+              mono: true,
+              badge: "不在列表",
+              badgeTone: "amber" as const,
+            },
+          ]
+        : []),
+    ];
+    const groups: SelectSection[] = services
+      .filter((s) => s.models.length > 0)
+      .map((s) => ({
+        id: s.id,
+        label: s.name,
+        ...(!s.hasKey && s.kind === "builtin"
+          ? { badge: "没有 Key", badgeTone: "amber" as const }
+          : {}),
+        options: s.models.map((m) => ({
+          value: encode({ serviceId: s.id, model: m }),
+          label: m,
+          tag: s.name,
+          mono: true,
+          keywords: `${s.name} ${s.id}`,
+        })),
+      }));
+    return [{ id: "_none", options: topOptions }, ...groups];
+  }, [services, ref, listed, current]);
+
   const choose = async (value: string) => {
     const next = decode(value);
     setBusy(true);
@@ -53,61 +89,48 @@ export function RoleSelect({
   };
 
   return (
-    <span className="relative block">
-      <select
-        aria-label={label}
-        className={`${inputClass} ${className} ${current === NONE ? "text-ink-muted" : ""}`}
-        value={current}
-        disabled={busy || models === undefined}
-        onChange={(e) => void choose(e.target.value)}
-      >
-        <option value={NONE}>不选</option>
-        {ref !== undefined && !listed && (
-          <option value={current}>
-            {ref.serviceId} / {ref.model}
-          </option>
-        )}
-        {services.map((s) => (
-          <optgroup key={s.id} label={s.name}>
-            {s.models.map((m) => (
-              <option key={m} value={encode({ serviceId: s.id, model: m })}>
-                {s.name} / {m}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      {busy && (
-        <Loader2
-          size={12}
-          className="-left-5 absolute top-1/2 -translate-y-1/2 animate-spin text-ink-muted"
-        />
-      )}
-    </span>
+    <Select
+      label={label}
+      value={current}
+      sections={sections}
+      onChange={(nextValue) => void choose(nextValue)}
+      placeholder="未选择模型"
+      align="end"
+      minMenuWidth={300}
+      searchPlaceholder="搜索模型或服务…"
+      busy={busy}
+      disabled={busy || models === undefined}
+      className={className}
+    />
   );
 }
 
 /** What trying a model found: a short reply, or why it failed. */
 function TestResult({ testing, result }: { testing: boolean; result: ModelTest | null }) {
   if (!testing && result === null) return null;
+  const tone = testing
+    ? "bg-control-hover text-ink-muted"
+    : result?.ok === true
+      ? "bg-success-soft text-success-text"
+      : "bg-danger-soft text-danger-text";
   return (
-    <div className="flex items-start gap-1.5 px-4 pb-3 pl-4 text-sm">
+    <div className={`mx-4 mb-3 ml-14 flex items-start gap-2 rounded-md px-3 py-2 text-sm ${tone}`}>
       {testing && (
         <>
-          <Loader2 size={13} className="mt-[3px] shrink-0 animate-spin text-ink-muted" />
-          <span className="text-ink-muted">正在试一下…</span>
+          <Loader2 size={14} className="mt-0.5 shrink-0 animate-spin" />
+          <span>正在试一下…</span>
         </>
       )}
       {result?.ok === true && (
         <>
-          <Check size={13} className="mt-[3px] shrink-0 text-success-text" />
-          <span className="selectable min-w-0 break-words text-ink-2">{result.reply}</span>
+          <CircleCheck size={14} className="mt-0.5 shrink-0" />
+          <span className="selectable min-w-0 break-words">{result.reply}</span>
         </>
       )}
       {result?.ok === false && (
         <>
-          <CircleAlert size={13} className="mt-[3px] shrink-0 text-danger-text" />
-          <span className="selectable min-w-0 break-words text-danger-text">{result.message}</span>
+          <CircleAlert size={14} className="mt-0.5 shrink-0" />
+          <span className="selectable min-w-0 break-words">{result.message}</span>
         </>
       )}
     </div>
@@ -148,18 +171,20 @@ export function RoleRow({
             <RoleSelect
               modelRole={modelRole}
               label={modelRole === "herder" ? "主管的模型" : "Pi 的模型"}
-              className="w-56"
+              className="w-72 max-w-[42vw]"
               onChosen={(next) => {
                 setResult(null);
                 if (next !== null) void test(next);
               }}
             />
             <Button
+              className="h-8 px-3"
               disabled={ref === undefined || testing}
               onClick={() => {
                 if (ref !== undefined) void test(ref);
               }}
             >
+              {testing ? <Loader2 size={13} className="animate-spin" /> : <Play size={12} />}
               试一下
             </Button>
           </>

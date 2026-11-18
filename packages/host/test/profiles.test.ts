@@ -7,6 +7,7 @@ import {
   codexPackageRoots,
   commandCandidates,
   findAgent,
+  localClaude,
   resolveProfile,
   searchPath,
 } from "../src/profiles.ts";
@@ -269,5 +270,32 @@ describe("searchPath", () => {
     expect(path).toContain("C:\\Users\\me\\scoop\\shims");
     expect(path).toContain("C:\\Program Files\\nodejs");
     expect(path.filter((d) => d === "C:\\Users\\me\\AppData\\Roaming\\npm")).toHaveLength(1);
+  });
+});
+
+describe("localClaude", () => {
+  const has =
+    (...paths: string[]) =>
+    (p: string) =>
+      paths.includes(p);
+
+  it("finds POSIX Claude CLI paths even when tested from Windows", () => {
+    expect(localClaude({}, has("/Users/me/.local/bin/claude"), "darwin", "/Users/me")).toBe(
+      "/Users/me/.local/bin/claude",
+    );
+  });
+
+  it("finds Windows native Claude CLI install locations", () => {
+    expect(
+      localClaude({}, has("C:\\Users\\me\\.local\\bin\\claude.exe"), "win32", "C:\\Users\\me"),
+    ).toBe("C:\\Users\\me\\.local\\bin\\claude.exe");
+    expect(
+      localClaude(
+        { LOCALAPPDATA: "D:\\Local" },
+        has("D:\\Local\\Programs\\claude\\claude.exe"),
+        "win32",
+        "C:\\Users\\me",
+      ),
+    ).toBe("D:\\Local\\Programs\\claude\\claude.exe");
   });
 });

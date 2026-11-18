@@ -6,6 +6,7 @@ import { type ReactNode, useState } from "react";
 import { providerName } from "./labels";
 import { ModelPanes } from "./ModelPanes";
 import { ProbeButton } from "./ModelProbe";
+import { Select } from "./Select";
 import { type ServiceChoice, type ServiceDraft, sameChoice } from "./ServiceDraft";
 import { IconTile, inputClass } from "./ui";
 
@@ -206,14 +207,21 @@ function ServiceFields({ draft, allowAdvanced }: { draft: ServiceDraft; allowAdv
         {custom ? (
           <>
             <SmallField label="接口格式">
-              <select
-                className={inputClass}
+              <Select
+                label="接口格式"
                 value={draft.api}
-                onChange={(e) => draft.setApi(e.target.value as typeof draft.api)}
-              >
-                <option value="openai-completions">OpenAI 兼容</option>
-                <option value="anthropic-messages">Anthropic 兼容</option>
-              </select>
+                onChange={(v) => draft.setApi(v as typeof draft.api)}
+                searchableThreshold={99}
+                sections={[
+                  {
+                    id: "api",
+                    options: [
+                      { value: "openai-completions", label: "OpenAI 兼容" },
+                      { value: "anthropic-messages", label: "Anthropic 兼容" },
+                    ],
+                  },
+                ]}
+              />
             </SmallField>
             {nameField}
             <SmallField label="Base URL">

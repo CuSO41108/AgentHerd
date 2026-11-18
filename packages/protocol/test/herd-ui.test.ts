@@ -293,6 +293,7 @@ describe("Markdown pictures (ADR 0075)", () => {
   it("takes only pictures on this computer", () => {
     expect(localPicture("/tmp/a.PNG")).toBe("/tmp/a.PNG");
     expect(localPicture("~/x.webp")).toBe("~/x.webp");
+    expect(localPicture("C:\\Users\\me\\qr.png")).toBe("C:\\Users\\me\\qr.png");
     expect(localPicture("https://e.com/a.png")).toBeUndefined();
     expect(localPicture("tmp/a.png")).toBeUndefined();
     expect(localPicture("/tmp/run.sh")).toBeUndefined();

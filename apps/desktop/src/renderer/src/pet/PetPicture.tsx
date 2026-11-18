@@ -25,7 +25,8 @@ export function PetPicture({ path, alt }: { path: string; alt: string }) {
       live = false;
     };
   }, [path]);
-  const name = alt === "" ? path.slice(path.lastIndexOf("/") + 1) : alt;
+  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  const name = alt === "" ? path.slice(cut + 1) : alt;
   if (src === null) {
     return (
       <span className="pet-md-picture-missing">

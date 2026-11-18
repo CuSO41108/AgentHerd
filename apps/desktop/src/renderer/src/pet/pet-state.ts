@@ -327,3 +327,33 @@ export function modelName(model: string | undefined): string | undefined {
   if (model === undefined || model === "") return undefined;
   return model.slice(model.lastIndexOf("/") + 1);
 }
+
+/** A message the owner just sent in the pet, before herd.db records its turn. */
+export interface PendingSay {
+  /** Negative id so React keys never collide with herd.db turn ids. */
+  id: number;
+  at: string;
+  text: string;
+  /** Highest history id when this message was sent. */
+  afterId: number;
+}
+
+/**
+ * Keeps optimistic owner messages until `history` holds their recorded `owner` turns (matched one
+ * by one after `afterId`).
+ */
+export function remainingSays(
+  pending: readonly PendingSay[],
+  history: readonly PetLine[],
+): PendingSay[] {
+  const used = new Set<number>();
+  const kept: PendingSay[] = [];
+  for (const item of pending) {
+    const match = history.find(
+      (h) => h.kind === "owner" && h.id > item.afterId && h.text === item.text && !used.has(h.id),
+    );
+    if (match !== undefined) used.add(match.id);
+    else kept.push(item);
+  }
+  return kept;
+}

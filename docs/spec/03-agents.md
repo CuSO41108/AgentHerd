@@ -155,7 +155,9 @@ OpenBot does it but without a Claude account sign-in: it uses the owner's own mo
 a claude.ai login ([ADR 0069](../adr/0069-claude-code-the-owners-own-or-downloaded.md)).
 
 - **Which `claude`.** `AGENTHERD_CLAUDE_CLI`, `claude` on `PATH`, `~/.local/bin/claude`,
-  `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`
+  `~/.claude/local/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude` (or on Windows,
+  `%USERPROFILE%\.local\bin\claude.exe`, `%USERPROFILE%\.claude\local\claude.exe`,
+  `%LOCALAPPDATA%\Programs\claude\claude.exe`)
   (`localClaude` in `packages/host/src/profiles.ts`); it reaches the adapter as
   `CLAUDE_CODE_EXECUTABLE`. Without one, the adapter's own build is used.
 - **Download only when asked.** On the **Agent** page Claude Code shows 没有 with 下载 until the

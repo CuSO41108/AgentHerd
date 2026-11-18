@@ -1,10 +1,11 @@
 // The desktop pet (ADR 0070): a tee in front of the chat channel. Everything AgentHerd sends to
 // the owner still goes to Feishu; the pet sees the same views, shows the latest one in its bubble
 // with the buttons of whatever waits for the owner, and passes what the owner types or presses
-// there back in as the owner's own message or button press. The expanded pet shows the Herder's
-// conversation kept in herd.db (`historyOf`), so it reaches back past restarts, with the cards
-// sent to the owner (reports, approvals, questions) kept in herd.db too (ADR 0072). It never
-// writes text of its own and makes no model calls.
+// there back in as the owner's own message or button press; what the owner typed is quoted on top
+// of the Herder's next chat answer rather than sent alone, so the chat app does not ring for it.
+// The expanded pet shows the Herder's conversation kept in herd.db (`historyOf`), so it reaches
+// back past restarts, with the cards sent to the owner (reports, approvals, questions) kept in
+// herd.db too (ADR 0072). It never writes text of its own and makes no model calls.
 
 import type { HerderTurn, OwnerCard } from "@agentherd/core";
 import { withoutContextMarks } from "@agentherd/herder";
@@ -17,7 +18,7 @@ import type {
   SetupUI,
   View,
 } from "@agentherd/protocol";
-import { hasHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
+import { HERD_UI_TARGET, hasHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
 import type { PetCard, PetCardView, PetLine, PetPending } from "./api.ts";
 
 /** Longest text the pet keeps for one line or one card body. */
@@ -32,6 +33,45 @@ export const PET_CARDS_MAX = 60;
 export const PET_CARD_TEXT_MAX = 4000;
 /** Longest text with a herd-ui block the pet keeps: cutting the block would lose it (ADR 0074). */
 export const PET_UI_TEXT_MAX = 12_000;
+/**
+ * How long what the owner typed in the pet waits to ride on the Herder's answer before it goes
+ * to the chat alone (ADR 0070). A message of its own makes the chat app ring for words the owner
+ * wrote.
+ */
+export const PET_ECHO_HOLD_MS = 2 * 60_000;
+/** Chat messages whose echo is kept, so an update in place does not drop it. */
+const ECHOED_MAX = 50;
+
+/**
+ * The Herder answering: its own words (with or without herd-ui choices) or its question. Not a
+ * task's message, an offer with buttons, the board, a report or a card.
+ */
+function carriesEcho(view: View): boolean {
+  if (view.kind === "ask") return true;
+  if (view.kind !== "text" || view.taskLabel !== undefined) return false;
+  return view.target === undefined || view.target.startsWith(HERD_UI_TARGET);
+}
+
+/**
+ * What the owner typed in the pet, set apart from the Herder's words: a Markdown quote, one per
+ * message, then a rule. Without it the chat could not tell who said what.
+ */
+export function echoQuote(lines: readonly string[]): string {
+  return lines
+    .map((line) =>
+      line
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n"),
+    )
+    .join("\n>\n");
+}
+
+/** The view with what the owner typed in the pet quoted on top. */
+function withEcho(view: View, quote: string): View {
+  if (view.kind !== "text" && view.kind !== "ask") return view;
+  return { ...view, text: `${quote}\n\n---\n\n${view.text}` };
+}
 
 /** How long a text may be in the pet: longer when it carries a herd-ui block. */
 function maxFor(text: string, max: number): number {
@@ -278,12 +318,22 @@ export interface PetFeedOptions {
   changed: () => void;
   /**
    * The chat line that tells what the owner typed to the pet, so the chat still reads as one
-   * conversation. Undefined: nothing is posted.
+   * conversation. It is quoted on top of the Herder's next answer, or posted alone after
+   * `echoHoldMs`. Undefined: nothing is posted.
    */
   echo?: (text: string) => string;
+  /** Default `PET_ECHO_HOLD_MS`. */
+  echoHoldMs?: number;
   /** Keeps a card in its latest form, for the conversation after a restart (ADR 0072). */
   keep?: (ref: string, view: PetCardView) => void;
   now?: () => Date;
+}
+
+/** Echo lines that wait for the Herder's answer on one channel. */
+interface HeldEcho {
+  channel: Channel;
+  lines: string[];
+  timer: ReturnType<typeof setTimeout>;
 }
 
 export class PetFeed {
@@ -294,6 +344,9 @@ export class PetFeed {
   private sink: InboundSink | undefined;
   private ownerId: string | undefined;
   private inner: Channel | undefined;
+  private held: HeldEcho | undefined;
+  /** The echo quoted on a chat message, by message ref. */
+  private readonly echoed = new Map<string, string>();
   private readonly opts: PetFeedOptions;
 
   constructor(opts: PetFeedOptions) {
@@ -340,10 +393,65 @@ export class PetFeed {
     if (t === "") throw new Error("说点什么再发送");
     const { sink, ownerId } = this.inbound();
     if (this.opts.echo !== undefined && this.inner !== undefined) {
-      // Straight to the chat, past the pet: the owner just typed it and needs no bubble for it.
-      await this.inner.send({ kind: "text", text: this.opts.echo(t) }).catch(() => undefined);
+      // Not a message of its own: the owner wrote it, so the chat app should not ring for it.
+      // Held, not sent, so the Herder does not wait on Feishu either.
+      this.hold(this.inner, [this.opts.echo(t)]);
     }
     await sink({ kind: "message", text: t, from: ownerId });
+  }
+
+  private hold(channel: Channel, lines: string[], first = false): void {
+    const held = this.held;
+    if (held !== undefined && held.channel === channel) {
+      if (first) held.lines.unshift(...lines);
+      else held.lines.push(...lines);
+      return;
+    }
+    if (held !== undefined) void this.flush(held.channel);
+    const timer = setTimeout(
+      () => void this.flush(channel),
+      this.opts.echoHoldMs ?? PET_ECHO_HOLD_MS,
+    );
+    timer.unref?.();
+    this.held = { channel, lines: [...lines], timer };
+  }
+
+  /** @internal The Herder took too long, or the channel stops: the echo goes to the chat alone. */
+  async flush(channel: Channel): Promise<void> {
+    const held = this.held;
+    if (held === undefined || held.channel !== channel) return;
+    this.held = undefined;
+    clearTimeout(held.timer);
+    // Straight to the chat, past the pet: the owner just typed it and needs no bubble for it.
+    await channel.send({ kind: "text", text: held.lines.join("\n") }).catch(() => undefined);
+  }
+
+  /** @internal The echo to quote on this view, taken off the hold; undefined if none. */
+  takeEcho(channel: Channel, view: View): string[] | undefined {
+    const held = this.held;
+    if (held === undefined || held.channel !== channel || !carriesEcho(view)) return undefined;
+    this.held = undefined;
+    clearTimeout(held.timer);
+    return held.lines;
+  }
+
+  /** @internal The view could not be sent: its echo waits again. */
+  returnEcho(channel: Channel, lines: string[]): void {
+    this.hold(channel, lines, true);
+  }
+
+  /** @internal This chat message carries the echo; updates keep it. */
+  rememberEcho(ref: MessageRef, echo: string): void {
+    this.echoed.set(key(ref), echo);
+    if (this.echoed.size > ECHOED_MAX) {
+      const oldest = this.echoed.keys().next().value;
+      if (oldest !== undefined) this.echoed.delete(oldest);
+    }
+  }
+
+  /** @internal */
+  echoOf(ref: MessageRef): string | undefined {
+    return this.echoed.get(key(ref));
   }
 
   /** The owner pressed a button in the bubble: the same as pressing it on the Feishu card. */
@@ -353,6 +461,8 @@ export class PetFeed {
     );
     if (!open) throw new Error("这件事已经处理过了");
     const { sink, ownerId } = this.inbound();
+    // A press is not an answer to what the owner typed: that goes first, alone.
+    if (this.inner !== undefined) await this.flush(this.inner);
     await sink({ kind: "action", target, action, from: ownerId });
   }
 
@@ -450,23 +560,45 @@ class PetChannel implements Channel {
   }
 
   async start(binding: ChannelBinding, sink: InboundSink): Promise<void> {
-    await this.inner.start(binding, sink);
+    // The owner moved on in the chat: what they typed in the pet goes first, alone, so it is
+    // never quoted on an answer to something else.
+    await this.inner.start(binding, async (inbound) => {
+      await this.feed.flush(this.inner);
+      await sink(inbound);
+    });
     this.feed.attach(binding, sink);
   }
 
   async stop(): Promise<void> {
+    await this.feed.flush(this.inner);
     this.feed.detach(this.inner);
     await this.inner.stop();
   }
 
   async send(view: View): Promise<MessageRef> {
-    const ref = await this.inner.send(view);
+    const lines = this.feed.takeEcho(this.inner, view);
+    if (lines === undefined) {
+      const ref = await this.inner.send(view);
+      this.feed.sent(ref, view);
+      return ref;
+    }
+    const echo = echoQuote(lines);
+    let ref: MessageRef;
+    try {
+      ref = await this.inner.send(withEcho(view, echo));
+    } catch (error) {
+      this.feed.returnEcho(this.inner, lines);
+      throw error;
+    }
+    this.feed.rememberEcho(ref, echo);
+    // The pet shows the Herder's words alone: the owner's line is already in its conversation.
     this.feed.sent(ref, view);
     return ref;
   }
 
   async update(ref: MessageRef, view: View): Promise<void> {
-    await this.inner.update(ref, view);
+    const echo = this.feed.echoOf(ref);
+    await this.inner.update(ref, echo === undefined ? view : withEcho(view, echo));
     this.feed.updated(ref, view);
   }
 

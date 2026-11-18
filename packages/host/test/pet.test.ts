@@ -8,6 +8,7 @@ import type { Inbound, ItemView, ReportView, View } from "@agentherd/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PetCardView } from "../src/api.ts";
 import {
+  echoQuote,
   historyOf,
   PET_CARD_TEXT_MAX,
   PET_HISTORY_MAX,
@@ -18,11 +19,12 @@ import {
 
 const BINDING = { channelId: "fake", ownerId: "owner", data: {} };
 
-async function started(echo?: (text: string) => string) {
+async function started(echo?: (text: string) => string, echoHoldMs?: number) {
   let changes = 0;
   const feed = new PetFeed({
     changed: () => changes++,
     ...(echo === undefined ? {} : { echo }),
+    ...(echoHoldMs === undefined ? {} : { echoHoldMs }),
     now: () => new Date("2026-11-17T12:00:00Z"),
   });
   const fake = new FakeChannel("owner");
@@ -153,12 +155,105 @@ describe("PetFeed (ADR 0070)", () => {
       { kind: "action", target: "i1", action: "allow", from: "owner" },
       { kind: "message", text: "今天有什么新任务", from: "owner" },
     ]);
-    // The echo goes to the chat but not into the bubble.
-    expect(t.fake.messages.at(-1)?.view).toEqual({
-      kind: "text",
-      text: "（在桌宠里说）今天有什么新任务",
-    });
+    // No message of its own, so the chat app does not ring for what the owner wrote.
+    expect(t.fake.messages).toHaveLength(1);
     expect(t.feed.last?.kind).toBe("ask");
+  });
+
+  it("quotes what the owner typed on top of the Herder's next answer", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`);
+    await t.feed.say("在吗");
+    await t.feed.say("帮我看看登录");
+    // A task's message and an offer are not the answer: they go as they are.
+    await t.channel.send({ kind: "text", text: "跑测试", taskLabel: "修登录", tone: "progress" });
+    await t.channel.send({
+      kind: "text",
+      text: "有 3 个新 issue",
+      target: "offer-1",
+      options: [{ action: "take", label: "看看" }],
+    });
+    const ref = await t.channel.send({ kind: "text", text: "在的，我开个任务去看。" });
+    // Set apart: a quote per message, then a rule, then the Herder's words.
+    const quote = "> （在桌宠里说）在吗\n>\n> （在桌宠里说）帮我看看登录\n\n---\n\n";
+    expect(t.fake.messages.map((m) => m.view)).toEqual([
+      { kind: "text", text: "跑测试", taskLabel: "修登录", tone: "progress" },
+      expect.objectContaining({ text: "有 3 个新 issue" }),
+      { kind: "text", text: `${quote}在的，我开个任务去看。` },
+    ]);
+    // The pet shows the Herder's words alone; an update in place keeps the quote in the chat.
+    expect(t.feed.last).toMatchObject({ kind: "say", text: "在的，我开个任务去看。" });
+    await t.channel.update(ref, { kind: "text", text: "在的，任务开好了。" });
+    expect(t.fake.messages[2]?.view).toEqual({ kind: "text", text: `${quote}在的，任务开好了。` });
+    // Taken once: the next answer goes as it is.
+    await t.channel.send({ kind: "text", text: "还有别的吗？" });
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "还有别的吗？" });
+  });
+
+  it("quotes a message of several lines line by line", () => {
+    expect(echoQuote(["（在桌宠里说）第一行\n第二行"])).toBe("> （在桌宠里说）第一行\n> 第二行");
+  });
+
+  it("quotes it on a Herder question and on a reply with herd-ui choices", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`);
+    await t.feed.say("找个面馆");
+    await t.channel.send({
+      kind: "ask",
+      askId: "a1",
+      text: "要走路能到的吗？",
+      options: [{ action: "0", label: "要" }],
+    });
+    expect(t.fake.messages[0]?.view).toMatchObject({
+      kind: "ask",
+      text: "> （在桌宠里说）找个面馆\n\n---\n\n要走路能到的吗？",
+    });
+    expect(t.feed.pending()[0]?.title).toBe("要走路能到的吗？");
+
+    await t.feed.say("你好");
+    await t.channel.send({ kind: "text", text: "要设提醒吗？", target: "ui:abc" });
+    expect(t.fake.messages[1]?.view).toEqual({
+      kind: "text",
+      text: "> （在桌宠里说）你好\n\n---\n\n要设提醒吗？",
+      target: "ui:abc",
+    });
+  });
+
+  it("posts it alone first when the owner presses or writes something else", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`);
+    await t.channel.send({
+      kind: "ask",
+      askId: "a1",
+      text: "继续吗？",
+      options: [{ action: "0", label: "继续" }],
+    });
+    await t.feed.say("等等");
+    await t.feed.press("a1", "0");
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "（在桌宠里说）等等" });
+    expect(t.inbound.at(-1)).toMatchObject({ kind: "action", target: "a1" });
+
+    await t.feed.say("还在吗");
+    await t.fake.say("我在飞书里说的");
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "（在桌宠里说）还在吗" });
+    expect(t.inbound.at(-1)).toMatchObject({ kind: "message", text: "我在飞书里说的" });
+    // The answer after that is not quoted: the line already went.
+    await t.channel.send({ kind: "text", text: "在。" });
+    expect(t.fake.messages.at(-1)?.view).toEqual({ kind: "text", text: "在。" });
+  });
+
+  it("posts it alone when no answer comes in time, or when the channel stops", async () => {
+    const t = await started((text) => `（在桌宠里说）${text}`, 20);
+    await t.feed.say("在吗");
+    await t.fake.waitFor((m: SentMessage) => m.view.kind === "text");
+    expect(t.fake.messages.map((m) => m.view)).toEqual([
+      { kind: "text", text: "（在桌宠里说）在吗" },
+    ]);
+    expect(t.feed.last).toBeUndefined();
+
+    const s = await started((text) => `（在桌宠里说）${text}`);
+    await s.feed.say("先停一下");
+    await s.channel.stop();
+    expect(s.fake.messages.map((m) => m.view)).toEqual([
+      { kind: "text", text: "（在桌宠里说）先停一下" },
+    ]);
   });
 
   it("shows the Herder's conversation from herd.db for the expanded pet", () => {
@@ -219,6 +314,40 @@ describe("PetFeed (ADR 0070)", () => {
     await next.start(BINDING, async () => {});
     await old.stop();
     expect(feed.connected).toBe(true);
+  });
+
+  it("delivers petSay without waiting on a slow Feishu, and the reply carries the echo", async () => {
+    let releaseSend!: () => void;
+    const fake = new FakeChannel("owner");
+    const sent: string[] = [];
+    const slow: typeof fake = Object.assign(Object.create(fake) as FakeChannel, {
+      async send(view: Parameters<FakeChannel["send"]>[0]) {
+        await new Promise<void>((r) => {
+          releaseSend = r;
+        });
+        if (view.kind === "text") sent.push(view.text);
+        return fake.send(view);
+      },
+      start: fake.start.bind(fake),
+      stop: fake.stop.bind(fake),
+      update: fake.update.bind(fake),
+      pin: fake.pin.bind(fake),
+    });
+    const feed = new PetFeed({ changed: () => {}, echo: (text) => `（在桌宠里说）${text}` });
+    const channel = feed.wrap(slow);
+    const inbound: Inbound[] = [];
+    await channel.start(BINDING, async (i) => {
+      inbound.push(i);
+    });
+    // Nothing goes to Feishu yet, so a slow Feishu cannot hold up the owner's message.
+    await feed.say("你好");
+    expect(inbound).toEqual([{ kind: "message", text: "你好", from: "owner" }]);
+    expect(sent).toEqual([]);
+    const reply = channel.send({ kind: "text", text: "回复" });
+    await new Promise((r) => setImmediate(r));
+    releaseSend();
+    await reply;
+    expect(sent).toEqual(["> （在桌宠里说）你好\n\n---\n\n回复"]);
   });
 });
 

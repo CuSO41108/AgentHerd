@@ -886,10 +886,13 @@ export function replaceMarkdownImages(
   );
 }
 
-/** The path of a picture on this computer (`/…` or `~/…`, png/jpg/gif/webp), or undefined. */
+/**
+ * The path of a picture on this computer (`/…`, `~/…`, or on Windows `C:\…`, png/jpg/gif/webp),
+ * or undefined.
+ */
 export function localPicture(src: string): string | undefined {
   const path = src.trim();
-  if (!(path.startsWith("/") || path.startsWith("~/"))) return undefined;
+  if (!/^(?:\/|~[\\/]|[A-Za-z]:[\\/])/.test(path)) return undefined;
   return herdUiImageType(path) === undefined ? undefined : path;
 }
 

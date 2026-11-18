@@ -208,9 +208,10 @@ function LinkCard({ node }: { node: Of<"link"> }) {
 }
 
 function FileCard({ node, openFile }: { node: Of<"file">; openFile(path: string): void }) {
-  const cut = node.path.lastIndexOf("/");
+  const cut = Math.max(node.path.lastIndexOf("/"), node.path.lastIndexOf("\\"));
   const name = node.title ?? node.path.slice(cut + 1);
-  const sub = node.desc ?? (node.title === undefined ? node.path.slice(0, cut) : node.path);
+  const sub =
+    node.desc ?? (node.title === undefined ? (cut >= 0 ? node.path.slice(0, cut) : "") : node.path);
   return <FileChip path={node.path} name={name} sub={sub} openFile={openFile} />;
 }
 

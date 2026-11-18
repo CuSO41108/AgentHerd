@@ -14,6 +14,7 @@ import {
   screen,
   shell,
 } from "electron";
+import { hitPetRegion, type PetRegion } from "../shared/bridge.ts";
 import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
 import { petMenuItems } from "./pet-menu";
 
@@ -28,6 +29,34 @@ interface Corner {
   bottom: number;
 }
 
+interface DragState {
+  cursorX: number;
+  cursorY: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  moved: boolean;
+}
+
+function parseRegions(raw: unknown): PetRegion[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PetRegion[] = [];
+  for (const item of raw) {
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as PetRegion).x === "number" &&
+      typeof (item as PetRegion).y === "number" &&
+      typeof (item as PetRegion).width === "number" &&
+      typeof (item as PetRegion).height === "number"
+    ) {
+      out.push(item as PetRegion);
+    }
+  }
+  return out;
+}
+
 export interface PetWindowOptions {
   preload: string;
   /** The renderer folder of a build, or the dev server's address. */
@@ -39,7 +68,15 @@ export interface PetWindowOptions {
 
 export class PetWindow {
   private win: BrowserWindow | undefined;
-  private dragFrom: { x: number; y: number } | undefined;
+  private dragFrom: DragState | undefined;
+  private dragTimer: ReturnType<typeof setInterval> | undefined;
+  private hitTimer: ReturnType<typeof setInterval> | undefined;
+  private pendingSize: { width: number; height: number; regions?: PetRegion[] } | undefined;
+  private regions: PetRegion[] | undefined;
+  private interacting = false;
+  private ignoringMouse: boolean | undefined;
+  private size = { ...START };
+  private lastPlaced: { x: number; y: number } | undefined;
   /** Where the figure stands: the window grows up and left from here and shrinks back to it. */
   private anchor: Corner | undefined;
   private readonly opts: PetWindowOptions;
@@ -49,52 +86,65 @@ export class PetWindow {
     ipcMain.on("pet:drag-start", (e) => {
       const w = this.own(e);
       if (w === undefined) return;
-      const [x, y] = w.getPosition();
-      this.dragFrom = { x: x ?? 0, y: y ?? 0 };
-    });
-    ipcMain.on("pet:drag-move", (e, dx: unknown, dy: unknown) => {
-      const w = this.own(e);
-      if (w === undefined || this.dragFrom === undefined) return;
-      if (typeof dx !== "number" || typeof dy !== "number") return;
-      w.setPosition(Math.round(this.dragFrom.x + dx), Math.round(this.dragFrom.y + dy));
-    });
-    ipcMain.on("pet:drag-end", (e) => {
-      const w = this.own(e);
-      this.dragFrom = undefined;
-      if (w === undefined) return;
+      this.stopDragTimer();
+      this.setIgnore(w, false);
+      const cursor = screen.getCursorScreenPoint();
       const b = w.getBounds();
-      this.anchor = { right: b.x + b.width, bottom: b.y + b.height };
-      this.saveCorner(this.anchor);
+      this.dragFrom = {
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        x: b.x,
+        y: b.y,
+        width: this.size.width,
+        height: this.size.height,
+        moved: false,
+      };
+      this.dragTimer = setInterval(() => this.stepDrag(), 16);
     });
-    ipcMain.on("pet:resize", (e, width: unknown, height: unknown) => {
+    ipcMain.on("pet:drag-move", (e) => {
+      if (this.own(e) !== undefined) this.stepDrag();
+    });
+    ipcMain.handle("pet:drag-end", (e) => {
+      const w = this.own(e);
+      this.stopDragTimer();
+      const d = this.dragFrom;
+      this.dragFrom = undefined;
+      this.interacting = false;
+      if (w === undefined || d === undefined) return false;
+      this.stepDragWith(w, d);
+      if (d.moved && this.anchor !== undefined) this.saveCorner(this.anchor);
+      if (this.pendingSize !== undefined) {
+        const { width, height, regions } = this.pendingSize;
+        this.pendingSize = undefined;
+        if (regions !== undefined) this.regions = regions;
+        this.applySize(w, width, height);
+      }
+      this.updateHitTest();
+      return d.moved;
+    });
+    ipcMain.on("pet:resize", (e, width: unknown, height: unknown, rawRegions?: unknown) => {
       const w = this.own(e);
       if (w === undefined || typeof width !== "number" || typeof height !== "number") return;
-      const b = w.getBounds();
-      const anchor = this.anchor ?? { right: b.x + b.width, bottom: b.y + b.height };
-      this.anchor = anchor;
-      const area = screen.getDisplayNearestPoint({
-        x: anchor.right - 1,
-        y: anchor.bottom - 1,
-      }).workArea;
-      // As big as the pet asks, up to the screen: the owner sizes the conversation (ADR 0070).
-      const next = {
-        width: clamp(Math.ceil(width), MIN, area.width),
-        height: clamp(Math.ceil(height), MIN, area.height),
-      };
-      // Near the top or left edge the window moves in rather than grow off the screen.
-      const bounds = {
-        x: Math.max(area.x, anchor.right - next.width),
-        y: Math.max(area.y, anchor.bottom - next.height),
-        ...next,
-      };
-      if (
-        bounds.x === b.x &&
-        bounds.y === b.y &&
-        next.width === b.width &&
-        next.height === b.height
-      )
+      const regions = parseRegions(rawRegions);
+      if (this.dragFrom !== undefined) {
+        if (regions !== undefined) this.regions = regions;
+        if (Math.ceil(width) !== this.size.width || Math.ceil(height) !== this.size.height) {
+          this.pendingSize = {
+            width,
+            height,
+            ...(regions === undefined ? {} : { regions }),
+          };
+        }
         return;
-      w.setBounds(bounds);
+      }
+      if (regions !== undefined) this.regions = regions;
+      this.applySize(w, width, height);
+      this.updateHitTest();
+    });
+    ipcMain.on("pet:interacting", (e, active: unknown) => {
+      if (this.own(e) === undefined || typeof active !== "boolean") return;
+      this.interacting = active;
+      this.updateHitTest();
     });
     ipcMain.on("pet:open-app", (e, taskId: unknown) => {
       if (this.own(e) === undefined) return;
@@ -136,10 +186,110 @@ export class PetWindow {
     return w !== undefined && !w.isDestroyed() && e.sender === w.webContents ? w : undefined;
   }
 
+  private stopDragTimer(): void {
+    if (this.dragTimer !== undefined) {
+      clearInterval(this.dragTimer);
+      this.dragTimer = undefined;
+    }
+  }
+
+  private stopHitTimer(): void {
+    if (this.hitTimer !== undefined) {
+      clearInterval(this.hitTimer);
+      this.hitTimer = undefined;
+    }
+  }
+
+  private setIgnore(w: BrowserWindow, ignore: boolean): void {
+    if (process.platform !== "win32" || this.ignoringMouse === ignore) return;
+    const wasInteractive = this.ignoringMouse === false;
+    this.ignoringMouse = ignore;
+    w.setIgnoreMouseEvents(ignore);
+    if (ignore && wasInteractive && !w.isDestroyed()) {
+      w.webContents.send("pet:mouse-leave");
+    }
+  }
+
+  private updateHitTest(): void {
+    if (process.platform !== "win32") return;
+    const w = this.win;
+    if (w === undefined || w.isDestroyed()) return;
+    if (this.dragFrom !== undefined || this.interacting) {
+      this.setIgnore(w, false);
+      return;
+    }
+    if (this.regions === undefined) {
+      this.setIgnore(w, true);
+      return;
+    }
+    const cursor = screen.getCursorScreenPoint();
+    const b = this.lastPlaced ?? w.getBounds();
+    const hit = hitPetRegion(cursor.x - b.x, cursor.y - b.y, this.size, this.regions);
+    this.setIgnore(w, !hit);
+  }
+
+  private stepDrag(): void {
+    const w = this.win;
+    const d = this.dragFrom;
+    if (w === undefined || w.isDestroyed() || d === undefined) return;
+    this.stepDragWith(w, d);
+  }
+
+  private stepDragWith(w: BrowserWindow, d: DragState): void {
+    const cursor = screen.getCursorScreenPoint();
+    const dx = cursor.x - d.cursorX;
+    const dy = cursor.y - d.cursorY;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    d.moved = true;
+    const x = Math.round(d.x + dx);
+    const y = Math.round(d.y + dy);
+    this.anchor = { right: x + d.width, bottom: y + d.height };
+    if (this.lastPlaced?.x === x && this.lastPlaced?.y === y) return;
+    this.lastPlaced = { x, y };
+    w.setBounds({ x, y, width: d.width, height: d.height });
+  }
+
+  private applySize(w: BrowserWindow, width: number, height: number): void {
+    const b = w.getBounds();
+    const anchor = this.anchor ?? { right: b.x + b.width, bottom: b.y + b.height };
+    this.anchor = anchor;
+    const area = screen.getDisplayNearestPoint({
+      x: anchor.right - 1,
+      y: anchor.bottom - 1,
+    }).workArea;
+    // As big as the pet asks, up to the screen: the owner sizes the conversation (ADR 0070).
+    const next = {
+      width: clamp(Math.ceil(width), MIN, area.width),
+      height: clamp(Math.ceil(height), MIN, area.height),
+    };
+    // Near the top or left edge the window moves in rather than grow off the screen.
+    const bounds = {
+      x: Math.max(area.x, anchor.right - next.width),
+      y: Math.max(area.y, anchor.bottom - next.height),
+      ...next,
+    };
+    if (
+      this.size.width === next.width &&
+      this.size.height === next.height &&
+      this.lastPlaced?.x === bounds.x &&
+      this.lastPlaced?.y === bounds.y
+    ) {
+      return;
+    }
+    this.size = next;
+    this.lastPlaced = { x: bounds.x, y: bounds.y };
+    w.setBounds(bounds);
+  }
+
   private open(): void {
     if (this.win !== undefined && !this.win.isDestroyed()) return;
     const corner = this.corner();
     this.anchor = corner;
+    this.size = { ...START };
+    this.lastPlaced = { x: corner.right - START.width, y: corner.bottom - START.height };
+    this.regions = undefined;
+    this.interacting = false;
+    this.ignoringMouse = undefined;
     const created = new BrowserWindow({
       x: corner.right - START.width,
       y: corner.bottom - START.height,
@@ -169,9 +319,29 @@ export class PetWindow {
     this.win = created;
     created.setAlwaysOnTop(true, "floating");
     created.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    if (process.platform === "win32") {
+      this.setIgnore(created, true);
+      this.hitTimer = setInterval(() => this.updateHitTest(), 25);
+    }
+    created.on("blur", () => {
+      if (this.dragFrom === undefined) {
+        this.interacting = false;
+        this.updateHitTest();
+      }
+    });
     created.once("ready-to-show", () => created.showInactive());
     created.on("closed", () => {
-      if (this.win === created) this.win = undefined;
+      if (this.win === created) {
+        this.win = undefined;
+        this.stopDragTimer();
+        this.stopHitTimer();
+        this.dragFrom = undefined;
+        this.pendingSize = undefined;
+        this.lastPlaced = undefined;
+        this.regions = undefined;
+        this.interacting = false;
+        this.ignoringMouse = undefined;
+      }
     });
     // Links in messages open in the browser; the pet itself never navigates or opens windows.
     created.webContents.setWindowOpenHandler(({ url }) => {
@@ -204,6 +374,14 @@ export class PetWindow {
   private close(): void {
     const w = this.win;
     this.win = undefined;
+    this.stopDragTimer();
+    this.stopHitTimer();
+    this.dragFrom = undefined;
+    this.pendingSize = undefined;
+    this.lastPlaced = undefined;
+    this.regions = undefined;
+    this.interacting = false;
+    this.ignoringMouse = undefined;
     if (w !== undefined && !w.isDestroyed()) w.close();
   }
 
