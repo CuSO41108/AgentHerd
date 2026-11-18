@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   answersIn,
   choiceStarts,
+  FOLD_HEIGHT,
   hostOf,
   offersAnswer,
   replyFold,
@@ -83,9 +84,17 @@ describe("choiceStarts and answersIn", () => {
 describe("folding and files of a reply with fences", () => {
   const long = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 行`).join("\n");
 
-  it("never folds a reply with a fence", () => {
-    expect(replyFold(long).folded).toBe(true);
-    expect(replyFold(`${long}\n\n${herdUiFence(second)}`)).toEqual({ folded: false, more: 0 });
+  it("folds every long reply, components or not, unless its answers wait (ADR 0073)", () => {
+    const fence = herdUiFence(second);
+    expect(replyFold(long)).toEqual({ folded: true, more: 22 });
+    // Long words around a fence fold; the line count is not told (components have no lines).
+    expect(replyFold(`${long}\n\n${fence}`)).toEqual({ folded: true, more: 0 });
+    // Short words fold when the reply is drawn tall (a table, a picture).
+    expect(replyFold(`看这个：\n\n${fence}`, 200)).toEqual({ folded: false, more: 0 });
+    expect(replyFold(`看这个：\n\n${fence}`, FOLD_HEIGHT + 1)).toEqual({ folded: true, more: 0 });
+    expect(replyFold("一张图", FOLD_HEIGHT + 40).folded).toBe(true);
+    // Open choices stay in sight.
+    expect(replyFold(`${long}\n\n${fence}`, 900, true)).toEqual({ folded: false, more: 0 });
   });
 
   it("reads only the Markdown, not the JSON", () => {
