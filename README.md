@@ -56,7 +56,8 @@ English · [简体中文](README.zh-CN.md)
   her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
   drawn as components (in Feishu too); pictures a task saves for you (a QR code to scan, a
   screenshot) shown right in the reply; files the Herder points you to one click away; the same cards as Feishu;
-  and a card for each task to stop or open it. Fold her into a dot when she is in the way.
+  and a card for each task to stop or open it. Three pages — 对话, 任务, 卡片 — put running tasks
+  and the cards waiting for you on pages of their own. Fold her into a dot when she is in the way.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.
 

@@ -5,6 +5,7 @@ import {
   CHAT_DEFAULT,
   CHAT_MIN,
   canStop,
+  cardGroups,
   clockOf,
   conversationOf,
   cut,
@@ -24,12 +25,16 @@ import {
   newestScroll,
   newLine,
   readChatSize,
+  readTab,
   remainingSays,
   reportHead,
+  runnerOf,
   SLEEP_AFTER_MS,
   separatorOf,
   statusOf,
   stepOf,
+  TASKS_ENDED_MS,
+  taskGroups,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
@@ -365,5 +370,72 @@ describe("the conversation's new look (ADR 0073)", () => {
     expect(statusOf(true, 2)).toBe("飞书已连接 · 2 个任务在跑");
     expect(modelName("deepseek/deepseek-flash")).toBe("deepseek-flash");
     expect(modelName(undefined)).toBeUndefined();
+  });
+});
+
+describe("the pet's pages (ADR 0078)", () => {
+  it("names a task's model once", () => {
+    expect(runnerOf("Pi · deepseek/deepseek-flash", "deepseek/deepseek-flash")).toBe(
+      "Pi · deepseek-flash",
+    );
+    expect(runnerOf("pi", "deepseek/deepseek-flash")).toBe("pi · deepseek-flash");
+    expect(runnerOf("Codex · gpt-5.5", "openai/gpt-5.5")).toBe("Codex · gpt-5.5");
+    expect(runnerOf("pi", undefined)).toBe("pi");
+  });
+
+  const NOW_AT = Date.UTC(2026, 10, 19, 12, 0);
+  const ago = (min: number) => new Date(NOW_AT - min * 60_000).toISOString();
+  const task = (id: string, stage: TasksView["tasks"][number]["stage"], updated: number) => ({
+    id,
+    title: `任务 ${id}`,
+    project: "demo",
+    agent: "Pi",
+    stage,
+    lastReport: "",
+    startedAt: ago(updated + 10),
+    updatedAt: ago(updated),
+    automaticDecisions: [],
+  });
+  const card = (ref: string, min: number, open: boolean): PetCard => ({
+    ref,
+    at: ago(min),
+    open,
+    view: { kind: "ask", askId: ref, text: "要哪种？", options: [] },
+  });
+
+  it("remembers the page, the conversation when unknown", () => {
+    expect(readTab("tasks")).toBe("tasks");
+    expect(readTab("cards")).toBe("cards");
+    expect(readTab(null)).toBe("chat");
+    expect(readTab("board")).toBe("chat");
+  });
+
+  it("lists running tasks, the ones waiting for the owner first, then the last day's ended", () => {
+    const { running, ended } = taskGroups(
+      [
+        task("w1", "working", 5),
+        task("w2", "working", 1),
+        task("n", "needs-owner", 30),
+        task("q", "queued", 0),
+        task("d", "done", 20),
+        task("f", "failed", 3),
+        task("old", "done", TASKS_ENDED_MS / 60_000 + 5),
+      ],
+      NOW_AT,
+    );
+    expect(running.map((t) => t.id)).toEqual(["n", "w2", "w1", "q"]);
+    expect(ended.map((t) => t.id)).toEqual(["f", "d"]);
+  });
+
+  it("puts cards that wait for the owner first, as they came, then the others newest first", () => {
+    const { waiting, recent } = cardGroups([
+      card("a", 50, false),
+      card("b", 40, true),
+      card("c", 30, false),
+      card("d", 20, true),
+      card("e", 10, false),
+    ]);
+    expect(waiting.map((c) => c.ref)).toEqual(["b", "d"]);
+    expect(recent.map((c) => c.ref)).toEqual(["e", "c", "a"]);
   });
 });
