@@ -35,6 +35,8 @@ export interface ReportBody {
   body: string;
   summarized: boolean;
   fullReply?: string;
+  /** How it ended when the stage does not say it: the owner stopped it (ADR 0072). */
+  result?: ReportResult;
 }
 
 export interface ReportBodyOptions {
@@ -117,7 +119,7 @@ export function reportView(
   texts: CoreTexts = CORE_TEXTS.en,
 ): ReportView {
   const duration = formatDuration(now.getTime() - new Date(task.startedAt).getTime());
-  const result = reportResult(task.stage);
+  const result = body.result ?? reportResult(task.stage);
   const view: ReportView = {
     kind: "report",
     taskId: task.id,

@@ -128,6 +128,8 @@ export interface CoreTexts {
   // Report bodies written by AgentHerd (not by the agent).
   couldNotStartBody(message: string): string;
   failedBody(message: string): string;
+  /** Report of a turn the owner stopped by ending its task (ADR 0072). */
+  stoppedByOwner: string;
   result: Record<ReportResult, string>;
   /** Between the result and the task in a report title. */
   titleSep: string;
@@ -332,6 +334,7 @@ const zh: CoreTexts = {
   watchdog: (d) => `看门狗：${d}`,
   couldNotStartBody: (m) => `Agent 启动失败：${m}`,
   failedBody: (m) => `任务失败：${m}`,
+  stoppedByOwner: "你停下了这个任务，做到一半的事没有做完。",
   result: { done: "已完成", failed: "失败", blocked: "受阻", stopped: "已停止" },
   titleSep: "：",
   repeatedToolCall: (n, label) => `同一个工具调用重复了 ${n} 次：${label}`,
@@ -525,6 +528,7 @@ const en: CoreTexts = {
   watchdog: (d) => `Watchdog: ${d}`,
   couldNotStartBody: (m) => `Could not start the agent: ${m}`,
   failedBody: (m) => `The task failed: ${m}`,
+  stoppedByOwner: "You stopped this task; what it was doing is not finished.",
   result: { done: "Done", failed: "Failed", blocked: "Blocked", stopped: "Stopped" },
   titleSep: ": ",
   repeatedToolCall: (n, label) => `the same tool call ran ${n} times: ${label}`,

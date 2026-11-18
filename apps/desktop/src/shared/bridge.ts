@@ -12,8 +12,8 @@ export interface PetBridge {
   dragEnd(): void;
   /** Fits the window to the pet, keeping its bottom-right corner where it is. */
   resize(width: number, height: number): void;
-  /** Brings up the main window. */
-  openApp(): void;
+  /** Brings up the main window, at a task when one is named (ADR 0072). */
+  openApp(taskId?: string): void;
 }
 
 export interface Bridge {
@@ -23,6 +23,8 @@ export interface Bridge {
   onEvent(listener: (event: HostEvent) => void): () => void;
   /** Whether main is connected to the host process. */
   onConnection(listener: (connected: boolean) => void): () => void;
+  /** The pet asked the main window to show a task. Returns an unsubscribe function. */
+  onOpenTask?(listener: (taskId: string) => void): () => void;
 }
 
 declare global {

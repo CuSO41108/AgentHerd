@@ -167,7 +167,8 @@ describe("Host", () => {
   it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
     const t = makeHost(true);
     expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
-    expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [] });
+    expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [], cards: [] });
+    await expect(t.host.stopTask("t1")).rejects.toThrow("not running");
     await t.host.start();
     expect(t.host.pet().connected).toBe(true);
 
@@ -196,7 +197,12 @@ describe("Host", () => {
     const db = Store.open(join(t.home, "herd.db"));
     db.addHerderTurn("owner", "昨天的话");
     db.addHerderTurn("herder", "昨天的回答");
+    // The cards sent before this start are there too (ADR 0072).
+    db.putOwnerCard("fake:m9", { kind: "ask", askId: "a1", text: "用哪个？", options: [] });
     db.close();
+    expect(t.host.pet().cards).toMatchObject([
+      { ref: "fake:m9", open: false, view: { kind: "ask", text: "用哪个？" } },
+    ]);
     expect(t.host.pet().history.map((l) => [l.kind, l.text])).toEqual([
       ["owner", "昨天的话"],
       ["say", "昨天的回答"],

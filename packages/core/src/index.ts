@@ -206,6 +206,8 @@ export type {
 export {
   ftsQuery,
   type HerderTurn,
+  OWNER_CARDS_KEEP,
+  type OwnerCard,
   prKey,
   Store,
   TRANSCRIPT_MAX_CHARS,

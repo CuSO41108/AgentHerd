@@ -1,7 +1,11 @@
 // What the desktop pet looks like and shows (ADR 0070). No model calls: its mood follows what the
 // host reports. Pure functions, so they are easy to test.
 
-import type { PetLine, PetView } from "@agentherd/host/api";
+import type { PetCard, PetCardView, PetLine, PetView, TasksView } from "@agentherd/host/api";
+
+type ReportView = Extract<PetCardView, { kind: "report" }>;
+type Task = TasksView["tasks"][number];
+type Stage = Task["stage"];
 
 /** Order of the six frames in a figure strip. */
 export const MOODS = ["resting", "working", "waiting", "celebrate", "error", "sleeping"] as const;
@@ -152,4 +156,106 @@ export function readChatSize(saved: string | null): ChatSize {
  */
 export function newestScroll(newestTop: number, maxScroll: number): number {
   return Math.max(0, Math.min(maxScroll, newestTop));
+}
+
+/** One thing in the conversation: a line, a card sent to the owner, or a task (ADR 0072). */
+export type Entry =
+  | { kind: "line"; key: string; at: string; line: PetLine }
+  | { kind: "card"; key: string; at: string; card: PetCard }
+  | { kind: "task"; key: string; at: string; task: Task };
+
+/** Tasks with no conversation to place them in: those of the last day. */
+const TASKS_ALONE_MS = 24 * 60 * 60_000;
+
+/**
+ * The conversation as the pet shows it, oldest first: the Herder's lines, the cards sent to the
+ * owner, and a card for every task started over the same time, where it started.
+ */
+export function conversationOf(view: PetView, tasks: readonly Task[], now = Date.now()): Entry[] {
+  const entries: Entry[] = view.history.map((line) => ({
+    kind: "line",
+    key: `h${line.id}`,
+    at: line.at,
+    line,
+  }));
+  // An older host sends no cards.
+  const cards = view.cards ?? [];
+  for (const card of cards) entries.push({ kind: "card", key: `c${card.ref}`, at: card.at, card });
+  const last = view.last;
+  const shownAsCard = last?.card !== undefined && cards.some((c) => c.ref === last.card);
+  const trailing = shownAsCard ? undefined : trailingLine(view.history, last);
+  if (trailing !== undefined) {
+    entries.push({ kind: "line", key: `l${trailing.id}`, at: trailing.at, line: trailing });
+  }
+  const times = entries.map((e) => Date.parse(e.at)).filter((t) => !Number.isNaN(t));
+  const from = times.length === 0 ? now - TASKS_ALONE_MS : Math.min(...times);
+  for (const task of tasks) {
+    if (Date.parse(task.startedAt) >= from) {
+      entries.push({ kind: "task", key: `t${task.id}`, at: task.startedAt, task });
+    }
+  }
+  return entries
+    .map((e, i) => ({ e, i, t: Date.parse(e.at) || 0 }))
+    .sort((a, b) => a.t - b.t || a.i - b.i)
+    .map(({ e }) => e);
+}
+
+/** The words on a task card for each stage. */
+export const TASK_STAGE: Record<
+  Stage,
+  { text: string; tone: "blue" | "amber" | "green" | "red" | "gray" }
+> = {
+  queued: { text: "排队中", tone: "gray" },
+  working: { text: "在做", tone: "blue" },
+  "needs-owner": { text: "等你", tone: "amber" },
+  stuck: { text: "卡住了", tone: "amber" },
+  done: { text: "做完了", tone: "green" },
+  failed: { text: "没做成", tone: "red" },
+};
+
+/** A task still running can be stopped; a finished one has nothing to stop. */
+export function canStop(task: Task): boolean {
+  return task.stage !== "done" && task.stage !== "failed";
+}
+
+/** How long a task has run: until now while it runs, until its last change once it ended. */
+export function elapsedOf(task: Task, now = Date.now()): string {
+  const end = canStop(task) ? now : Date.parse(task.updatedAt);
+  const s = Math.max(0, Math.round((end - Date.parse(task.startedAt)) / 1000));
+  if (Number.isNaN(s)) return "";
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} 分钟`;
+  const h = Math.floor(m / 60);
+  return m % 60 === 0 ? `${h} 小时` : `${h} 小时 ${m % 60} 分`;
+}
+
+/** The header of a report card: icon and color by how the task ended, as in Feishu. */
+export function reportHead(view: ReportView): {
+  icon: string;
+  tone: "green" | "red" | "amber" | "gray";
+} {
+  switch (view.result) {
+    case "done":
+      return { icon: "✅", tone: "green" };
+    case "failed":
+      return { icon: "❌", tone: "red" };
+    case "blocked":
+      return { icon: "⚠️", tone: "amber" };
+    default:
+      return { icon: "⏹", tone: "gray" };
+  }
+}
+
+/** Longer bodies are folded behind 展开全部, as in Feishu. */
+export const FOLD_CHARS = 400;
+
+/** The start of a long body, cut at a line end after half of `FOLD_CHARS` when there is one. */
+export function foldBody(body: string): { head: string; folded: boolean } {
+  if (body.length <= FOLD_CHARS) return { head: body, folded: false };
+  const cutAt = body.lastIndexOf("\n", FOLD_CHARS);
+  return {
+    head: body.slice(0, cutAt > FOLD_CHARS / 2 ? cutAt : FOLD_CHARS).trimEnd(),
+    folded: true,
+  };
 }
