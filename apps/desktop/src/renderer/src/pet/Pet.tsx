@@ -8,6 +8,7 @@
 
 import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
+  Fragment,
   type KeyboardEvent,
   type PointerEvent,
   useEffect,
@@ -18,23 +19,25 @@ import {
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
 import { CardView, TaskCard } from "./PetCards";
+import { LineView, Separator } from "./PetConversation";
 import {
   badgeOf,
   CHAT_DEFAULT,
   type ChatSize,
-  clockOf,
   conversationOf,
   dragChat,
+  type Entry,
   FLASH_MS,
   fitChat,
   flashOf,
   type Grip,
-  historyHead,
   type Mood,
   moodOf,
   newestScroll,
   newLine,
   readChatSize,
+  separatorOf,
+  statusOf,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
@@ -44,6 +47,9 @@ const H = Math.round(CELL.height * SCALE);
 /** The folded pet: the head of the current frame in a circle. */
 const DOT = 46;
 const DOT_SCALE = 0.5;
+/** The Herder's face at the top of the conversation: the head of the resting frame. */
+const AVATAR = 30;
+const AVATAR_SCALE = 0.36;
 const COLLAPSED_KEY = "agentherd.pet.collapsed";
 /** The size the owner gave the conversation (ADR 0070). */
 const CHAT_KEY = "agentherd.pet.chat";
@@ -418,33 +424,65 @@ export function Pet() {
     );
   }
 
+  const openFile = (path: string) => bridge.pet?.openFile(path);
+  const entryView = (entry: Entry) => {
+    if (entry.kind === "card") {
+      return (
+        <div className="pet-cardwrap" data-open={entry.card.open ? "1" : "0"}>
+          <CardView card={entry.card} actions={actions} />
+        </div>
+      );
+    }
+    if (entry.kind === "task") {
+      return (
+        <TaskCard
+          task={entry.task}
+          now={now}
+          busy={busy}
+          stop={(id) => void stop(id)}
+          open={openTask}
+        />
+      );
+    }
+    return <LineView line={entry.line} openFile={openFile} />;
+  };
+
   const waiting =
     view.pending.length === 0 ? undefined : (
       <button type="button" className="pet-waiting" onClick={toWaiting}>
-        {view.pending.length} 件等你处理 ↑
+        <i aria-hidden="true" />
+        {view.pending.length} 件等你确认 ↑
       </button>
     );
 
   const talk = (
-    <>
+    <div className="pet-talk">
+      {waiting}
       {offline && <div className="pet-note">AgentHerd 还没连上飞书，先在 App 里设置好。</div>}
-      <input
-        ref={inputEl}
-        className="pet-input"
-        autoFocus
-        value={draft}
-        disabled={offline}
-        placeholder={offline ? "连上飞书后才能说话" : "跟主管说…（回车发送）"}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKey}
-      />
-      <div className="pet-foot">
-        <span className="pet-note">{note ?? ""}</span>
-        <button type="button" className="pet-link" onClick={() => bridge.pet?.openApp()}>
-          打开 App
+      {note !== undefined && <div className="pet-note">{note}</div>}
+      <div className="pet-input-row">
+        <input
+          ref={inputEl}
+          className="pet-input"
+          autoFocus
+          value={draft}
+          disabled={offline}
+          placeholder={offline ? "连上飞书后才能说话" : "跟主管说…"}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+        />
+        <button
+          type="button"
+          className="pet-send"
+          aria-label="发送"
+          title="发送（回车）"
+          disabled={offline || busy || draft.trim() === ""}
+          onClick={() => void send()}
+        >
+          ↑
         </button>
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -461,12 +499,42 @@ export function Pet() {
           {grip("left")}
           {grip("corner")}
           <div className="pet-chat-head">
-            <span>和主管的对话</span>
-            <span className="pet-chat-tools">
-              <button type="button" className="pet-x" aria-label="收起对话" onClick={close}>
-                ×
-              </button>
+            <span
+              className="pet-avatar"
+              aria-hidden="true"
+              style={{
+                width: AVATAR,
+                height: AVATAR,
+                backgroundImage: `url(${atlas})`,
+                backgroundSize: `${CELL.width * AVATAR_SCALE * ATLAS.columns}px ${CELL.height * AVATAR_SCALE * ATLAS.rows}px`,
+                backgroundPosition: `${-CELL.width * AVATAR_SCALE * 0.27}px ${-CELL.height * AVATAR_SCALE * 0.06}px`,
+              }}
+            />
+            <span className="pet-who">
+              <b>主管</b>
+              <small>
+                <i className={offline ? "pet-online off" : "pet-online"} />
+                {statusOf(!offline, working)}
+              </small>
             </span>
+            <button
+              type="button"
+              className="pet-icon"
+              aria-label="打开 App"
+              title="打开 App"
+              onClick={() => bridge.pet?.openApp()}
+            >
+              ↗
+            </button>
+            <button
+              type="button"
+              className="pet-icon"
+              aria-label="收起对话"
+              title="收起"
+              onClick={close}
+            >
+              ✕
+            </button>
           </div>
           <div
             className="pet-chat-list"
@@ -478,44 +546,21 @@ export function Pet() {
             }}
           >
             {entries.length === 0 ? (
-              <div className="pet-note">
+              <div className="pet-empty">
                 还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。
               </div>
             ) : (
-              entries.map((entry) => {
-                if (entry.kind === "card") {
-                  return (
-                    <div key={entry.key} data-open={entry.card.open ? "1" : "0"}>
-                      <CardView card={entry.card} actions={actions} />
-                    </div>
-                  );
-                }
-                if (entry.kind === "task") {
-                  return (
-                    <TaskCard
-                      key={entry.key}
-                      task={entry.task}
-                      now={now}
-                      busy={busy}
-                      stop={(id) => void stop(id)}
-                      open={openTask}
-                    />
-                  );
-                }
-                const { line } = entry;
-                const head = historyHead(line);
-                const tone = line.kind === "owner" ? " mine" : line.kind === "error" ? " bad" : "";
+              entries.map((entry, i) => {
+                const day = separatorOf(entry.at, entries[i - 1]?.at, new Date(now));
                 return (
-                  <div key={entry.key} className={`pet-msg${tone}`}>
-                    {head !== undefined && <div className="pet-msg-task">{head}</div>}
-                    <div className="pet-msg-text">{line.text}</div>
-                    <div className="pet-msg-time">{clockOf(line.at)}</div>
-                  </div>
+                  <Fragment key={entry.key}>
+                    {day !== undefined && <Separator text={day} />}
+                    {entryView(entry)}
+                  </Fragment>
                 );
               })
             )}
           </div>
-          {waiting}
           {talk}
         </div>
       )}

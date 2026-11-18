@@ -10,18 +10,26 @@ import {
   cut,
   dragChat,
   elapsedOf,
+  eventOf,
+  FILES_MAX,
   FLASH_MS,
   FOLD_CHARS,
+  filesIn,
   fitChat,
   flashOf,
   foldBody,
+  foldOf,
+  GAP_MS,
   historyHead,
+  modelName,
   moodOf,
   newestScroll,
   newLine,
   readChatSize,
   reportHead,
   SLEEP_AFTER_MS,
+  separatorOf,
+  statusOf,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
@@ -282,5 +290,63 @@ describe("cards and tasks in the conversation (ADR 0072)", () => {
     const long = `${"甲".repeat(300)}\n${"乙".repeat(300)}`;
     expect(foldBody(long)).toEqual({ head: "甲".repeat(300), folded: true });
     expect(foldBody("丙".repeat(FOLD_CHARS + 1)).head).toHaveLength(FOLD_CHARS);
+  });
+});
+
+describe("the conversation's new look (ADR 0073)", () => {
+  it("finds the files a message names, once each, up to a few", () => {
+    const text =
+      "完整清单在这：~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md，26 个链接都验过。\n" +
+      "另见 `/tmp/magpie-run/README.md` 和 ~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md。";
+    expect(filesIn(text)).toEqual([
+      {
+        path: "~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md",
+        name: "agent-asset-distribution-products.md",
+        dir: "~/.agentherd/tasks/b1ead723",
+      },
+      { path: "/tmp/magpie-run/README.md", name: "README.md", dir: "/tmp/magpie-run" },
+    ]);
+    // Folders, links and relative paths are not files to open.
+    expect(filesIn("在 ~/.agentherd/tasks/b1ead723/ 里")).toEqual([]);
+    expect(filesIn("见 https://example.com/Users/a/b.md 和 ./src/a.ts")).toEqual([]);
+    const many = Array.from({ length: 9 }, (_, i) => `/tmp/a${i}.md`).join(" ");
+    expect(filesIn(many)).toHaveLength(FILES_MAX);
+  });
+
+  it("folds long replies and counts the lines behind 展开全文", () => {
+    expect(foldOf("短短一句")).toEqual({ folded: false, more: 0 });
+    expect(foldOf(Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join("\n"))).toEqual({
+      folded: true,
+      more: 12,
+    });
+    expect(foldOf("长".repeat(800)).folded).toBe(true);
+  });
+
+  it("puts a time line at a new day and after a pause", () => {
+    const now = new Date(2026, 10, 18, 16, 0);
+    const at = (d: number, h: number, m: number) => new Date(2026, 10, d, h, m).toISOString();
+    expect(separatorOf(at(18, 11, 43), undefined, now)).toBe("今天 11:43");
+    expect(separatorOf(at(17, 9, 5), undefined, now)).toBe("昨天 09:05");
+    expect(separatorOf(at(9, 9, 5), undefined, now)).toBe("11-09 09:05");
+    expect(separatorOf(at(18, 11, 45), at(18, 11, 43), now)).toBeUndefined();
+    const later = new Date(Date.parse(at(18, 11, 43)) + GAP_MS).toISOString();
+    expect(separatorOf(later, at(18, 11, 43), now)).toBe("11:53");
+    expect(separatorOf(at(18, 8, 0), at(17, 23, 0), now)).toBe("今天 08:00");
+  });
+
+  it("splits a task's event into the task and what happened", () => {
+    expect(eventOf("下载并启动 yetone/magpie: cd /tmp/magpie-run && curl -L x")).toEqual({
+      task: "下载并启动 yetone/magpie",
+      text: "cd /tmp/magpie-run && curl -L x",
+    });
+    expect(eventOf("没有冒号的一行")).toEqual({ text: "没有冒号的一行" });
+  });
+
+  it("says how AgentHerd is doing under 主管, and names models short", () => {
+    expect(statusOf(false, 2)).toBe("还没连上飞书");
+    expect(statusOf(true, 0)).toBe("飞书已连接");
+    expect(statusOf(true, 2)).toBe("飞书已连接 · 2 个任务在跑");
+    expect(modelName("deepseek/deepseek-flash")).toBe("deepseek-flash");
+    expect(modelName(undefined)).toBeUndefined();
   });
 });

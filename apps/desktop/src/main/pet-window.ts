@@ -2,9 +2,10 @@
 // what AgentHerd tells the owner and lets the owner answer; all of that goes through the host API
 // like the main window. Main only places, moves and sizes the window.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen } from "electron";
+import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen, shell } from "electron";
+import { fileToOpen } from "./open-file";
 
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
@@ -89,6 +90,14 @@ export class PetWindow {
       if (this.own(e) === undefined) return;
       this.opts.openApp(typeof taskId === "string" && taskId !== "" ? taskId : undefined);
     });
+    // A file a message names: documents open in their app, anything else is shown in Finder.
+    ipcMain.on("pet:open-file", (e, path: unknown) => {
+      if (this.own(e) === undefined) return;
+      const file = fileToOpen(path, isFile);
+      if (file === undefined) return;
+      if (file.how === "open") void shell.openPath(file.path);
+      else shell.showItemInFolder(file.path);
+    });
   }
 
   /** Shows or closes the pet. */
@@ -145,7 +154,11 @@ export class PetWindow {
     created.on("closed", () => {
       if (this.win === created) this.win = undefined;
     });
-    created.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // Links in messages open in the browser; the pet itself never navigates or opens windows.
+    created.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
+      return { action: "deny" };
+    });
     created.webContents.on("will-navigate", (event) => event.preventDefault());
     if (this.opts.devUrl !== undefined)
       void created.loadURL(new URL("pet.html", this.opts.devUrl).href);
@@ -195,4 +208,12 @@ export class PetWindow {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }

@@ -14,6 +14,8 @@ export interface PetBridge {
   resize(width: number, height: number): void;
   /** Brings up the main window, at a task when one is named (ADR 0072). */
   openApp(taskId?: string): void;
+  /** Opens a file a message names, or shows it in Finder when it is not a document (ADR 0073). */
+  openFile(path: string): void;
 }
 
 export interface Bridge {

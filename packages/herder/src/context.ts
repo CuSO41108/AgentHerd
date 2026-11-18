@@ -55,6 +55,10 @@ export const CONTEXT_TOOL_NAMES: ReadonlySet<string> = new Set([
 const ID = /^h(\d+)(?:#(\d+))?$/;
 /** Echoed ref tags; the model is told never to write them, this catches the slips. */
 const TAG = /<acp\b[^>]*>[^<]*<\/acp>\n?/g;
+/** A line that starts like a ref tag but ends some other way (`…>m00205</p>`): never meant for people. */
+const TAG_LINE = /^[ \t]*<acp\b[^\n]*(?:\n|$)/gm;
+/** The kernel's tag in front of a message's text. */
+const LEADING_TAG = /^<acp\b[^>]*>[^<]*<\/acp>\n?/;
 const MESSAGE_OVERHEAD = 4;
 
 type Content = string | readonly { type: string; text?: string }[];
@@ -67,9 +71,13 @@ export interface ContextHooks {
   audit(type: string, data: Record<string, unknown>): void;
 }
 
-/** Removes ref tags the model copied into text meant for people or agents. */
+/**
+ * Removes ref tags the model copied into text meant for people or agents: whole tags anywhere,
+ * and lines that begin like a tag whatever their ending. (Tool calls written as text are caught
+ * by `beforeToolMarkup`.)
+ */
 export function withoutContextMarks(text: string): string {
-  return text.replace(TAG, "");
+  return text.replace(TAG, "").replace(TAG_LINE, "");
 }
 
 /** `value` with ref tags removed from every string in it. */
@@ -220,8 +228,16 @@ function rebuild(
       // Tool calls and thoughts go as they were: their arguments and signatures must not change.
       content.push(part);
     } else {
-      same = false;
-      content.push({ ...part, text: core.text });
+      // The Herder's own words carry no ref tag: seeing one in front of every earlier reply, the
+      // model began writing tags itself, some broken (`…>m00205</p>`), and the owner saw them.
+      // Tags it wrote before this are taken out of its earlier replies too.
+      const text = withoutContextMarks(core.text.replace(LEADING_TAG, ""));
+      if (text === part.text) {
+        content.push(part);
+      } else {
+        same = false;
+        content.push({ ...part, text });
+      }
     }
   });
   if (content.length === 0) return undefined;

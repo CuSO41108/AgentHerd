@@ -4,7 +4,17 @@
 
 import type { PetCard, PetCardView, TasksView } from "@agentherd/host/api";
 import { type ReactNode, useState } from "react";
-import { canStop, clockOf, cut, elapsedOf, foldBody, reportHead, TASK_STAGE } from "./pet-state";
+import { PetMarkdown } from "./PetMarkdown";
+import {
+  canStop,
+  clockOf,
+  cut,
+  elapsedOf,
+  foldBody,
+  modelName,
+  reportHead,
+  TASK_STAGE,
+} from "./pet-state";
 
 type Task = TasksView["tasks"][number];
 type Item = Extract<PetCardView, { kind: "item" }>;
@@ -32,8 +42,8 @@ function Shell(props: {
   children: ReactNode;
 }) {
   return (
-    <div className="pet-cardx">
-      <div className={`pet-cardx-h ${props.tone}`}>
+    <div className={`pet-cardx ${props.tone}`}>
+      <div className="pet-cardx-h">
         <span className="pet-cardx-title">{props.head}</span>
         {props.tag}
       </div>
@@ -88,7 +98,7 @@ function Body(props: { text: string }) {
   const { head, folded } = foldBody(props.text);
   return (
     <>
-      <div className="pet-msg-text">{all || !folded ? props.text : `${head}…`}</div>
+      <PetMarkdown text={all || !folded ? props.text : `${head}…`} />
       {folded && (
         <button type="button" className="pet-fold-btn" onClick={() => setAll((x) => !x)}>
           {all ? "收起" : "展开全部"}
@@ -193,7 +203,7 @@ export function CardView(props: { card: PetCard; actions: Actions }) {
       const closed = view.final !== undefined || !card.open;
       return (
         <Shell tone={closed ? "gray" : "purple"} head="主管问你" at={card.at}>
-          <div className="pet-msg-text">{view.text}</div>
+          <PetMarkdown text={view.text} />
           {view.final !== undefined ? (
             <div className="pet-final">你选了：{view.final}</div>
           ) : closed ? (
@@ -209,7 +219,7 @@ export function CardView(props: { card: PetCard; actions: Actions }) {
       const head = view.title ?? (view.taskLabel === undefined ? "AgentHerd" : view.taskLabel);
       return (
         <Shell tone={card.open ? tone : "gray"} head={head} at={card.at}>
-          <div className="pet-msg-text">{view.text}</div>
+          <PetMarkdown text={view.text} />
           {card.open && view.target !== undefined && view.options !== undefined && (
             <Buttons target={view.target} options={view.options} actions={actions} />
           )}
@@ -231,16 +241,28 @@ export function TaskCard(props: {
   const stage = TASK_STAGE[task.stage];
   const running = canStop(task);
   const [asking, setAsking] = useState(false);
+  const meta = [task.agent, modelName(task.model), elapsedOf(task, props.now)].filter(
+    (x) => x !== undefined && x !== "",
+  );
   return (
-    <Shell
-      tone={running ? "blue" : "gray"}
-      head={`📋 ${cut(task.title, 40)}`}
-      tag={<span className={`pet-tag ${stage.tone}`}>{stage.text}</span>}
-      sub={`${task.agent} · ${elapsedOf(task, props.now)}`}
-      at={task.startedAt}
-    >
-      {task.lastReport !== "" && <div className="pet-step">{cut(task.lastReport, 160)}</div>}
-      <div className="pet-actions">
+    <div className={`pet-task${running ? " running" : ""}`}>
+      <div className="pet-task-row">
+        <span className="pet-task-title" title={task.title}>
+          {task.title}
+        </span>
+        <span className={`pet-pill ${stage.tone}`}>{stage.text}</span>
+      </div>
+      <div className="pet-task-meta">{meta.join(" · ")}</div>
+      {task.lastReport !== "" && (
+        <div className="pet-task-step" title={task.lastReport}>
+          {cut(task.lastReport, 160)}
+        </div>
+      )}
+      {running && <div className="pet-task-bar" aria-hidden="true" />}
+      <div className="pet-task-btns">
+        <button type="button" onClick={() => props.open(task.id)}>
+          打开
+        </button>
         {running &&
           (asking ? (
             <>
@@ -255,19 +277,21 @@ export function TaskCard(props: {
               >
                 确定停止
               </button>
-              <button type="button" onClick={() => setAsking(false)}>
+              <button type="button" className="ghost" onClick={() => setAsking(false)}>
                 不停
               </button>
             </>
           ) : (
-            <button type="button" disabled={props.busy} onClick={() => setAsking(true)}>
+            <button
+              type="button"
+              className="ghost"
+              disabled={props.busy}
+              onClick={() => setAsking(true)}
+            >
               停止
             </button>
           ))}
-        <button type="button" onClick={() => props.open(task.id)}>
-          打开
-        </button>
       </div>
-    </Shell>
+    </div>
   );
 }

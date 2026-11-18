@@ -106,8 +106,39 @@ function installFakeBridge(): void {
   const petHistory: PetView["history"] = [
     { id: 1, at: minutesAgo(42), kind: "owner", text: "帮我小红书搜一下西岸智塔附近好吃的面条" },
     { id: 2, at: minutesAgo(41), kind: "say", text: "好，我开个任务去小红书搜，挑走路能到的。" },
-    { id: 4, at: minutesAgo(3), kind: "owner", text: "第一家几点关门？" },
-    { id: 5, at: minutesAgo(2), kind: "say", text: "早上好，昨晚的两个任务都做完了。" },
+    {
+      id: 3,
+      at: minutesAgo(31),
+      kind: "task",
+      text: "下载并启动 yetone/magpie: cd /tmp/magpie-run && curl -L -o magpie.tar.gz https://github.com/yetone/magpie/releases/latest && tar xzf magpie.tar.gz",
+    },
+    { id: 4, at: minutesAgo(3), kind: "owner", text: "有啥参考的产品么" },
+    {
+      id: 5,
+      at: minutesAgo(2),
+      kind: "say",
+      task: "Agent 资产分发调研",
+      text: [
+        "完整清单在这：~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md，**26 个链接**都验过。",
+        "",
+        "- **目录与市场**：Claude Marketplace、claude-plugins-official、ClawHub",
+        "- **索引**：Official MCP Registry、Glama（12 万+ server）、[mcp.so](https://mcp.so)",
+        "- **打包与版本**：MCP Bundle `.mcpb`、`npx skills`",
+        "",
+        "| 方向 | 值得看 |",
+        "| --- | --- |",
+        "| 签名 | Sigstore、npm provenance |",
+        "| 审核 | 平台审核 + 命名空间验证 |",
+        "",
+        "最关键的一点：**签名是最大缺口**，目录大多只做到平台审核加命名空间验证。",
+        "",
+        "1. 先看 Claude Marketplace 的格式",
+        "2. 再对照 MCP Registry 的 server.json",
+        "3. 最后看 ClawHub 怎么做版本",
+        "",
+        "还想往哪个方向再挖？",
+      ].join("\n"),
+    },
   ];
   let petLineId = 5;
   const waitingCard: PetCard = {
