@@ -420,6 +420,40 @@ describe("Herder context (ADR 0045)", () => {
     expect(rec.said).toEqual(["在的。"]);
     expect(rec.alerts).toEqual([]);
   });
+
+  it("answers a quick web question itself, without a task (ADR 0071)", async () => {
+    const page = `<div class="result"><a class="result__a" href="https://github.com/yetone/magpie">yetone/magpie</a><a class="result__snippet">Every agent's model.</a></div>`;
+    const fetch = (async () =>
+      new Response(page, { headers: { "content-type": "text/html" } })) as typeof globalThis.fetch;
+    const { herder, rec, faux } = setup(
+      { models: [{ ref: "site/default", agents: ["mock"] }] },
+      { lookup: { fetch, resolve: async () => ["93.184.216.34"] } },
+    );
+    const results: string[] = [];
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("web_search", { query: "magpie github" })], {
+        stopReason: "toolUse",
+      }),
+      // Only looking something up changes nothing, so the whole turn is tried again.
+      fauxAssistantMessage("", { stopReason: "error", errorMessage: "Connection error." }),
+      fauxAssistantMessage([fauxToolCall("web_search", { query: "magpie github" })], {
+        stopReason: "toolUse",
+      }),
+      (context) => {
+        const last = context.messages.at(-1);
+        if (last?.role === "toolResult") {
+          results.push(last.content.map((c) => (c.type === "text" ? c.text : "")).join(""));
+        }
+        return fauxAssistantMessage("是 yetone/magpie：https://github.com/yetone/magpie");
+      },
+    ]);
+    herder.ownerMessage("magpie 是哪个仓库");
+    await herder.idle();
+    expect(results[0]).toContain("https://github.com/yetone/magpie");
+    expect(rec.said).toEqual(["是 yetone/magpie：https://github.com/yetone/magpie"]);
+    expect(rec.started).toEqual([]);
+    expect(rec.alerts).toEqual([]);
+  });
 });
 
 describe("new work from GitHub (ADR 0052)", () => {
