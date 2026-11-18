@@ -40,6 +40,7 @@ import type {
   Tier,
   WatchView,
 } from "@agentherd/host/api";
+import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
 import {
   hoursFromNow,
@@ -139,8 +140,95 @@ function installFakeBridge(): void {
         "还想往哪个方向再挖？",
       ].join("\n"),
     },
+    { id: 6, at: minutesAgo(1.9), kind: "owner", text: "把这几个整理一下给我看看" },
+    // A reply with a herd-ui fence using every component (ADR 0074).
+    {
+      id: 7,
+      at: minutesAgo(1.8),
+      kind: "say",
+      task: "Agent 资产分发调研",
+      text: [
+        "整理好了，三个最值得参考的放在一起比：",
+        "",
+        herdUiFence({
+          title: "Agent 资产分发：三个参考",
+          items: [
+            { type: "text", content: "按**分发方式**和**信任模型**挑的，数字是今天看到的。" },
+            {
+              type: "stats",
+              items: [
+                { label: "验过的链接", value: "26" },
+                { label: "目录", value: "9", hint: "含 3 个官方" },
+                { label: "做了签名", value: "2", hint: "缺口最大" },
+              ],
+            },
+            {
+              type: "table",
+              columns: ["产品", "形态", "签名", "版本"],
+              rows: [
+                ["Claude Marketplace", "插件目录", "无", "git tag"],
+                ["MCP Registry", "server.json 索引", "命名空间验证", "semver"],
+                ["ClawHub", "技能市场", "无", "自动递增"],
+              ],
+            },
+            {
+              type: "keyvalue",
+              pairs: [
+                { key: "任务", value: "Agent 资产分发调研" },
+                { key: "用时", value: "18 分钟" },
+                { key: "来源", value: "官方文档 + GitHub" },
+              ],
+            },
+            {
+              type: "steps",
+              steps: [
+                { title: "收集目录和索引", desc: "26 个链接", status: "done" },
+                { title: "对比签名和版本", status: "doing" },
+                { title: "写成一页结论", status: "todo" },
+              ],
+            },
+            {
+              type: "list",
+              items: ["`.mcpb` 是打包格式，不管分发", "`npx skills` 直接从 GitHub 装"],
+            },
+            {
+              type: "callout",
+              tone: "warning",
+              title: "签名是最大缺口",
+              content: "目录大多只做到平台审核加命名空间验证，装进来的东西没人签过。",
+            },
+            {
+              type: "code",
+              lang: "json",
+              code: '{\n  "name": "io.github.yetone/magpie",\n  "version": "0.4.2"\n}',
+            },
+            {
+              type: "link",
+              url: "https://github.com/yetone/magpie",
+              title: "yetone/magpie",
+              desc: "把 MCP server 打包成一个能双击运行的应用。",
+              meta: "★ 38k · TypeScript",
+            },
+            {
+              type: "file",
+              path: "~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md",
+              title: "完整清单",
+              desc: "26 个链接，按方向分好",
+            },
+            { type: "divider", label: "接下来" },
+            {
+              type: "choices",
+              question: "往哪个方向再挖？",
+              options: ["签名", "版本管理", "先不用"],
+            },
+          ],
+        }),
+        "",
+        "选一个我就接着查。",
+      ].join("\n"),
+    },
   ];
-  let petLineId = 5;
+  let petLineId = 7;
   const waitingCard: PetCard = {
     ref: "fake:m9",
     at: minutesAgo(1),
@@ -194,6 +282,30 @@ function installFakeBridge(): void {
         automaticDecisions: [
           "自动同意：XIAOHONGSHU_SEARCH_FEEDS ×2、XIAOHONGSHU_GET_FEED_DETAIL ×5",
         ],
+      },
+    },
+    // A Herder reply that offers herd-ui choices comes as a text card (ADR 0074); 下载跑一下 picks.
+    {
+      ref: "fake:m11",
+      at: minutesAgo(1.2),
+      open: true,
+      view: {
+        kind: "text",
+        target: `${HERD_UI_TARGET}3f6c1a2e-8d4b-4c1e-9a7f-0b2d5e6f7a81`,
+        text: [
+          "magpie 的发布包我看过了，能直接跑：",
+          "",
+          herdUiFence({
+            items: [
+              {
+                type: "callout",
+                tone: "success",
+                content: "最新版 **v0.4.2**，macOS 包 18 MB，校验和对得上。",
+              },
+              { type: "choices", question: "现在就跑一下吗？", options: ["下载跑一下", "先不用"] },
+            ],
+          }),
+        ].join("\n"),
       },
     },
     ...(petSim === "waiting" ? [waitingCard] : []),
@@ -495,6 +607,27 @@ function installFakeBridge(): void {
       return delay(pet);
     },
     petPress: (target, action) => {
+      if (target.startsWith(HERD_UI_TARGET)) {
+        // An answer of a reply's herd-ui choices (ADR 0074): the card keeps it and closes.
+        const offer = pet.cards.find(
+          (c) => c.open && c.view.kind === "text" && c.view.target === target,
+        );
+        if (offer === undefined || offer.view.kind !== "text")
+          return Promise.reject(new Error("这件事已经处理过了"));
+        const label =
+          herdUiChoices(offer.view.text).find((c) => c.action === action)?.label ?? action;
+        pet = {
+          ...pet,
+          cards: pet.cards.map((c) =>
+            c === offer && c.view.kind === "text"
+              ? { ...c, open: false, view: { ...c.view, chosen: label } }
+              : c,
+          ),
+        };
+        emit({ topic: "pet", data: structuredClone(pet) });
+        setTimeout(() => petSays({ kind: "say", text: `好，就「${label}」。我这就去办。` }), 1200);
+        return delay(pet);
+      }
       const card = pet.pending.find((p) => p.target === target);
       if (card === undefined) return Promise.reject(new Error("这件事已经处理过了"));
       const label = card.options.find((o) => o.action === action)?.label ?? action;

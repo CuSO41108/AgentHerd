@@ -326,7 +326,7 @@ export class Herd {
       endTask: (taskId) => this.endTask(taskId, this.texts.endedByOwner),
       startRelay: (taskId) => this.relays.start(taskId),
       endRelay: () => this.relays.end("ended by the Herder"),
-      say: (text) => say(this.ctx, text),
+      say: (text) => this.owner.herderSays(text),
       ask: (text, options) => this.owner.ask(text, options),
       alert: (text, retry) =>
         send(this.ctx, {

@@ -218,6 +218,16 @@ export function canStop(task: Task): boolean {
   return task.stage !== "done" && task.stage !== "failed";
 }
 
+/**
+ * The step line under a task card: its latest report while it runs or waits. An ended task shows
+ * none; its last report is 「已报告：…」, which only repeats the result card.
+ */
+export function stepOf(task: Task): string | undefined {
+  if (!canStop(task)) return undefined;
+  const step = task.lastReport.trim();
+  return step === "" ? undefined : step;
+}
+
 /** How long a task has run: until now while it runs, until its last change once it ended. */
 export function elapsedOf(task: Task, now = Date.now()): string {
   const end = canStop(task) ? now : Date.parse(task.updatedAt);

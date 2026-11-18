@@ -486,3 +486,101 @@ describe("E2E-PET-CARDS (ADR 0072)", () => {
     await expect(herd.stopTask("nope")).rejects.toThrow("no task nope");
   }, 20000);
 });
+
+const CHOICE_REPLY = [
+  "找到两个 magpie：",
+  "",
+  "```herd-ui",
+  '{"items":[{"type":"choices","question":"下一步？","options":["下载跑一下","先不用"]}]}',
+  "```",
+].join("\n");
+
+describe("herd-ui choices in the pet (ADR 0074)", () => {
+  it("a reply with choices is a card whose answers work until one is picked", async () => {
+    const t = await started();
+    const view: View = { kind: "text", text: CHOICE_REPLY, target: "ui:1" };
+    const ref = await t.channel.send(view);
+    expect(t.feed.last?.card).toBe(`${ref.channelId}:${ref.id}`);
+    expect(t.feed.isOpen(`${ref.channelId}:${ref.id}`)).toBe(true);
+    // Choices are offers, not something waiting for the owner.
+    expect(t.feed.pending()).toEqual([]);
+    await t.feed.press("ui:1", "1");
+    expect(t.inbound).toEqual([{ kind: "action", target: "ui:1", action: "1", from: "owner" }]);
+    await expect(t.feed.press("ui:1", "2")).rejects.toThrow("这件事已经处理过了");
+    await t.channel.update(ref, { ...view, chosen: "先不用" });
+    expect(t.feed.isOpen(`${ref.channelId}:${ref.id}`)).toBe(false);
+    await expect(t.feed.press("ui:1", "0")).rejects.toThrow("这件事已经处理过了");
+    // A reply with a block but no choices stays a line, and keeps its whole block.
+    const table = `看这个：\n\n\`\`\`herd-ui\n{"type":"text","content":"${"字".repeat(1000)}"}\n\`\`\``;
+    await t.channel.send({ kind: "text", text: table });
+    expect(t.feed.last).toMatchObject({ kind: "say", text: table });
+    expect(t.feed.last?.card).toBeUndefined();
+  });
+
+  it("shows the reply once, as its card", () => {
+    const at = "2026-11-18T10:00:00.000Z";
+    const turns: HerderTurn[] = [
+      { id: 1, at, role: "owner", text: "找一下 magpie" },
+      { id: 2, at, role: "herder", text: CHOICE_REPLY },
+      { id: 3, at, role: "answer", text: "先不用" },
+    ];
+    const card: OwnerCard = {
+      ref: "f:c",
+      at,
+      updatedAt: at,
+      view: { kind: "text", text: CHOICE_REPLY, target: "ui:1", chosen: "先不用" },
+    };
+    const { history, cards } = petConversation(
+      turns,
+      [card],
+      () => undefined,
+      () => false,
+    );
+    expect(history.map((l) => l.id)).toEqual([1, 3]);
+    expect(cards).toMatchObject([{ ref: "f:c", open: false, view: { chosen: "先不用" } }]);
+  });
+});
+
+describe("E2E-HERD-UI-CHOICES in the pet (ADR 0074)", () => {
+  it("a pick in the pet reaches the Herder and the card shows it after a restart", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ah-pet-choices-"));
+    const store = Store.open(":memory:");
+    const feed = new PetFeed({
+      changed: () => {},
+      keep: (ref, view) => store.putOwnerCard(ref, view),
+    });
+    const fake = new FakeChannel("owner");
+    const answers: string[] = [];
+    let say: ((text: string) => Promise<void>) | undefined;
+    const herd = new Herd({
+      home: dir,
+      userHome: "/Users/me",
+      channel: feed.wrap(fake),
+      binding: BINDING,
+      mode: "assist",
+      locale: "zh-CN",
+      profiles: [],
+      store,
+      herder: (h) => {
+        say = h.say;
+        return {
+          ownerMessage: () => {},
+          ownerAnswer: (q, a) => answers.push(`${q} ${a}`),
+          event: () => {},
+          stop: async () => {},
+        };
+      },
+    });
+    herds.push(herd);
+    await herd.start();
+    await say?.(CHOICE_REPLY);
+    const [stored] = store.ownerCards();
+    expect(stored?.view).toMatchObject({ kind: "text", target: expect.stringMatching(/^ui:/) });
+    const target = (stored?.view as { target?: string } | undefined)?.target ?? "";
+    await feed.press(target, "0");
+    expect(answers).toEqual(["下一步？ 下载跑一下"]);
+    expect(store.ownerCards()[0]?.view).toMatchObject({ chosen: "下载跑一下" });
+    // Feishu's card got the same update.
+    expect(fake.messages[0]?.view).toMatchObject({ chosen: "下载跑一下" });
+  });
+});

@@ -29,6 +29,9 @@ importers:
       '@agentherd/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@agentherd/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3

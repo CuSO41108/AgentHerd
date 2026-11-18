@@ -497,6 +497,13 @@ question to the owner goes on its own line after a blank line; a long answer is 
 paragraphs. The owner found a list of five repositories run together in one block hard to read
 (「完全粘在一起，这一大段话，没有换行之类的」, 2026-11-18); `stylePrompt()` and the report prompt
 (`voicePrompt`) both say so.
+Things that read better as components go in a ```` ```herd-ui ```` block after a sentence or two of
+words ([ADR 0074](../adr/0074-the-herder-draws-with-herd-ui-blocks.md)): things compared → a table,
+several numbers → stats, three or more steps → steps, a repository or page → a link, a file → a
+file, a command → code, a risk → a callout, an offer at the end → choices (a press comes back as
+the owner's answer). The block is repaired before sending; a block with nothing usable gets one
+rewrite in the same turn, then only the words go.
+
 - Messages are folded in the channel, not shortened ([05-channels.md](05-channels.md#2-what-the-owner-sees)).
 
 ## 3. Approval pipeline
