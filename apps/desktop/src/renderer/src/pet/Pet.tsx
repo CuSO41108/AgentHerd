@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { PetRegion } from "../../../shared/bridge";
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
 import { CardView, TaskCard } from "./PetCards";
@@ -35,7 +36,9 @@ import {
   moodOf,
   newestScroll,
   newLine,
+  type PendingSay,
   readChatSize,
+  remainingSays,
   separatorOf,
   statusOf,
 } from "./pet-state";
@@ -74,6 +77,31 @@ function countWorking(tasks: readonly Task[]): number {
   return tasks.filter((t) => t.stage === "working" || t.stage === "queued").length;
 }
 
+function regionsOf(root: HTMLElement): PetRegion[] {
+  const base = root.getBoundingClientRect();
+  const regions: PetRegion[] = [];
+  for (const node of root.querySelectorAll<HTMLElement>(".pet-stage, .pet-dot")) {
+    const r = node.getBoundingClientRect();
+    regions.push({
+      x: Math.max(0, Math.floor(r.left - base.left) - 4),
+      y: Math.max(0, Math.floor(r.top - base.top) - 4),
+      width: Math.ceil(r.width) + 8,
+      height: Math.ceil(r.height) + 8,
+    });
+  }
+  for (const node of root.querySelectorAll<HTMLElement>(".pet-bubble")) {
+    const r = node.getBoundingClientRect();
+    // Include the top/left resize grips and the bottom speech-bubble tail.
+    regions.push({
+      x: Math.max(0, Math.floor(r.left - base.left) - 6),
+      y: Math.max(0, Math.floor(r.top - base.top) - 6),
+      width: Math.ceil(r.width) + 6,
+      height: Math.ceil(r.height) + 12,
+    });
+  }
+  return regions;
+}
+
 export function Pet() {
   const bridge = window.agentherd;
   const [view, setView] = useState<PetView>({
@@ -97,6 +125,8 @@ export function Pet() {
   const [unread, setUnread] = useState(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingSays, setPendingSays] = useState<PendingSay[]>([]);
+  const nextSayId = useRef(-1);
   const [note, setNote] = useState<string>();
   const [hello, setHello] = useState(false);
   const [chat, setChat] = useState<ChatSize>(() => readChatSize(localStorage.getItem(CHAT_KEY)));
@@ -129,6 +159,7 @@ export function Pet() {
     const h = bridge.host;
     const apply = (next: PetView, first: boolean) => {
       setView(next);
+      setPendingSays((prev) => (prev.length === 0 ? prev : remainingSays(prev, next.history)));
       const line = next.last;
       if (line === undefined) return;
       const fresh = !first && newLine(lastId.current, line);
@@ -197,7 +228,18 @@ export function Pet() {
 
   // The conversation opens at its newest message, from its first line, and follows new ones.
   const shown = open && !collapsed;
-  const entries = conversationOf(view, tasks, now);
+  const shownSays = remainingSays(pendingSays, view.history);
+  const entries: Entry[] = [
+    ...conversationOf(view, tasks, now),
+    ...shownSays.map(
+      (s): Entry => ({
+        kind: "line",
+        key: `s${s.id}`,
+        at: s.at,
+        line: { id: s.id, at: s.at, kind: "owner", text: s.text },
+      }),
+    ),
+  ];
   const newestKey = entries.at(-1)?.key;
   useLayoutEffect(() => {
     const el = listEl.current;
@@ -235,11 +277,36 @@ export function Pet() {
   useLayoutEffect(() => {
     const el = root.current;
     if (el === null) return;
-    const fit = () => bridge.pet?.resize(el.offsetWidth, el.offsetHeight);
+    const fit = () => bridge.pet?.resize(el.offsetWidth, el.offsetHeight, regionsOf(el));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshes hit regions when panels open, fold or resize
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (el !== null) bridge.pet?.resize(el.offsetWidth, el.offsetHeight, regionsOf(el));
+  }, [open, collapsed, size.width, size.list]);
+
+  useEffect(() => {
+    const pet = bridge.pet;
+    if (pet === undefined) return;
+    const down = () => pet.interacting(true);
+    const up = () => pet.interacting(false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    window.addEventListener("blur", up);
+    const offLeave = pet.onMouseLeave(() => setHover(false));
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      window.removeEventListener("blur", up);
+      offLeave();
+    };
   }, []);
 
   const touch = () => {
@@ -250,6 +317,7 @@ export function Pet() {
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
+    e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -263,15 +331,17 @@ export function Pet() {
     if (d === undefined) return;
     const dx = e.screenX - d.x;
     const dy = e.screenY - d.y;
-    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
-    d.moved = true;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) >= 4) d.moved = true;
     bridge.pet?.dragMove(dx, dy);
   };
-  const onPointerUp = (click: () => void) => () => {
+  const finishDrag = (click?: () => void) => {
     const d = drag.current;
     drag.current = undefined;
-    bridge.pet?.dragEnd();
-    if (d !== undefined && !d.moved) click();
+    if (d === undefined) return;
+    const localMoved = d.moved;
+    void Promise.resolve(bridge.pet?.dragEnd()).then((hostMoved) => {
+      if (!localMoved && hostMoved !== true) click?.();
+    });
   };
 
   const close = () => setOpen(false);
@@ -338,16 +408,27 @@ export function Pet() {
 
   const send = async () => {
     const text = draft.trim();
-    if (text === "" || busy) return;
-    setBusy(true);
+    if (text === "" || offline) return;
+    const id = nextSayId.current--;
+    const afterId = view.history.at(-1)?.id ?? 0;
+    const prevLastId = view.last?.id;
+    const entry: PendingSay = { id, at: new Date().toISOString(), text, afterId };
+    setDraft("");
+    setPendingSays((prev) => [...prev, entry]);
+    setNote("已发给主管，等它回复…");
+    inputEl.current?.focus();
     try {
-      await bridge.host.petSay(text);
-      setDraft("");
-      setNote("已发给主管，等它回复…");
+      const next = await bridge.host.petSay(text);
+      setView(next);
+      setPendingSays((prev) => {
+        const directReply = text.startsWith("/") || next.last?.id !== prevLastId;
+        const filtered = directReply ? prev.filter((p) => p.id !== id) : prev;
+        return remainingSays(filtered, next.history);
+      });
     } catch (error) {
+      setPendingSays((prev) => prev.filter((p) => p.id !== id));
+      setDraft((cur) => (cur === "" ? text : cur));
       setNote(errorText(error));
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -385,7 +466,10 @@ export function Pet() {
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
+    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+      e.preventDefault();
+      void send();
+    }
     if (e.key === "Escape") close();
   };
 
@@ -409,7 +493,9 @@ export function Pet() {
           title="展开"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp(() => fold(false))}
+          onPointerUp={() => finishDrag(() => fold(false))}
+          onPointerCancel={() => finishDrag()}
+          onLostPointerCapture={() => finishDrag()}
           style={{
             width: DOT,
             height: DOT,
@@ -476,23 +562,30 @@ export function Pet() {
           className="pet-send"
           aria-label="发送"
           title="发送（回车）"
-          disabled={offline || busy || draft.trim() === ""}
+          disabled={offline || draft.trim() === ""}
           onClick={() => void send()}
         >
-          ↑
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="9 10 4 15 9 20" />
+            <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+          </svg>
         </button>
       </div>
     </div>
   );
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button
-    <div
-      ref={root}
-      className="pet-root"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
+    <div ref={root} className="pet-root">
       {open && (
         <div className="pet-bubble pet-chat" ref={panelEl} style={{ width: size.width }}>
           {grip("top")}
@@ -564,7 +657,13 @@ export function Pet() {
           {talk}
         </div>
       )}
-      <div className="pet-stage" style={{ width: W, height: H }}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button */}
+      <div
+        className="pet-stage"
+        style={{ width: W, height: H }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      >
         {hover && (
           <button
             type="button"
@@ -584,7 +683,9 @@ export function Pet() {
           className={`pet-figure mood-${mood}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp(onFigureClick)}
+          onPointerUp={() => finishDrag(onFigureClick)}
+          onPointerCancel={() => finishDrag()}
+          onLostPointerCapture={() => finishDrag()}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") setOpen((x) => !x);
           }}

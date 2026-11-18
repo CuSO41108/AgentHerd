@@ -270,6 +270,7 @@ export class PetFeed {
   private sink: InboundSink | undefined;
   private ownerId: string | undefined;
   private inner: Channel | undefined;
+  private echoing: Promise<void> | undefined;
   private readonly opts: PetFeedOptions;
 
   constructor(opts: PetFeedOptions) {
@@ -310,14 +311,33 @@ export class PetFeed {
     return this.open.has(ref);
   }
 
+  /** Starts posting the echo to Feishu without holding up the Herder; later chat sends wait behind it. */
+  private queueEcho(inner: Channel, text: string): void {
+    const send = () =>
+      inner.send({ kind: "text", text }).then(
+        () => undefined,
+        () => undefined,
+      );
+    const next = this.echoing === undefined ? send() : this.echoing.then(send);
+    const tracked = next.finally(() => {
+      if (this.echoing === tracked) this.echoing = undefined;
+    });
+    this.echoing = tracked;
+  }
+
+  /** @internal Waits for any in-flight pet echo so AgentHerd's reply lands after it in Feishu. */
+  waitEcho(): Promise<void> {
+    return this.echoing ?? Promise.resolve();
+  }
+
   /** The owner typed this in the pet's bubble: it reaches AgentHerd like a chat message. */
   async say(text: string): Promise<void> {
     const t = text.trim();
     if (t === "") throw new Error("说点什么再发送");
     const { sink, ownerId } = this.inbound();
     if (this.opts.echo !== undefined && this.inner !== undefined) {
-      // Straight to the chat, past the pet: the owner just typed it and needs no bubble for it.
-      await this.inner.send({ kind: "text", text: this.opts.echo(t) }).catch(() => undefined);
+      // Straight to the chat, past the pet: start it now so the Herder does not wait on Feishu.
+      this.queueEcho(this.inner, this.opts.echo(t));
     }
     await sink({ kind: "message", text: t, from: ownerId });
   }
@@ -351,6 +371,7 @@ export class PetFeed {
     if (inner !== this.inner) return;
     this.sink = undefined;
     this.ownerId = undefined;
+    this.echoing = undefined;
     this.open.clear();
     this.changed();
   }
@@ -436,6 +457,7 @@ class PetChannel implements Channel {
   }
 
   async send(view: View): Promise<MessageRef> {
+    await this.feed.waitEcho();
     const ref = await this.inner.send(view);
     this.feed.sent(ref, view);
     return ref;

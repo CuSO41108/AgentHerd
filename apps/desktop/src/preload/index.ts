@@ -21,9 +21,15 @@ const bridge: Bridge = {
   },
   pet: {
     dragStart: () => ipcRenderer.send("pet:drag-start"),
-    dragMove: (dx, dy) => ipcRenderer.send("pet:drag-move", dx, dy),
-    dragEnd: () => ipcRenderer.send("pet:drag-end"),
-    resize: (width, height) => ipcRenderer.send("pet:resize", width, height),
+    dragMove: () => ipcRenderer.send("pet:drag-move"),
+    dragEnd: () => ipcRenderer.invoke("pet:drag-end") as Promise<boolean>,
+    resize: (width, height, regions) => ipcRenderer.send("pet:resize", width, height, regions),
+    interacting: (active) => ipcRenderer.send("pet:interacting", active),
+    onMouseLeave(listener) {
+      const handler = () => listener();
+      ipcRenderer.on("pet:mouse-leave", handler);
+      return () => ipcRenderer.removeListener("pet:mouse-leave", handler);
+    },
     openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
     openFile: (path) => ipcRenderer.send("pet:open-file", path),
   },

@@ -26,6 +26,7 @@ import {
   newestScroll,
   newLine,
   readChatSize,
+  remainingSays,
   reportHead,
   SLEEP_AFTER_MS,
   separatorOf,
@@ -33,6 +34,7 @@ import {
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
+import { hitPetRegion } from "../src/shared/bridge";
 
 const IDLE: PetView = { connected: true, pending: [] };
 const NOW = 1_000_000;
@@ -200,6 +202,32 @@ describe("sizing the conversation (ADR 0070)", () => {
     expect(newestScroll(900, 640)).toBe(640);
     expect(newestScroll(-4, 0)).toBe(0);
   });
+
+  it("keeps optimistic owner messages only until herd.db history records them", () => {
+    const at = "2026-11-18T08:00:00Z";
+    const h = (id: number, text: string) => ({ id, at, kind: "owner" as const, text });
+    const pending = [
+      { id: -1, at, text: "好", afterId: 5 },
+      { id: -2, at, text: "好", afterId: 5 },
+      { id: -3, at, text: "再查下", afterId: 5 },
+    ];
+    expect(remainingSays(pending, [h(3, "好")])).toEqual(pending);
+    expect(remainingSays(pending, [h(3, "好"), h(6, "好")])).toEqual([pending[1], pending[2]]);
+    expect(remainingSays(pending, [h(6, "好"), h(7, "好"), h(8, "再查下")])).toEqual([]);
+  });
+
+  it("lets clicks pass through empty transparent space outside interactive pet regions", () => {
+    const size = { width: 412, height: 661 };
+    const regions = [
+      { x: 289, y: 516, width: 119, height: 137 },
+      { x: 2, y: 2, width: 366, height: 522 },
+    ];
+    expect(hitPetRegion(340, 580, size, regions)).toBe(true);
+    expect(hitPetRegion(180, 260, size, regions)).toBe(true);
+    expect(hitPetRegion(40, 580, size, regions)).toBe(false);
+    expect(hitPetRegion(390, 260, size, regions)).toBe(false);
+    expect(hitPetRegion(-1, 200, size, regions)).toBe(false);
+  });
 });
 
 describe("cards and tasks in the conversation (ADR 0072)", () => {
@@ -311,6 +339,10 @@ describe("the conversation's new look (ADR 0073)", () => {
     expect(filesIn("见 https://example.com/Users/a/b.md 和 ./src/a.ts")).toEqual([]);
     const many = Array.from({ length: 9 }, (_, i) => `/tmp/a${i}.md`).join(" ");
     expect(filesIn(many)).toHaveLength(FILES_MAX);
+    expect(filesIn("见 G:\\AgentHerd\\README.md 和 ~\\.agentherd\\note.txt")).toEqual([
+      { path: "G:\\AgentHerd\\README.md", name: "README.md", dir: "G:\\AgentHerd" },
+      { path: "~\\.agentherd\\note.txt", name: "note.txt", dir: "~\\.agentherd" },
+    ]);
   });
 
   it("folds long replies and counts the lines behind 展开全文", () => {

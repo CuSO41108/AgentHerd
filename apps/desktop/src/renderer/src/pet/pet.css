@@ -667,8 +667,12 @@ body {
 
 .pet-send {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 26px;
   height: 26px;
+  padding: 0;
   border: 0;
   border-radius: 13px;
   background: var(--pet-accent);
@@ -947,6 +951,7 @@ body {
   transform-origin: 50% 100%;
   cursor: grab;
   outline: none;
+  touch-action: none;
   filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.18));
 }
 
@@ -997,6 +1002,7 @@ body {
   background-repeat: no-repeat;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   cursor: pointer;
+  touch-action: none;
   padding: 0;
 }
 

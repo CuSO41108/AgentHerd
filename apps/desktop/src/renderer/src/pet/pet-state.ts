@@ -270,7 +270,7 @@ export interface FileRef {
 
 /** Absolute or ~/ paths, up to a space, quote, bracket or Chinese punctuation; not inside a link. */
 const FILE_PATH =
-  /(?<![\w.:/-])(?:~|\/(?:Users|tmp|private|var|home|opt|Volumes))\/[^\s`'"<>()（）[\]{}，。；：、！？「」]+/g;
+  /(?<![\w.:/\\-])(?:~[\\/]|\/(?:Users|tmp|private|var|home|opt|Volumes)\/|[A-Za-z]:[\\/])[^\s`'"<>()（）[\]{}，。；：、！？「」]+/g;
 const FILE_NAME = /\.[A-Za-z0-9]{1,8}$/;
 /** At most this many files under one message. */
 export const FILES_MAX = 6;
@@ -280,9 +280,10 @@ export function filesIn(text: string): FileRef[] {
   const out: FileRef[] = [];
   for (const m of text.matchAll(FILE_PATH)) {
     const path = m[0].replace(/[.,;:!?*_]+$/, "");
-    const name = path.slice(path.lastIndexOf("/") + 1);
+    const sep = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    const name = path.slice(sep + 1);
     if (!FILE_NAME.test(name) || out.some((f) => f.path === path)) continue;
-    out.push({ path, name, dir: path.slice(0, path.length - name.length - 1) });
+    out.push({ path, name, dir: path.slice(0, sep) });
     if (out.length === FILES_MAX) break;
   }
   return out;
@@ -344,4 +345,34 @@ export function statusOf(connected: boolean, working: number): string {
 export function modelName(model: string | undefined): string | undefined {
   if (model === undefined || model === "") return undefined;
   return model.slice(model.lastIndexOf("/") + 1);
+}
+
+/** A message the owner just sent in the pet, before herd.db records its turn. */
+export interface PendingSay {
+  /** Negative id so React keys never collide with herd.db turn ids. */
+  id: number;
+  at: string;
+  text: string;
+  /** Highest history id when this message was sent. */
+  afterId: number;
+}
+
+/**
+ * Keeps optimistic owner messages until `history` holds their recorded `owner` turns (matched one
+ * by one after `afterId`).
+ */
+export function remainingSays(
+  pending: readonly PendingSay[],
+  history: readonly PetLine[],
+): PendingSay[] {
+  const used = new Set<number>();
+  const kept: PendingSay[] = [];
+  for (const item of pending) {
+    const match = history.find(
+      (h) => h.kind === "owner" && h.id > item.afterId && h.text === item.text && !used.has(h.id),
+    );
+    if (match !== undefined) used.add(match.id);
+    else kept.push(item);
+  }
+  return kept;
 }
