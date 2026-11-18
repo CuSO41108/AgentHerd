@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   checkHerdUi,
   HERD_UI_CHOICES_MAX,
+  HERD_UI_IMAGES_MAX,
   HERD_UI_MAX_NODES,
   herdUiChoices,
+  herdUiImages,
+  herdUiImageType,
   herdUiPlain,
   parseLooseJson,
   readHerdUi,
@@ -215,5 +218,56 @@ describe("fences in a reply (ADR 0074)", () => {
       { action: "2", label: "再搜" },
     ]);
     expect(herdUiChoices("没有")).toEqual([]);
+  });
+});
+
+describe("pictures (ADR 0075)", () => {
+  const read = (items: unknown[]) => readHerdUi(JSON.stringify({ items }));
+
+  it("reads a picture on this computer and names it in plain text", () => {
+    const r = read([
+      { type: "qrcode", src: "/tmp/qr.png", caption: "授权码", desc: "10 分钟内有效" },
+    ]);
+    expect(r.spec?.items).toEqual([
+      { type: "image", path: "/tmp/qr.png", title: "授权码", desc: "10 分钟内有效" },
+    ]);
+    const text = `扫码：\n\n${fence(JSON.stringify(r.spec))}`;
+    expect(herdUiPlain(text)).toContain("🖼️ 授权码：/tmp/qr.png");
+    expect(herdUiImages(text)).toEqual(["/tmp/qr.png"]);
+    expect(herdUiImages("没有图")).toEqual([]);
+  });
+
+  it("shows a picture whether the model wrote image or file, and anything else as a file", () => {
+    const r = read([
+      { type: "file", path: "~/Desktop/shot.PNG" },
+      { type: "image", path: "/tmp/report.pdf" },
+      { type: "image", url: "https://example.com/a.png", title: "图" },
+      { type: "image", path: "qr.png" },
+    ]);
+    expect(r.spec?.items).toEqual([
+      { type: "image", path: "~/Desktop/shot.PNG" },
+      { type: "file", path: "/tmp/report.pdf" },
+      { type: "link", url: "https://example.com/a.png", title: "图" },
+    ]);
+    expect(r.problems.join("\n")).toContain("not a png, jpg, gif or webp picture; shown as a file");
+    expect(r.problems.join("\n")).toContain("a web address, shown as a link");
+    expect(r.problems.join("\n")).toContain('"qr.png" is not a full path');
+  });
+
+  it("shows at most a few pictures in one fence; the rest as files", () => {
+    const many = Array.from({ length: HERD_UI_IMAGES_MAX + 2 }, (_, i) => ({
+      type: "image",
+      path: `/tmp/${i}.png`,
+    }));
+    const types = read(many).spec?.items.map((n) => n.type);
+    expect(types?.filter((t) => t === "image")).toHaveLength(HERD_UI_IMAGES_MAX);
+    expect(types?.filter((t) => t === "file")).toHaveLength(2);
+  });
+
+  it("knows picture types by extension", () => {
+    expect(herdUiImageType("/a/b.JPG")).toBe("image/jpeg");
+    expect(herdUiImageType("/a/b.webp")).toBe("image/webp");
+    expect(herdUiImageType("/a/b.svg")).toBeUndefined();
+    expect(herdUiImageType("/a/png")).toBeUndefined();
   });
 });

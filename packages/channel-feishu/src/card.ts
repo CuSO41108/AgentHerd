@@ -199,8 +199,15 @@ function renderItemLines(view: ItemView, t: CardTexts): Record<string, unknown> 
   );
 }
 
-/** Render a channel-neutral view as Feishu Card JSON 2.0. */
-export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<string, unknown> {
+/**
+ * Render a channel-neutral view as Feishu Card JSON 2.0. `images` maps the paths of herd-ui
+ * pictures already uploaded to their image keys; a picture without one is shown by its path.
+ */
+export function renderCard(
+  view: View,
+  locale: Locale = DEFAULT_LOCALE,
+  images?: ReadonlyMap<string, string>,
+): Record<string, unknown> {
   const t = CARD_TEXTS[locale];
   switch (view.kind) {
     case "item": {
@@ -235,7 +242,7 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
     case "text": {
       // A reply with herd-ui fences is drawn as components (ADR 0074), never folded as a whole.
       const elements = hasHerdUi(view.text)
-        ? herdUiElements(view.text, { t, target: view.target, chosen: view.chosen })
+        ? herdUiElements(view.text, { t, target: view.target, chosen: view.chosen, images })
         : foldedMarkdown(view.text, t.showAll);
       if (view.options !== undefined && view.target !== undefined) {
         for (const o of view.options) elements.push(actionRow(view.target, o.action, o.label));
@@ -282,7 +289,7 @@ export function renderCard(view: View, locale: Locale = DEFAULT_LOCALE): Record<
     case "report": {
       // A report has no answer target: choices in its fences are shown as a list.
       const elements = hasHerdUi(view.body)
-        ? herdUiElements(view.body, { t })
+        ? herdUiElements(view.body, { t, images })
         : foldedMarkdown(view.body, t.showAll);
       if (view.summarized && view.fullReply !== undefined) {
         const label =

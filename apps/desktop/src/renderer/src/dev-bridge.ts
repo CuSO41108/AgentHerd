@@ -215,6 +215,12 @@ function installFakeBridge(): void {
               title: "完整清单",
               desc: "26 个链接，按方向分好",
             },
+            {
+              type: "image",
+              path: "/tmp/lark-mail-auth.png",
+              title: "飞书邮箱授权码",
+              desc: "用飞书扫一下，10 分钟内有效",
+            },
             { type: "divider", label: "接下来" },
             {
               type: "choices",
@@ -1016,6 +1022,17 @@ function installFakeBridge(): void {
 
   const fakeBridge: Bridge = {
     host: fake,
+    // The pet window's own calls do nothing here, but pictures (ADR 0075) are drawn: a made-up
+    // code for any png path, and nothing for a path with "missing" in it.
+    pet: {
+      dragStart: () => {},
+      dragMove: () => {},
+      dragEnd: () => {},
+      resize: () => {},
+      openApp: () => {},
+      openFile: (path) => console.info("[AgentHerd] open", path),
+      readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),
+    },
     onEvent: (listener) => {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
@@ -1029,6 +1046,29 @@ function installFakeBridge(): void {
   };
   window.agentherd = fakeBridge;
   console.info("[AgentHerd] window.agentherd not found; using the in-memory dev bridge.");
+}
+
+/** A made-up QR-like picture, for the pet's pictures in the dev bridge. */
+function fakePicture(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 210;
+  canvas.height = 210;
+  const g = canvas.getContext("2d");
+  if (g === null) return "";
+  g.fillStyle = "#fff";
+  g.fillRect(0, 0, 210, 210);
+  g.fillStyle = "#111";
+  let seed = 7;
+  for (let y = 0; y < 21; y++) {
+    for (let x = 0; x < 21; x++) {
+      seed = (seed * 9301 + 49297) % 233280;
+      const corner = (x < 7 && y < 7) || (x > 13 && y < 7) || (x < 7 && y > 13);
+      const ring = corner && (x % 14 === 0 || x % 14 === 6 || y % 14 === 0 || y % 14 === 6);
+      const eye = corner && x % 14 >= 2 && x % 14 <= 4 && y % 14 >= 2 && y % 14 <= 4;
+      if (corner ? ring || eye : seed / 233280 > 0.5) g.fillRect(x * 10, y * 10, 10, 10);
+    }
+  }
+  return canvas.toDataURL("image/png");
 }
 
 let fakeInstalled = false;

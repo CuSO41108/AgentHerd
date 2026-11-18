@@ -3,6 +3,7 @@
 // answer for the owner while their card is open, as a tap in Feishu does.
 
 import type { HerdUiNode, HerdUiSpec } from "@agentherd/protocol/herd-ui";
+import { useEffect, useState } from "react";
 import { choiceStarts, hostOf, statColumns } from "./herd-ui-state";
 import { PetInline, PetMarkdown } from "./PetMarkdown";
 
@@ -25,6 +26,7 @@ export function FileChip(props: {
   path: string;
   name: string;
   sub: string;
+  icon?: string;
   openFile(path: string): void;
 }) {
   return (
@@ -35,7 +37,7 @@ export function FileChip(props: {
       onClick={() => props.openFile(props.path)}
     >
       <span className="pet-file-icon" aria-hidden="true">
-        📄
+        {props.icon ?? "📄"}
       </span>
       <span className="pet-file-name">
         <b>{props.name}</b>
@@ -206,11 +208,68 @@ function LinkCard({ node }: { node: Of<"link"> }) {
   );
 }
 
-function FileCard({ node, openFile }: { node: Of<"file">; openFile(path: string): void }) {
+function FileCard({
+  node,
+  openFile,
+}: {
+  node: Of<"file"> | Of<"image">;
+  openFile(path: string): void;
+}) {
   const cut = node.path.lastIndexOf("/");
   const name = node.title ?? node.path.slice(cut + 1);
   const sub = node.desc ?? (node.title === undefined ? node.path.slice(0, cut) : node.path);
-  return <FileChip path={node.path} name={name} sub={sub} openFile={openFile} />;
+  const icon = node.type === "image" ? "🖼️" : "📄";
+  return <FileChip path={node.path} name={name} sub={sub} icon={icon} openFile={openFile} />;
+}
+
+/**
+ * A picture the Herder shows (ADR 0075): main reads it and hands back a data URL, so the page
+ * never loads files itself. Read again each time it is drawn, since a task may write a new
+ * picture (a fresh QR code) at the same path. While it loads, a quiet box; when main will not
+ * read it, it is named as a file. A tap opens it in Preview.
+ */
+function ImageCard({ node, openFile }: { node: Of<"image">; openFile(path: string): void }) {
+  const [src, setSrc] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const read = window.agentherd?.pet?.readImage;
+    if (read === undefined) {
+      setSrc(null);
+      return;
+    }
+    setSrc(undefined);
+    read(node.path).then(
+      (url) => live && setSrc(url ?? null),
+      () => live && setSrc(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [node.path]);
+  if (src === null) return <FileCard node={node} openFile={openFile} />;
+  const name = node.title ?? node.path.slice(node.path.lastIndexOf("/") + 1);
+  return (
+    <figure className="pet-ui-image">
+      <button
+        type="button"
+        className="pet-ui-image-box"
+        title={`${node.path}（点一下用预览打开）`}
+        onClick={() => openFile(node.path)}
+      >
+        {src === undefined ? (
+          <span className="pet-ui-image-wait">图片加载中…</span>
+        ) : (
+          <img className="pet-ui-image-img" src={src} alt={name} draggable={false} />
+        )}
+      </button>
+      {(node.title !== undefined || node.desc !== undefined) && (
+        <figcaption className="pet-ui-image-caption">
+          {node.title !== undefined && <b>{node.title}</b>}
+          {node.desc !== undefined && <span>{node.desc}</span>}
+        </figcaption>
+      )}
+    </figure>
+  );
 }
 
 function Choices(props: {
@@ -285,6 +344,8 @@ function NodeView(props: {
       return <LinkCard node={node} />;
     case "file":
       return <FileCard node={node} openFile={props.openFile} />;
+    case "image":
+      return <ImageCard node={node} openFile={props.openFile} />;
     case "choices":
       return <Choices node={node} start={props.start ?? 0} choices={props.choices} />;
     case "divider":

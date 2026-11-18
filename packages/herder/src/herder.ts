@@ -490,7 +490,8 @@ export class Herder implements HerderPort {
     const said = beforeToolMarkup(raw);
     if (said !== raw) this.host.audit("herder.reply.markup", { kind: job.kind });
     const text = said === raw ? await this.readableBlocks(job, said) : said;
-    if (job.kind === "voice" && text !== raw) {
+    // Tool calls written as text (not a repaired block) mean the voice cannot be trusted.
+    if (job.kind === "voice" && said !== raw) {
       this.save();
       job.done(undefined);
       return;

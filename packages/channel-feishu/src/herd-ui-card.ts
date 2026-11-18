@@ -33,6 +33,8 @@ export interface HerdUiCardOptions {
   target?: string | undefined;
   /** The answer the owner picked; then the card shows it and no buttons. */
   chosen?: string | undefined;
+  /** Image keys of the reply's pictures, by path, once uploaded (ADR 0075). */
+  images?: ReadonlyMap<string, string> | undefined;
 }
 
 /** What drawing one reply keeps track of across its fences. */
@@ -146,6 +148,10 @@ function nodeElements(node: HerdUiNode, draw: Draw): Element[] {
       return [link(node)];
     case "file":
       return [file(node)];
+    case "image": {
+      const key = draw.opts.images?.get(node.path);
+      return key === undefined ? [file(node)] : image(node, key);
+    }
     case "choices":
       return choices(node, draw);
     case "divider":
@@ -250,17 +256,43 @@ function link(node: Of<"link">): Element {
   };
 }
 
-/** A file on the owner's computer: Feishu cannot open it, so its name and its path as text. */
-function file(node: Of<"file">): Element {
-  const name =
-    node.title ??
-    node.path
+/**
+ * An uploaded picture (ADR 0075), whole and as wide as the card; a tap opens Feishu's viewer.
+ * Its title, when it has one, and its description go under it in grey.
+ */
+function image(node: Of<"image">, key: string): Element[] {
+  const name = node.title ?? baseName(node.path);
+  const caption = [node.title, node.desc].filter((x) => x !== undefined && x !== "");
+  return [
+    {
+      tag: "img",
+      img_key: key,
+      alt: { tag: "plain_text", content: name },
+      scale_type: "fit_horizontal",
+      corner_radius: "8px",
+      preview: true,
+    },
+    ...(caption.length === 0 ? [] : [markdown(grey(caption.join("\n")))]),
+  ];
+}
+
+function baseName(path: string): string {
+  return (
+    path
       .split("/")
       .filter((p) => p !== "")
-      .pop() ??
-    node.path;
+      .pop() ?? path
+  );
+}
+
+/**
+ * A file on the owner's computer: Feishu cannot open it, so its name and its path as text. A
+ * picture that could not be uploaded is shown the same way.
+ */
+function file(node: Of<"file"> | Of<"image">): Element {
+  const name = node.title ?? baseName(node.path);
   const lines = [
-    `📄 **${name}**`,
+    `${node.type === "image" ? "🖼️" : "📄"} **${name}**`,
     grey(escapeMarkdown(node.path)),
     ...(node.desc === undefined ? [] : [node.desc]),
   ];
