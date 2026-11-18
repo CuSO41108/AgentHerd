@@ -55,6 +55,9 @@ describe("herd-ui in the Herder (ADR 0074)", () => {
     // The pet offers 打开 only for file items, so the Herder is told a path in words stays text
     // and that it picks which files matter (owner, m22988).
     expect(system).toContain("Only a file item gets an 打开 button");
+    // A picture to look at is shown, not named by its path (ADR 0075).
+    expect(system).toContain(`{"type":"image","path":`);
+    expect(system).toContain("Do it also when a task's message only");
     expect(rec.said).toEqual(["好。"]);
   });
 
@@ -70,6 +73,23 @@ describe("herd-ui in the Herder (ADR 0074)", () => {
     expect(rec.said[0]).not.toContain("items:[");
     expect(rec.turns.at(-1)).toEqual({ role: "herder", text: rec.said[0] });
     expect(rec.audits.map((a) => a.type)).not.toContain("herder.ui.rewrite");
+  });
+
+  it("tells a task's result with a repaired block instead of dropping it (ADR 0075)", async () => {
+    const { herder, rec, faux } = setup();
+    // Spaces in the JSON: the block goes out normalized, which once made the voice give up.
+    const reply =
+      '装好了，截图在下面。\n\n```herd-ui\n{ "items": [ { "type": "image", "path": "/tmp/shot.png", "title": "截图" } ] }\n```';
+    faux.setResponses([fauxAssistantMessage(reply)]);
+    const said = await herder.voice({
+      kind: "report",
+      taskId: "t-1",
+      title: "启动 magpie",
+      result: "done",
+      reply: "截图在 /tmp/shot.png",
+    });
+    expect(said).toContain('{"items":[{"type":"image","path":"/tmp/shot.png","title":"截图"}]}');
+    expect(rec.turns.at(-1)).toEqual({ role: "herder", text: said });
   });
 
   it("a block that cannot be read is written again once, in the same turn", async () => {

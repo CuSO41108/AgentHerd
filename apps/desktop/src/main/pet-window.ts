@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, join } from "node:path";
 import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen, shell } from "electron";
 import { hitPetRegion, type PetRegion } from "../shared/bridge.ts";
-import { fileToOpen } from "./open-file";
+import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
 
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
@@ -147,6 +147,15 @@ export class PetWindow {
       if (file === undefined) return;
       if (file.how === "open") void shell.openPath(file.path);
       else shell.showItemInFolder(file.path);
+    });
+    // A picture the Herder shows (ADR 0075): its bytes as a data URL, or undefined.
+    ipcMain.handle("pet:read-image", (e, path: unknown) => {
+      if (this.own(e) === undefined) return undefined;
+      try {
+        return pictureToShow(path, DISK);
+      } catch {
+        return undefined;
+      }
     });
   }
 
@@ -387,6 +396,18 @@ export class PetWindow {
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
+
+const DISK: PictureDisk = {
+  fileSize(path) {
+    try {
+      const s = statSync(path);
+      return s.isFile() ? s.size : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  read: (path) => new Uint8Array(readFileSync(path)),
+};
 
 function isFile(path: string): boolean {
   try {

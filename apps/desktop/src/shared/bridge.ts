@@ -39,6 +39,11 @@ export interface PetBridge {
   openApp(taskId?: string): void;
   /** Opens a file a message names, or shows it in Finder when it is not a document (ADR 0073). */
   openFile(path: string): void;
+  /**
+   * A picture the Herder shows, as a data URL; undefined when it is not a picture main will read
+   * (ADR 0075). Missing in older builds.
+   */
+  readImage?(path: string): Promise<string | undefined>;
 }
 
 export interface Bridge {

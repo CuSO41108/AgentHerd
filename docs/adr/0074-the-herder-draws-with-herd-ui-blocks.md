@@ -1,6 +1,6 @@
 # ADR 0074: The Herder draws tables, numbers, steps, links and choices with herd-ui blocks
 
-- Status: Accepted
+- Status: Accepted; a thirteenth component, `image`, added by [ADR 0075](0075-the-herder-shows-pictures.md)
 - Date: 2026-11-18
 - Changes: [0073](0073-the-pets-conversation-looks-like-a-chat.md) (what a reply can hold),
   [0072](0072-cards-in-the-pet.md) (a reply with choices is a card)

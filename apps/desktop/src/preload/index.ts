@@ -32,6 +32,7 @@ const bridge: Bridge = {
     },
     openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
     openFile: (path) => ipcRenderer.send("pet:open-file", path),
+    readImage: (path) => ipcRenderer.invoke("pet:read-image", path),
   },
   onConnection(listener) {
     const handler = (_e: unknown, connected: boolean) => listener(connected);

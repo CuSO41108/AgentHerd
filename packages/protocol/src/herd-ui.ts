@@ -19,6 +19,22 @@ export const HERD_UI_ENTRIES_MAX = 30;
 /** A choice offers at most this many answers, each at most this long. */
 export const HERD_UI_CHOICES_MAX = 6;
 export const HERD_UI_CHOICE_CHARS = 40;
+/** At most this many pictures in one fence; more are shown as files. */
+export const HERD_UI_IMAGES_MAX = 4;
+/** File types an `image` item can show. */
+export const HERD_UI_IMAGE_TYPES: Readonly<Record<string, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+};
+
+/** The picture type of a path from its extension, or undefined when it is not a picture. */
+export function herdUiImageType(path: string): string | undefined {
+  const ext = /\.([a-z0-9]+)$/i.exec(path.trim())?.[1]?.toLowerCase();
+  return ext === undefined ? undefined : HERD_UI_IMAGE_TYPES[ext];
+}
 
 export type HerdUiTone = "info" | "success" | "warning" | "error";
 export type HerdUiStepStatus = "done" | "doing" | "todo";
@@ -35,6 +51,7 @@ export type HerdUiNode =
   | { type: "code"; code: string; lang?: string }
   | { type: "link"; url: string; title: string; desc?: string; meta?: string }
   | { type: "file"; path: string; title?: string; desc?: string }
+  | { type: "image"; path: string; title?: string; desc?: string }
   | { type: "choices"; options: string[]; question?: string }
   | { type: "divider"; label?: string };
 
@@ -51,6 +68,7 @@ export const HERD_UI_TYPES: readonly HerdUiType[] = [
   "code",
   "link",
   "file",
+  "image",
   "choices",
   "divider",
 ];
@@ -256,6 +274,15 @@ const TYPE_ALIASES: Record<string, HerdUiType> = {
   url: "link",
   files: "file",
   attachment: "file",
+  img: "image",
+  images: "image",
+  picture: "image",
+  photo: "image",
+  screenshot: "image",
+  qr: "image",
+  qrcode: "image",
+  "qr-code": "image",
+  qr_code: "image",
   buttons: "choices",
   button: "choices",
   options: "choices",
@@ -385,7 +412,14 @@ export function readHerdUi(raw: string): HerdUiRead {
       problems.push(`${where}: not an object; dropped`);
       return;
     }
-    const node = readNode(entry, where, problems);
+    let node = readNode(entry, where, problems);
+    if (
+      node?.type === "image" &&
+      items.filter((n) => n.type === "image").length >= HERD_UI_IMAGES_MAX
+    ) {
+      problems.push(`${where} (image): more than ${HERD_UI_IMAGES_MAX} pictures; shown as a file`);
+      node = { ...node, type: "file" };
+    }
     if (node !== undefined) items.push(node);
   });
   if (items.length === 0) {
@@ -579,19 +613,32 @@ function readNode(o: Obj, where: string, problems: string[]): HerdUiNode | undef
       if (meta !== undefined && meta !== "") node.meta = clip(meta, 120);
       return node;
     }
-    case "file": {
-      const path = (field(o, "path", "file", "src", "location") ?? "").trim();
+    case "file":
+    case "image": {
+      const path = (field(o, "path", "file", "src", "location", "url") ?? "").trim();
       if (path === "") return missing('"path"');
+      const title = field(o, "title", "name", "label", "alt", "caption");
+      const desc = field(o, "desc", "description", "summary");
+      if (type === "image" && /^https?:\/\/\S+$/i.test(path)) {
+        // A picture on the web: neither drawing fetches it, so it is a link.
+        problems.push(`${where} (image): a web address, shown as a link`);
+        return { type: "link", url: path, title: clip(title ?? path, 120) };
+      }
       if (!(path.startsWith("/") || path.startsWith("~/"))) {
         problems.push(
-          `${where} (file): "${clip(path, 60)}" is not a full path (/… or ~/…); dropped`,
+          `${where} (${type}): "${clip(path, 60)}" is not a full path (/… or ~/…); dropped`,
         );
         return undefined;
       }
-      const node: Of<"file"> = { type, path: clip(path, 1000) };
-      const title = field(o, "title", "name", "label");
+      // A picture is shown, whichever of the two the model chose; anything else is a file.
+      const picture = herdUiImageType(path) !== undefined;
+      if (type === "image" && !picture)
+        problems.push(`${where} (image): not a png, jpg, gif or webp picture; shown as a file`);
+      const node: Of<"file"> | Of<"image"> = {
+        type: picture ? "image" : "file",
+        path: clip(path, 1000),
+      };
       if (title !== undefined && title !== "") node.title = clip(title, 120);
-      const desc = field(o, "desc", "description", "summary");
       if (desc !== undefined && desc !== "") node.desc = clip(desc, 200);
       return node;
     }
@@ -748,6 +795,8 @@ export function nodeText(node: HerdUiNode): string {
     }
     case "file":
       return `📄 ${node.title === undefined ? node.path : `${node.title}：${node.path}`}`;
+    case "image":
+      return `🖼️ ${node.title === undefined ? node.path : `${node.title}：${node.path}`}`;
     case "choices":
       return [node.question, ...node.options.map((x) => `- ${x}`)]
         .filter((x) => x !== undefined)
@@ -792,4 +841,15 @@ export function herdUiChoices(
     }
   }
   return out;
+}
+
+/** The paths of a reply's pictures (`image` items), in order, each once. */
+export function herdUiImages(text: string): string[] {
+  if (!hasHerdUi(text)) return [];
+  const out = new Set<string>();
+  for (const s of splitHerdUi(text)) {
+    if (s.kind !== "ui") continue;
+    for (const node of s.spec.items) if (node.type === "image") out.add(node.path);
+  }
+  return [...out];
 }
