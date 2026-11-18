@@ -1,0 +1,466 @@
+/* Generated UI in the pet's replies (ADR 0074, src/pet/HerdUi.tsx). Own class names only, so the
+   Markdown rules of pet.css never reach in. */
+
+.pet-ui {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The Markdown and the fences of one reply, one under the other. */
+.pet-reply-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pet-ui-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* table: scrolls sideways in its own box. */
+.pet-ui-table {
+  overflow-x: auto;
+  border: 1px solid var(--pet-line);
+  border-radius: 10px;
+}
+
+.pet-ui-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.pet-ui-th {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--pet-line);
+  background: var(--pet-control);
+  color: var(--pet-muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pet-ui-td {
+  min-width: 4.5em;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--pet-line);
+  vertical-align: top;
+}
+
+.pet-ui-td.last {
+  border-bottom: 0;
+}
+
+/* keyvalue: muted keys, values beside them. */
+.pet-ui-kv {
+  display: grid;
+  grid-template-columns: fit-content(42%) 1fr;
+  gap: 4px 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--pet-line);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+
+.pet-ui-kv-row {
+  display: contents;
+}
+
+.pet-ui-kv-key {
+  color: var(--pet-muted);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.pet-ui-kv-value {
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* stats: tiles, a big value over a small label. */
+.pet-ui-stats {
+  display: grid;
+  gap: 6px;
+}
+
+.pet-ui-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 7px 10px 8px;
+  border-radius: 10px;
+  background: var(--pet-control);
+}
+
+.pet-ui-stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.pet-ui-stat-label {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--pet-muted);
+}
+
+.pet-ui-stat-hint {
+  font-size: 10.5px;
+  color: var(--pet-muted);
+  opacity: 0.85;
+}
+
+/* steps: a dot per step on a rail; done ✓, doing pulses, todo empty. */
+.pet-ui-steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.pet-ui-step {
+  display: flex;
+  gap: 8px;
+}
+
+.pet-ui-step-mark {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+}
+
+.pet-ui-step-dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid var(--pet-line);
+  color: var(--pet-muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 13px;
+  text-align: center;
+}
+
+.pet-ui-step-dot.done {
+  border-color: var(--pet-green);
+  background: var(--pet-green);
+  color: #fff;
+}
+
+.pet-ui-step-dot.doing {
+  border: 4px solid var(--pet-accent);
+  background: var(--pet-bg);
+  animation: pet-ui-pulse 1.6s ease-out infinite;
+}
+
+.pet-ui-step-rail {
+  flex: 1;
+  width: 1.5px;
+  min-height: 6px;
+  margin: 2px 0;
+  background: var(--pet-line);
+}
+
+.pet-ui-step-rail.done {
+  background: rgba(52, 199, 89, 0.5);
+}
+
+.pet-ui-step-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+.pet-ui-step-title {
+  font-size: 12.5px;
+  word-break: break-word;
+}
+
+.pet-ui-step-title.doing {
+  font-weight: 600;
+}
+
+.pet-ui-step-title.todo {
+  color: var(--pet-muted);
+}
+
+.pet-ui-step-desc {
+  font-size: 11.5px;
+  color: var(--pet-muted);
+  word-break: break-word;
+}
+
+/* list */
+.pet-ui-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.pet-ui-li {
+  margin: 2px 0;
+}
+
+.pet-ui-li::marker {
+  color: var(--pet-muted);
+}
+
+/* callout: a box tinted by its tone. */
+.pet-ui-callout {
+  display: flex;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid rgba(0, 124, 247, 0.3);
+  border-radius: 10px;
+  background: rgba(0, 124, 247, 0.06);
+  font-size: 12.5px;
+}
+
+.pet-ui-callout.success {
+  border-color: rgba(52, 199, 89, 0.4);
+  background: rgba(52, 199, 89, 0.08);
+}
+
+.pet-ui-callout.warning {
+  border-color: rgba(255, 159, 10, 0.45);
+  background: rgba(255, 159, 10, 0.09);
+}
+
+.pet-ui-callout.error {
+  border-color: rgba(255, 59, 48, 0.4);
+  background: rgba(255, 59, 48, 0.07);
+}
+
+.pet-ui-callout-icon {
+  flex: none;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pet-ui-callout-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pet-ui-callout-title {
+  font-weight: 600;
+}
+
+/* code: the pet's code box, with its language above. */
+.pet-ui-code {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pet-ui-code-lang {
+  color: var(--pet-muted);
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* link: a card that opens in the browser. */
+.pet-ui-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--pet-line);
+  border-radius: 10px;
+  background: var(--pet-bg);
+  color: var(--pet-ink);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pet-ui-link:hover {
+  border-color: var(--pet-accent);
+}
+
+.pet-ui-link-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.pet-ui-link-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  color: var(--pet-ink);
+  opacity: 0.85;
+}
+
+.pet-ui-link-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--pet-muted);
+}
+
+.pet-ui-link-host {
+  flex: none;
+  color: var(--pet-accent);
+}
+
+.pet-ui-link-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* choices: the answers, the first one leading; once picked, that one stays marked. */
+.pet-ui-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pet-ui-question {
+  font-weight: 600;
+}
+
+.pet-ui-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pet-ui-answer {
+  max-width: 100%;
+  padding: 4px 12px;
+  border: 1px solid var(--pet-line);
+  border-radius: 8px;
+  background: var(--pet-control);
+  color: var(--pet-ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.pet-ui-answer:hover {
+  border-color: var(--pet-accent);
+}
+
+.pet-ui-answer.primary {
+  border-color: var(--pet-accent);
+  background: var(--pet-accent);
+  color: #fff;
+}
+
+.pet-ui-answer:disabled {
+  border-color: var(--pet-line);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pet-ui-answer.chosen {
+  border-color: var(--pet-accent);
+  background: rgba(0, 124, 247, 0.1);
+  color: var(--pet-accent);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.pet-ui-chosen {
+  color: var(--pet-muted);
+  font-size: 12px;
+}
+
+/* divider: a line, its label in the middle. */
+.pet-ui-divider {
+  display: flex;
+  align-items: center;
+  margin: 2px 0;
+  color: var(--pet-muted);
+  font-size: 11px;
+}
+
+.pet-ui-divider::before,
+.pet-ui-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--pet-line);
+}
+
+.pet-ui-divider-label {
+  flex: none;
+  margin: 0 8px;
+}
+
+@keyframes pet-ui-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 124, 247, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(0, 124, 247, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-ui-step-dot.doing {
+    animation: none;
+  }
+}
+
+/* A picture the Herder shows (ADR 0075): whole, as wide as the reply, a tap opens it. */
+.pet-ui-image {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pet-ui-image-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  padding: 6px;
+  border: 1px solid var(--pet-line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.pet-ui-image-box:hover {
+  border-color: var(--pet-accent);
+}
+
+.pet-ui-image-img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.pet-ui-image-wait {
+  color: var(--pet-muted);
+  font-size: 12px;
+}
+
+.pet-ui-image-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  color: var(--pet-muted);
+}
+
+.pet-ui-image-caption b {
+  color: var(--pet-ink);
+  font-weight: 600;
+}

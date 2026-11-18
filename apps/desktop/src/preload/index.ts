@@ -21,16 +21,29 @@ const bridge: Bridge = {
   },
   pet: {
     dragStart: () => ipcRenderer.send("pet:drag-start"),
-    dragMove: (dx, dy) => ipcRenderer.send("pet:drag-move", dx, dy),
-    dragEnd: () => ipcRenderer.send("pet:drag-end"),
-    resize: (width, height) => ipcRenderer.send("pet:resize", width, height),
-    openApp: () => ipcRenderer.send("pet:open-app"),
+    dragMove: () => ipcRenderer.send("pet:drag-move"),
+    dragEnd: () => ipcRenderer.invoke("pet:drag-end") as Promise<boolean>,
+    resize: (width, height, regions) => ipcRenderer.send("pet:resize", width, height, regions),
+    interacting: (active) => ipcRenderer.send("pet:interacting", active),
+    onMouseLeave(listener) {
+      const handler = () => listener();
+      ipcRenderer.on("pet:mouse-leave", handler);
+      return () => ipcRenderer.removeListener("pet:mouse-leave", handler);
+    },
+    openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
+    openFile: (path) => ipcRenderer.send("pet:open-file", path),
+    readImage: (path) => ipcRenderer.invoke("pet:read-image", path),
   },
   onConnection(listener) {
     const handler = (_e: unknown, connected: boolean) => listener(connected);
     ipcRenderer.on("host:connection", handler);
     void ipcRenderer.invoke("host:connected").then((c: boolean) => listener(c));
     return () => ipcRenderer.removeListener("host:connection", handler);
+  },
+  onOpenTask(listener) {
+    const handler = (_e: unknown, taskId: string) => listener(taskId);
+    ipcRenderer.on("app:open-task", handler);
+    return () => ipcRenderer.removeListener("app:open-task", handler);
   },
 };
 

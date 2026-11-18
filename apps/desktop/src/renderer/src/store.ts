@@ -75,6 +75,8 @@ interface AppState {
   /** The first-run flow covers the window. */
   firstRun: boolean;
   toasts: Toast[];
+  /** A task the pet asked to show; the tasks page opens it and clears this (ADR 0072). */
+  openTask: string | undefined;
   /** Shows a page. It also closes the first run, without marking it done. */
   setPage(page: Page): void;
   openFirstRun(): void;
@@ -131,6 +133,7 @@ export const useApp = create<AppState>()((set, get) => ({
   // "#onboarding" opens the first run at once, for previews and screenshots.
   firstRun: window.location.hash === "#onboarding",
   toasts: [],
+  openTask: undefined,
   setPage: (page) => set({ page, firstRun: false }),
   openFirstRun: () => set({ firstRun: true }),
   finishFirstRun: () => {
@@ -280,6 +283,7 @@ export function startStore(): void {
   started = true;
   const b = bridge();
   b.onEvent(applyEvent);
+  b.onOpenTask?.((taskId) => useApp.setState({ page: "tasks", firstRun: false, openTask: taskId }));
   b.onConnection((connected) => {
     const was = useApp.getState().connected;
     useApp.setState({ connected });

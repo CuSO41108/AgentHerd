@@ -73,7 +73,6 @@ import type {
   ModelTest,
   ModelTiersView,
   PetFigure,
-  PetLine,
   PetSettings,
   PetView,
   ProbeTarget,
@@ -103,7 +102,7 @@ import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
-import { historyOf, PET_HISTORY_MAX, PetFeed } from "./pet.ts";
+import { PET_CARDS_MAX, PET_HISTORY_MAX, PetFeed, petConversation } from "./pet.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -233,6 +232,8 @@ export class Host implements HostApi {
         (this.config().locale ?? DEFAULT_LOCALE) === "en"
           ? `(said to the desktop pet) ${text}`
           : `（在桌宠里说）${text}`,
+      keep: (ref, view) =>
+        this.herd?.store.putOwnerCard(ref, view, view.kind === "report" ? view.taskId : undefined),
     });
     this.socialList = new Socials({
       home: opts.home,
@@ -750,15 +751,23 @@ export class Host implements HostApi {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
-      history: this.petHistory(),
+      ...this.petConversation(),
     };
   }
 
-  /** The Herder's conversation as herd.db keeps it: it reaches back past restarts. */
-  private petHistory(): PetLine[] {
+  /**
+   * The Herder's conversation and the cards sent to the owner, as herd.db keeps them: they reach
+   * back past restarts (ADR 0072).
+   */
+  private petConversation(): Pick<PetView, "history" | "cards"> {
     const store = this.herd?.store;
-    if (store === undefined) return [];
-    return historyOf(store.herderTurns(PET_HISTORY_MAX), (id) => store.task(id)?.task.title);
+    if (store === undefined) return { history: [], cards: [] };
+    return petConversation(
+      store.herderTurns(PET_HISTORY_MAX),
+      store.ownerCards(PET_CARDS_MAX),
+      (id) => store.task(id)?.task.title,
+      (ref) => this.petFeed.isOpen(ref),
+    );
   }
 
   async petSay(text: string): Promise<PetView> {
@@ -769,6 +778,12 @@ export class Host implements HostApi {
   async petPress(target: string, action: string): Promise<PetView> {
     await this.petFeed.press(target, action);
     return this.pet();
+  }
+
+  async stopTask(taskId: string): Promise<void> {
+    const herd = this.herd;
+    if (herd === undefined) throw new Error("AgentHerd is not running");
+    await herd.stopTask(taskId);
   }
 
   tasks(): TasksView {

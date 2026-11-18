@@ -6,9 +6,9 @@
 
 [English](README.md) · 简体中文
 
-### 在飞书里指挥你的 Coding Agent。<br>跟主管说你要什么，它在你的 Mac 上启动 Agent、盯着进度，做完用自己的话告诉你。
+### 在飞书里指挥你的 Coding Agent。<br>跟主管说你要什么，它在你的电脑上启动 Agent、盯着进度，做完用自己的话告诉你。
 
-[![macOS](https://img.shields.io/badge/macOS-only-111?logo=apple)](docs/adr/0013-macos-only-for-v1.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
+[![macOS | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-111)](docs/spec/02-architecture.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
 [![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/anthropics/claude-code)
 
 [主要功能](#主要功能) · [怎么工作](#怎么工作) · [开始使用](#开始使用) · [文档](#文档)
@@ -38,9 +38,9 @@
 - **你的飞书、资讯和笔记。** 飞书扫码登录一次（用官方 lark-cli），Agent 就能读你的文档、表格和日程，把结果写成新文档；
   改已有的东西会先问你。GitHub Trending、Hacker News、arXiv 不用登录，说一句就每天推给你，推过的不再重复。
   Notion 通过 Composio 连接，Obsidian 笔记库会交给每个任务。
-- **一句话建定时任务。** 「工作日每天 9 点看看有没有新 issue」，主管就建好；Mac 睡着时错过的，醒来只补跑一次。
+- **一句话建定时任务。** 「工作日每天 9 点看看有没有新 issue」，主管就建好；电脑睡着时错过的，醒来只补跑一次。
 - **记忆有用不啰嗦。** 整段对话都保留，旧的部分由主管自己折叠。只有任务出了问题才记一条经验，以前的结果去任务记录里查。
-- **桌宠。** 大肥鱼或 Claude 娘浮在桌面上：飞书收到什么她就说什么，任务做完会开心，有事要你点头时带着「同意 / 拒绝」等你。
+- **桌宠。** 大肥鱼或 Claude 娘浮在桌面上：飞书收到什么她就说什么，任务做完会开心，有事要你点头时带着「同意 / 拒绝」等你。点她就是和主管的对话：回复按 Markdown 显示，表格、数字、步骤、链接和可点的选项会画成组件（飞书里一样），任务存下的二维码、截图直接显示在回复里，主管觉得你该看的文件点一下就能打开，卡片和飞书里一样，每个任务还有一张任务卡，可以停止或打开。
   点她就能跟主管说话，嫌碍事可以收成一个小圆点。
 - **只在本机运行。** 没有 AgentHerd 服务器，Key 和订阅登录凭据存在 `~/.agentherd/secrets.json`，只有你的账户能读。合上盖子 Agent 也能接着跑。
 
@@ -53,7 +53,7 @@ AgentHerd 是一个 Electron 应用，里面是一个无界面的核心。核心
 
 ## 开始使用
 
-需要 macOS、Node 22.18+、pnpm，以及一个飞书（或 Lark）账号。
+需要 macOS 或 Windows、Node 22.18+、pnpm，以及一个飞书（或 Lark）账号。
 
 ```bash
 pnpm install

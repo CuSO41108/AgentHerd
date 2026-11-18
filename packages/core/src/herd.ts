@@ -326,7 +326,7 @@ export class Herd {
       endTask: (taskId) => this.endTask(taskId, this.texts.endedByOwner),
       startRelay: (taskId) => this.relays.start(taskId),
       endRelay: () => this.relays.end("ended by the Herder"),
-      say: (text) => say(this.ctx, text),
+      say: (text) => this.owner.herderSays(text),
       ask: (text, options) => this.owner.ask(text, options),
       alert: (text, retry) =>
         send(this.ctx, {
@@ -522,6 +522,15 @@ export class Herd {
   /** Closes the agent of a task. The task stays on the board. */
   endTask(taskId: string, why: string): Promise<void> {
     return this.runner.endTask(taskId, why);
+  }
+
+  /**
+   * The owner stopped a task from the app (ADR 0072): the same as telling the Herder it is
+   * finished. Its agent stops; the task stays and can be continued.
+   */
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.tasks().some((t) => t.id === taskId)) throw new Error(`no task ${taskId}`);
+    await this.endTask(taskId, this.texts.endedByOwner);
   }
 
   /** Looks at the new-work watches now (tests). */

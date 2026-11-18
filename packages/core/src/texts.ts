@@ -128,6 +128,8 @@ export interface CoreTexts {
   // Report bodies written by AgentHerd (not by the agent).
   couldNotStartBody(message: string): string;
   failedBody(message: string): string;
+  /** Report of a turn the owner stopped by ending its task (ADR 0072). */
+  stoppedByOwner: string;
   result: Record<ReportResult, string>;
   /** Between the result and the task in a report title. */
   titleSep: string;
@@ -166,6 +168,8 @@ export interface CoreTexts {
   allClosed: string;
   /** A Herder question closed because the owner wrote in the chat instead. */
   answeredInChat: string;
+  /** A tap on a Herder reply's choice that is no longer open (ADR 0074). */
+  choiceExpired: string;
   /** A Herder question nobody answered in time. */
   askTimedOut(minutes: number): string;
   // Why an item expired or a task ended.
@@ -332,6 +336,7 @@ const zh: CoreTexts = {
   watchdog: (d) => `看门狗：${d}`,
   couldNotStartBody: (m) => `Agent 启动失败：${m}`,
   failedBody: (m) => `任务失败：${m}`,
+  stoppedByOwner: "你停下了这个任务，做到一半的事没有做完。",
   result: { done: "已完成", failed: "失败", blocked: "受阻", stopped: "已停止" },
   titleSep: "：",
   repeatedToolCall: (n, label) => `同一个工具调用重复了 ${n} 次：${label}`,
@@ -361,6 +366,7 @@ const zh: CoreTexts = {
   skipAll: "都先不管",
   allClosed: "都处理完了",
   answeredInChat: "你在聊天里回了",
+  choiceExpired: "这个选项已经过期了，直接告诉我你要哪个吧。",
   askTimedOut: (m) => `${m >= 60 && m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`}没人回，先放下了`,
   turnEnded: "Agent 这一轮已结束",
   agentStoppedWaiting: "Agent 不再等待",
@@ -525,6 +531,7 @@ const en: CoreTexts = {
   watchdog: (d) => `Watchdog: ${d}`,
   couldNotStartBody: (m) => `Could not start the agent: ${m}`,
   failedBody: (m) => `The task failed: ${m}`,
+  stoppedByOwner: "You stopped this task; what it was doing is not finished.",
   result: { done: "Done", failed: "Failed", blocked: "Blocked", stopped: "Stopped" },
   titleSep: ": ",
   repeatedToolCall: (n, label) => `the same tool call ran ${n} times: ${label}`,
@@ -556,6 +563,7 @@ const en: CoreTexts = {
   skipAll: "None now",
   allClosed: "All handled",
   answeredInChat: "You answered in the chat",
+  choiceExpired: "That choice has expired; just tell me which one you want.",
   askTimedOut: (m) =>
     `No answer in ${m >= 60 && m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`}; set aside`,
   turnEnded: "the agent's turn ended",

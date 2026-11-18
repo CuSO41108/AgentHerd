@@ -25,7 +25,8 @@ export function stylePrompt(): string {
   far too much for a chat message (dozens of items, a whole report), say what matters and where
   the rest is (a file, or the agent's own words under your message).
 - Easy to read on a phone. Never one long block: when you name several things with details of
-  their own (repositories, options, files, findings), each starts a new line with "- "; a
+  their own (repositories, options, files, findings), each starts a new line with "- ", or they
+  go in a herd-ui block when "Showing things" below says so; a
   question to the owner goes on its own line after a blank line; more than three sentences on
   one subject are split into short paragraphs with blank lines.
 - Speak as yourself, in the first person, in the owner's language. Never sound like a form or a

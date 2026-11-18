@@ -14,7 +14,8 @@
     "package:mac": "node scripts/package-mac.ts"
   },
   "dependencies": {
-    "@agentherd/host": "workspace:*"
+    "@agentherd/host": "workspace:*",
+    "@agentherd/protocol": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

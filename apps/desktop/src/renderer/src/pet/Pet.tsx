@@ -2,11 +2,13 @@
 // AgentHerd is doing. A click opens the conversation with the Herder, both ways and in full; it
 // also opens by itself when AgentHerd tells the owner something (the same as Feishu), without
 // taking the keyboard. It shows the buttons of whatever waits for the owner and passes what the
-// owner types to the Herder. Its top-left corner and edges resize it. Drag the figure anywhere;
-// the small button folds it into a dot, which counts what came meanwhile.
+// owner types to the Herder. Cards come in it as in Feishu, with a card for each task (ADR 0072).
+// Its top-left corner and edges resize it. Drag the figure anywhere; the small button folds it
+// into a dot, which counts what came meanwhile.
 
 import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
+  Fragment,
   type KeyboardEvent,
   type PointerEvent,
   useEffect,
@@ -14,26 +16,31 @@ import {
   useRef,
   useState,
 } from "react";
+import type { PetRegion } from "../../../shared/bridge";
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
+import { CardView, TaskCard } from "./PetCards";
+import { LineView, Separator } from "./PetConversation";
 import {
   badgeOf,
   CHAT_DEFAULT,
   type ChatSize,
-  clockOf,
-  cut,
+  conversationOf,
   dragChat,
+  type Entry,
   FLASH_MS,
   fitChat,
   flashOf,
   type Grip,
-  historyHead,
   type Mood,
   moodOf,
   newestScroll,
   newLine,
+  type PendingSay,
   readChatSize,
-  trailingLine,
+  remainingSays,
+  separatorOf,
+  statusOf,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
@@ -43,6 +50,9 @@ const H = Math.round(CELL.height * SCALE);
 /** The folded pet: the head of the current frame in a circle. */
 const DOT = 46;
 const DOT_SCALE = 0.5;
+/** The Herder's face at the top of the conversation: the head of the resting frame. */
+const AVATAR = 30;
+const AVATAR_SCALE = 0.36;
 const COLLAPSED_KEY = "agentherd.pet.collapsed";
 /** The size the owner gave the conversation (ADR 0070). */
 const CHAT_KEY = "agentherd.pet.chat";
@@ -61,15 +71,48 @@ function errorText(error: unknown): string {
   return text.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
 }
 
-function countWorking(view: TasksView): number {
-  return view.tasks.filter((t) => t.stage === "working" || t.stage === "queued").length;
+type Task = TasksView["tasks"][number];
+
+function countWorking(tasks: readonly Task[]): number {
+  return tasks.filter((t) => t.stage === "working" || t.stage === "queued").length;
+}
+
+function regionsOf(root: HTMLElement): PetRegion[] {
+  const base = root.getBoundingClientRect();
+  const regions: PetRegion[] = [];
+  for (const node of root.querySelectorAll<HTMLElement>(".pet-stage, .pet-dot")) {
+    const r = node.getBoundingClientRect();
+    regions.push({
+      x: Math.max(0, Math.floor(r.left - base.left) - 4),
+      y: Math.max(0, Math.floor(r.top - base.top) - 4),
+      width: Math.ceil(r.width) + 8,
+      height: Math.ceil(r.height) + 8,
+    });
+  }
+  for (const node of root.querySelectorAll<HTMLElement>(".pet-bubble")) {
+    const r = node.getBoundingClientRect();
+    // Include the top/left resize grips and the bottom speech-bubble tail.
+    regions.push({
+      x: Math.max(0, Math.floor(r.left - base.left) - 6),
+      y: Math.max(0, Math.floor(r.top - base.top) - 6),
+      width: Math.ceil(r.width) + 6,
+      height: Math.ceil(r.height) + 12,
+    });
+  }
+  return regions;
 }
 
 export function Pet() {
   const bridge = window.agentherd;
-  const [view, setView] = useState<PetView>({ connected: false, pending: [], history: [] });
+  const [view, setView] = useState<PetView>({
+    connected: false,
+    pending: [],
+    history: [],
+    cards: [],
+  });
   const [figure, setFigure] = useState<PetFigure>("deepseek");
-  const [working, setWorking] = useState(0);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const working = countWorking(tasks);
   const [online, setOnline] = useState(true);
   const [flash, setFlash] = useState<{ mood: "celebrate" | "error"; until: number }>();
   const [lastActive, setLastActive] = useState(() => Date.now());
@@ -82,6 +125,8 @@ export function Pet() {
   const [unread, setUnread] = useState(0);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingSays, setPendingSays] = useState<PendingSay[]>([]);
+  const nextSayId = useRef(-1);
   const [note, setNote] = useState<string>();
   const [hello, setHello] = useState(false);
   const [chat, setChat] = useState<ChatSize>(() => readChatSize(localStorage.getItem(CHAT_KEY)));
@@ -114,6 +159,7 @@ export function Pet() {
     const h = bridge.host;
     const apply = (next: PetView, first: boolean) => {
       setView(next);
+      setPendingSays((prev) => (prev.length === 0 ? prev : remainingSays(prev, next.history)));
       const line = next.last;
       if (line === undefined) return;
       const fresh = !first && newLine(lastId.current, line);
@@ -135,13 +181,13 @@ export function Pet() {
       .then((s) => setFigure(s.pet?.figure ?? "deepseek"))
       .catch(() => undefined);
     h.tasks()
-      .then((t) => setWorking(countWorking(t)))
+      .then((t) => setTasks(t.tasks))
       .catch(() => undefined);
     const offEvent = bridge.onEvent((e) => {
       if (e.topic === "pet") apply(e.data, false);
       else if (e.topic === "status") setFigure(e.data.pet?.figure ?? "deepseek");
       else if (e.topic === "tasks") {
-        setWorking(countWorking(e.data));
+        setTasks(e.data.tasks);
         setLastActive(Date.now());
       }
     });
@@ -182,15 +228,27 @@ export function Pet() {
 
   // The conversation opens at its newest message, from its first line, and follows new ones.
   const shown = open && !collapsed;
-  const historyLength = view.history.length + (trailingLine(view.history, view.last) ? 1 : 0);
+  const shownSays = remainingSays(pendingSays, view.history);
+  const entries: Entry[] = [
+    ...conversationOf(view, tasks, now),
+    ...shownSays.map(
+      (s): Entry => ({
+        kind: "line",
+        key: `s${s.id}`,
+        at: s.at,
+        line: { id: s.id, at: s.at, kind: "owner", text: s.text },
+      }),
+    ),
+  ];
+  const newestKey = entries.at(-1)?.key;
   useLayoutEffect(() => {
     const el = listEl.current;
-    if (!shown || el === null || historyLength < 0) return;
+    if (!shown || el === null || newestKey === "") return;
     const newest = el.lastElementChild;
     const top = newest instanceof HTMLElement ? newest.offsetTop - 4 : el.scrollHeight;
     el.scrollTop = newestScroll(top, el.scrollHeight - el.clientHeight);
     fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
-  }, [shown, historyLength]);
+  }, [shown, newestKey]);
 
   // Measures how big the conversation may get: the screen less the rest of the pet.
   const size = fitChat(chat, room);
@@ -219,11 +277,36 @@ export function Pet() {
   useLayoutEffect(() => {
     const el = root.current;
     if (el === null) return;
-    const fit = () => bridge.pet?.resize(el.offsetWidth, el.offsetHeight);
+    const fit = () => bridge.pet?.resize(el.offsetWidth, el.offsetHeight, regionsOf(el));
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(el);
     return () => observer.disconnect();
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshes hit regions when panels open, fold or resize
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (el !== null) bridge.pet?.resize(el.offsetWidth, el.offsetHeight, regionsOf(el));
+  }, [open, collapsed, size.width, size.list]);
+
+  useEffect(() => {
+    const pet = bridge.pet;
+    if (pet === undefined) return;
+    const down = () => pet.interacting(true);
+    const up = () => pet.interacting(false);
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    window.addEventListener("blur", up);
+    const offLeave = pet.onMouseLeave(() => setHover(false));
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      window.removeEventListener("blur", up);
+      offLeave();
+    };
   }, []);
 
   const touch = () => {
@@ -234,6 +317,7 @@ export function Pet() {
 
   const onPointerDown = (e: PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
+    e.preventDefault();
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -247,15 +331,17 @@ export function Pet() {
     if (d === undefined) return;
     const dx = e.screenX - d.x;
     const dy = e.screenY - d.y;
-    if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
-    d.moved = true;
+    if (!d.moved && Math.abs(dx) + Math.abs(dy) >= 4) d.moved = true;
     bridge.pet?.dragMove(dx, dy);
   };
-  const onPointerUp = (click: () => void) => () => {
+  const finishDrag = (click?: () => void) => {
     const d = drag.current;
     drag.current = undefined;
-    bridge.pet?.dragEnd();
-    if (d !== undefined && !d.moved) click();
+    if (d === undefined) return;
+    const localMoved = d.moved;
+    void Promise.resolve(bridge.pet?.dragEnd()).then((hostMoved) => {
+      if (!localMoved && hostMoved !== true) click?.();
+    });
   };
 
   const close = () => setOpen(false);
@@ -322,16 +408,27 @@ export function Pet() {
 
   const send = async () => {
     const text = draft.trim();
-    if (text === "" || busy) return;
-    setBusy(true);
+    if (text === "" || offline) return;
+    const id = nextSayId.current--;
+    const afterId = view.history.at(-1)?.id ?? 0;
+    const prevLastId = view.last?.id;
+    const entry: PendingSay = { id, at: new Date().toISOString(), text, afterId };
+    setDraft("");
+    setPendingSays((prev) => [...prev, entry]);
+    setNote("已发给主管，等它回复…");
+    inputEl.current?.focus();
     try {
-      await bridge.host.petSay(text);
-      setDraft("");
-      setNote("已发给主管，等它回复…");
+      const next = await bridge.host.petSay(text);
+      setView(next);
+      setPendingSays((prev) => {
+        const directReply = text.startsWith("/") || next.last?.id !== prevLastId;
+        const filtered = directReply ? prev.filter((p) => p.id !== id) : prev;
+        return remainingSays(filtered, next.history);
+      });
     } catch (error) {
+      setPendingSays((prev) => prev.filter((p) => p.id !== id));
+      setDraft((cur) => (cur === "" ? text : cur));
       setNote(errorText(error));
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -348,18 +445,45 @@ export function Pet() {
     }
   };
 
+  const stop = async (taskId: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await bridge.host.stopTask(taskId);
+      setNote("已停下这个任务");
+    } catch (error) {
+      setNote(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openTask = (taskId: string) => bridge.pet?.openApp(taskId);
+
+  // The first card that waits for the owner, scrolled to from the note above the input.
+  const toWaiting = () => {
+    const el = listEl.current?.querySelector<HTMLElement>("[data-open='1']");
+    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
+    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+      e.preventDefault();
+      void send();
+    }
     if (e.key === "Escape") close();
   };
 
   const atlas = FIGURES[figure].atlas;
-  const pending = view.pending[0];
   const offline = !online || !view.connected;
   const badge = badgeOf(view.pending.length, unread);
-  const trailing = trailingLine(view.history, view.last);
-  const lines = view.history.map((line) => ({ key: `h${line.id}`, line }));
-  if (trailing !== undefined) lines.push({ key: `l${trailing.id}`, line: trailing });
+  const openFile = (path: string) => bridge.pet?.openFile(path);
+  const actions = {
+    busy,
+    offline,
+    press: (target: string, action: string) => void press(target, action),
+    openTask,
+    openFile,
+  };
 
   if (collapsed) {
     return (
@@ -371,7 +495,9 @@ export function Pet() {
           title="展开"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp(() => fold(false))}
+          onPointerUp={() => finishDrag(() => fold(false))}
+          onPointerCancel={() => finishDrag()}
+          onLostPointerCapture={() => finishDrag()}
           style={{
             width: DOT,
             height: DOT,
@@ -386,73 +512,110 @@ export function Pet() {
     );
   }
 
-  const card =
-    pending === undefined ? undefined : (
-      <div className="pet-card">
-        {pending.task !== undefined && <div className="pet-task">{cut(pending.task, 30)}</div>}
-        <div className="pet-title">{cut(pending.title, 120)}</div>
-        {pending.body !== "" && <div className="pet-body">{pending.body}</div>}
-        <div className="pet-actions">
-          {pending.options.map((o) => (
-            <button
-              key={o.action}
-              type="button"
-              disabled={busy || offline}
-              className={o.action === "allow" || o.action === "allow-all" ? "primary" : ""}
-              onClick={() => void press(pending.target, o.action)}
-            >
-              {o.label}
-            </button>
-          ))}
+  const entryView = (entry: Entry) => {
+    if (entry.kind === "card") {
+      return (
+        <div className="pet-cardwrap" data-open={entry.card.open ? "1" : "0"}>
+          <CardView card={entry.card} actions={actions} />
         </div>
-        {view.pending.length > 1 && (
-          <div className="pet-more">还有 {view.pending.length - 1} 件等你</div>
-        )}
-      </div>
+      );
+    }
+    if (entry.kind === "task") {
+      return (
+        <TaskCard
+          task={entry.task}
+          now={now}
+          busy={busy}
+          stop={(id) => void stop(id)}
+          open={openTask}
+        />
+      );
+    }
+    return <LineView line={entry.line} openFile={openFile} />;
+  };
+
+  const waiting =
+    view.pending.length === 0 ? undefined : (
+      <button type="button" className="pet-waiting" onClick={toWaiting}>
+        <i aria-hidden="true" />
+        {view.pending.length} 件等你确认 ↑
+      </button>
     );
 
   const talk = (
-    <>
+    <div className="pet-talk">
+      {waiting}
       {offline && <div className="pet-note">AgentHerd 还没连上飞书，先在 App 里设置好。</div>}
-      <input
-        ref={inputEl}
-        className="pet-input"
-        autoFocus
-        value={draft}
-        disabled={offline}
-        placeholder={offline ? "连上飞书后才能说话" : "跟主管说…（回车发送）"}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKey}
-      />
-      <div className="pet-foot">
-        <span className="pet-note">{note ?? ""}</span>
-        <button type="button" className="pet-link" onClick={() => bridge.pet?.openApp()}>
-          打开 App
+      {note !== undefined && <div className="pet-note">{note}</div>}
+      <div className="pet-input-row">
+        <input
+          ref={inputEl}
+          className="pet-input"
+          autoFocus
+          value={draft}
+          disabled={offline}
+          placeholder={offline ? "连上飞书后才能说话" : "跟主管说…"}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+        />
+        <button
+          type="button"
+          className="pet-send"
+          aria-label="发送"
+          title="发送（回车）"
+          disabled={offline || draft.trim() === ""}
+          onClick={() => void send()}
+        >
+          ↑
         </button>
       </div>
-    </>
+    </div>
   );
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button
-    <div
-      ref={root}
-      className="pet-root"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
+    <div ref={root} className="pet-root">
       {open && (
         <div className="pet-bubble pet-chat" ref={panelEl} style={{ width: size.width }}>
           {grip("top")}
           {grip("left")}
           {grip("corner")}
           <div className="pet-chat-head">
-            <span>和主管的对话</span>
-            <span className="pet-chat-tools">
-              <button type="button" className="pet-x" aria-label="收起对话" onClick={close}>
-                ×
-              </button>
+            <span
+              className="pet-avatar"
+              aria-hidden="true"
+              style={{
+                width: AVATAR,
+                height: AVATAR,
+                backgroundImage: `url(${atlas})`,
+                backgroundSize: `${CELL.width * AVATAR_SCALE * ATLAS.columns}px ${CELL.height * AVATAR_SCALE * ATLAS.rows}px`,
+                backgroundPosition: `${-CELL.width * AVATAR_SCALE * 0.27}px ${-CELL.height * AVATAR_SCALE * 0.06}px`,
+              }}
+            />
+            <span className="pet-who">
+              <b>主管</b>
+              <small>
+                <i className={offline ? "pet-online off" : "pet-online"} />
+                {statusOf(!offline, working)}
+              </small>
             </span>
+            <button
+              type="button"
+              className="pet-icon"
+              aria-label="打开 App"
+              title="打开 App"
+              onClick={() => bridge.pet?.openApp()}
+            >
+              ↗
+            </button>
+            <button
+              type="button"
+              className="pet-icon"
+              aria-label="收起对话"
+              title="收起"
+              onClick={close}
+            >
+              ✕
+            </button>
           </div>
           <div
             className="pet-chat-list"
@@ -463,29 +626,32 @@ export function Pet() {
               fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
             }}
           >
-            {lines.length === 0 ? (
-              <div className="pet-note">
+            {entries.length === 0 ? (
+              <div className="pet-empty">
                 还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。
               </div>
             ) : (
-              lines.map(({ key, line }) => {
-                const head = historyHead(line);
-                const tone = line.kind === "owner" ? " mine" : line.kind === "error" ? " bad" : "";
+              entries.map((entry, i) => {
+                const day = separatorOf(entry.at, entries[i - 1]?.at, new Date(now));
                 return (
-                  <div key={key} className={`pet-msg${tone}`}>
-                    {head !== undefined && <div className="pet-msg-task">{head}</div>}
-                    <div className="pet-msg-text">{line.text}</div>
-                    <div className="pet-msg-time">{clockOf(line.at)}</div>
-                  </div>
+                  <Fragment key={entry.key}>
+                    {day !== undefined && <Separator text={day} />}
+                    {entryView(entry)}
+                  </Fragment>
                 );
               })
             )}
           </div>
-          {card}
           {talk}
         </div>
       )}
-      <div className="pet-stage" style={{ width: W, height: H }}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button */}
+      <div
+        className="pet-stage"
+        style={{ width: W, height: H }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      >
         {hover && (
           <button
             type="button"
@@ -505,7 +671,9 @@ export function Pet() {
           className={`pet-figure mood-${mood}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp(onFigureClick)}
+          onPointerUp={() => finishDrag(onFigureClick)}
+          onPointerCancel={() => finishDrag()}
+          onLostPointerCapture={() => finishDrag()}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") setOpen((x) => !x);
           }}

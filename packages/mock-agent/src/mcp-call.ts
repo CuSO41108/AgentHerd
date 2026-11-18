@@ -94,8 +94,9 @@ export function callTool(server: StdioServer, tool: string, args: unknown): Prom
       reject(err);
     });
     child.on("exit", (code) => done(`error: server exited (${code})`));
-    child.stdout.on("data", (chunk: Buffer) => {
-      rest += chunk.toString("utf8");
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      rest += chunk;
       let nl = rest.indexOf("\n");
       while (nl >= 0) {
         const raw = rest.slice(0, nl).trim();

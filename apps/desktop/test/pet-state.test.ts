@@ -1,24 +1,39 @@
-import type { PetView } from "@agentherd/host/api";
+import type { PetCard, PetView, TasksView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
   badgeOf,
   CHAT_DEFAULT,
   CHAT_MIN,
+  canStop,
   clockOf,
+  conversationOf,
   cut,
   dragChat,
+  elapsedOf,
+  eventOf,
   FLASH_MS,
+  FOLD_CHARS,
   fitChat,
   flashOf,
+  foldBody,
+  foldOf,
+  GAP_MS,
   historyHead,
+  modelName,
   moodOf,
   newestScroll,
   newLine,
   readChatSize,
+  remainingSays,
+  reportHead,
   SLEEP_AFTER_MS,
+  separatorOf,
+  statusOf,
+  stepOf,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
+import { hitPetRegion } from "../src/shared/bridge";
 
 const IDLE: PetView = { connected: true, pending: [] };
 const NOW = 1_000_000;
@@ -185,5 +200,170 @@ describe("sizing the conversation (ADR 0070)", () => {
     // newest message starts below the last screenful: just the bottom
     expect(newestScroll(900, 640)).toBe(640);
     expect(newestScroll(-4, 0)).toBe(0);
+  });
+
+  it("keeps optimistic owner messages only until herd.db history records them", () => {
+    const at = "2026-11-18T08:00:00Z";
+    const h = (id: number, text: string) => ({ id, at, kind: "owner" as const, text });
+    const pending = [
+      { id: -1, at, text: "好", afterId: 5 },
+      { id: -2, at, text: "好", afterId: 5 },
+      { id: -3, at, text: "再查下", afterId: 5 },
+    ];
+    expect(remainingSays(pending, [h(3, "好")])).toEqual(pending);
+    expect(remainingSays(pending, [h(3, "好"), h(6, "好")])).toEqual([pending[1], pending[2]]);
+    expect(remainingSays(pending, [h(6, "好"), h(7, "好"), h(8, "再查下")])).toEqual([]);
+  });
+
+  it("lets clicks pass through empty transparent space outside interactive pet regions", () => {
+    const size = { width: 412, height: 661 };
+    const regions = [
+      { x: 289, y: 516, width: 119, height: 137 },
+      { x: 2, y: 2, width: 366, height: 522 },
+    ];
+    expect(hitPetRegion(340, 580, size, regions)).toBe(true);
+    expect(hitPetRegion(180, 260, size, regions)).toBe(true);
+    expect(hitPetRegion(40, 580, size, regions)).toBe(false);
+    expect(hitPetRegion(390, 260, size, regions)).toBe(false);
+    expect(hitPetRegion(-1, 200, size, regions)).toBe(false);
+  });
+});
+
+describe("cards and tasks in the conversation (ADR 0072)", () => {
+  const at = (m: number) => new Date(Date.UTC(2026, 10, 18, 10, m)).toISOString();
+  const task = (id: string, started: number, stage: TasksView["tasks"][number]["stage"]) => ({
+    id,
+    title: `任务 ${id}`,
+    project: "demo",
+    agent: "Pi · deepseek/deepseek-flash",
+    stage,
+    lastReport: "在跑测试",
+    startedAt: at(started),
+    updatedAt: at(started + 5),
+    automaticDecisions: [],
+  });
+  const report: PetCard = {
+    ref: "f:r",
+    at: at(20),
+    open: false,
+    view: {
+      kind: "report",
+      taskId: "t1",
+      result: "done",
+      title: "任务 t1",
+      body: "做完了",
+      summarized: false,
+      automaticDecisions: [],
+    },
+  };
+
+  it("puts lines, cards and tasks in time order", () => {
+    const view: PetView = {
+      connected: true,
+      pending: [],
+      history: [
+        { id: 1, at: at(5), kind: "owner", text: "修一下登录" },
+        { id: 2, at: at(30), kind: "say", text: "还有别的吗" },
+      ],
+      cards: [report],
+      last: { id: 9, at: at(20), kind: "report", text: "做完了", card: "f:r" },
+    };
+    const tasks = [task("t1", 6, "done"), task("old", 1, "done")];
+    expect(conversationOf(view, tasks, Date.parse(at(31))).map((e) => e.key)).toEqual([
+      "h1",
+      "tt1",
+      "cf:r",
+      "h2",
+    ]);
+  });
+
+  it("shows the latest line once when it is not a card", () => {
+    const view: PetView = {
+      connected: true,
+      pending: [],
+      history: [{ id: 1, at: at(5), kind: "owner", text: "在吗" }],
+      cards: [],
+      last: { id: 4, at: at(6), kind: "task", text: "开始干活了", task: "任务 t1" },
+    };
+    expect(conversationOf(view, [], Date.parse(at(7))).map((e) => e.key)).toEqual(["h1", "l4"]);
+  });
+
+  it("with no conversation shows the tasks of the last day", () => {
+    const view: PetView = { connected: true, pending: [], history: [], cards: [] };
+    const now = Date.parse(at(0)) + 2 * 86_400_000;
+    const tasks = [task("new", 0, "working"), task("older", 0, "done")];
+    tasks[0] = { ...tasks[0], startedAt: new Date(now - 3_600_000).toISOString() } as never;
+    expect(conversationOf(view, tasks, now).map((e) => e.key)).toEqual(["tnew"]);
+  });
+
+  it("tells how long a task runs and whether it can be stopped", () => {
+    const running = task("a", 0, "working");
+    expect(canStop(running)).toBe(true);
+    expect(elapsedOf(running, Date.parse(at(0)) + 45_000)).toBe("45 秒");
+    expect(elapsedOf(running, Date.parse(at(0)) + 3 * 3_600_000 + 5 * 60_000)).toBe("3 小时 5 分");
+    const done = task("b", 0, "done");
+    expect(canStop(done)).toBe(false);
+    // An ended task counts until its last change, not until now.
+    expect(elapsedOf(done, Date.parse(at(0)) + 86_400_000)).toBe("5 分钟");
+  });
+
+  it("shows the step of a running or waiting task, none once it ended", () => {
+    expect(stepOf(task("a", 0, "working"))).toBe("在跑测试");
+    expect(stepOf(task("b", 0, "needs-owner"))).toBe("在跑测试");
+    const reported = { lastReport: "已报告：做完了，测试都过了" };
+    expect(stepOf({ ...task("c", 0, "done"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("d", 0, "failed"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("e", 0, "queued"), lastReport: "  " })).toBeUndefined();
+  });
+
+  it("colors report cards and folds long bodies as Feishu does", () => {
+    expect(reportHead({ ...report.view, result: "failed" } as never)).toEqual({
+      icon: "❌",
+      tone: "red",
+    });
+    expect(reportHead({ ...report.view, result: "stopped" } as never).tone).toBe("gray");
+    expect(foldBody("短的")).toEqual({ head: "短的", folded: false });
+    const long = `${"甲".repeat(300)}\n${"乙".repeat(300)}`;
+    expect(foldBody(long)).toEqual({ head: "甲".repeat(300), folded: true });
+    expect(foldBody("丙".repeat(FOLD_CHARS + 1)).head).toHaveLength(FOLD_CHARS);
+  });
+});
+
+describe("the conversation's new look (ADR 0073)", () => {
+  it("folds long replies and counts the lines behind 展开全文", () => {
+    expect(foldOf("短短一句")).toEqual({ folded: false, more: 0 });
+    expect(foldOf(Array.from({ length: 20 }, (_, i) => `第 ${i} 行`).join("\n"))).toEqual({
+      folded: true,
+      more: 12,
+    });
+    expect(foldOf("长".repeat(800)).folded).toBe(true);
+  });
+
+  it("puts a time line at a new day and after a pause", () => {
+    const now = new Date(2026, 10, 18, 16, 0);
+    const at = (d: number, h: number, m: number) => new Date(2026, 10, d, h, m).toISOString();
+    expect(separatorOf(at(18, 11, 43), undefined, now)).toBe("今天 11:43");
+    expect(separatorOf(at(17, 9, 5), undefined, now)).toBe("昨天 09:05");
+    expect(separatorOf(at(9, 9, 5), undefined, now)).toBe("11-09 09:05");
+    expect(separatorOf(at(18, 11, 45), at(18, 11, 43), now)).toBeUndefined();
+    const later = new Date(Date.parse(at(18, 11, 43)) + GAP_MS).toISOString();
+    expect(separatorOf(later, at(18, 11, 43), now)).toBe("11:53");
+    expect(separatorOf(at(18, 8, 0), at(17, 23, 0), now)).toBe("今天 08:00");
+  });
+
+  it("splits a task's event into the task and what happened", () => {
+    expect(eventOf("下载并启动 yetone/magpie: cd /tmp/magpie-run && curl -L x")).toEqual({
+      task: "下载并启动 yetone/magpie",
+      text: "cd /tmp/magpie-run && curl -L x",
+    });
+    expect(eventOf("没有冒号的一行")).toEqual({ text: "没有冒号的一行" });
+  });
+
+  it("says how AgentHerd is doing under 主管, and names models short", () => {
+    expect(statusOf(false, 2)).toBe("还没连上飞书");
+    expect(statusOf(true, 0)).toBe("飞书已连接");
+    expect(statusOf(true, 2)).toBe("飞书已连接 · 2 个任务在跑");
+    expect(modelName("deepseek/deepseek-flash")).toBe("deepseek-flash");
+    expect(modelName(undefined)).toBeUndefined();
   });
 });

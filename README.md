@@ -6,9 +6,9 @@
 
 English · [简体中文](README.zh-CN.md)
 
-### Your coding agents, run from Feishu.<br>Tell the Herder what you want. It starts the agents on your Mac, follows them, and tells you what they did.
+### Your coding agents, run from Feishu.<br>Tell the Herder what you want. It starts the agents on your machine, follows them, and tells you what they did.
 
-[![macOS](https://img.shields.io/badge/macOS-only-111?logo=apple)](docs/adr/0013-macos-only-for-v1.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
+[![macOS | Windows](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-111)](docs/spec/02-architecture.md) [![Feishu / Lark](https://img.shields.io/badge/chat-Feishu%20%2F%20Lark-3370ff)](docs/spec/05-channels.md) [![ACP](https://img.shields.io/badge/protocol-ACP-6b5bd6)](https://agentclientprotocol.com) [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)<br>
 [![agent: Pi](https://img.shields.io/badge/agent-Pi-444)](https://github.com/earendil-works/pi) [![agent: Codex](https://img.shields.io/badge/agent-Codex-444)](https://github.com/openai/codex) [![agent: Claude Code](https://img.shields.io/badge/agent-Claude%20Code-444)](https://github.com/anthropics/claude-code)
 
 [Features](#features) · [How it works](#how-it-works) · [Get started](#get-started) · [Docs](#docs)
@@ -48,12 +48,15 @@ English · [简体中文](README.zh-CN.md)
   Trending, Hacker News and arXiv need no sign-in: ask for a daily digest and nothing repeats.
   Notion comes through Composio, and your Obsidian vault is handed to every task.
 - **Schedules in plain words.** "Every weekday at 9, check for new issues" — the Herder makes the
-  schedule, and missed runs happen once when your Mac wakes.
+  schedule, and missed runs happen once when your machine wakes.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
   itself. It learns a lesson only when a task went wrong, and finds past results in task records.
 - **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop, says what AgentHerd just told you
   in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
-  her to talk to the Herder; fold her into a dot when she is in the way.
+  her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
+  drawn as components (in Feishu too); pictures a task saves for you (a QR code to scan, a
+  screenshot) shown right in the reply; files the Herder points you to one click away; the same cards as Feishu;
+  and a card for each task to stop or open it. Fold her into a dot when she is in the way.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.
 
@@ -68,7 +71,7 @@ own words reach the agent unchanged.
 
 ## Get started
 
-Needs macOS, Node 22.18+, pnpm and a Feishu (or Lark) account.
+Needs macOS or Windows, Node 22.18+, pnpm and a Feishu (or Lark) account.
 
 ```bash
 pnpm install

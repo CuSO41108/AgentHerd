@@ -31,6 +31,7 @@ import type {
   MemoryView,
   ModelsView,
   ModelTiersView,
+  PetCard,
   PetView,
   RemoteHost,
   SchedulesView,
@@ -39,6 +40,7 @@ import type {
   Tier,
   WatchView,
 } from "@agentherd/host/api";
+import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
 import {
   hoursFromNow,
@@ -107,20 +109,218 @@ function installFakeBridge(): void {
     { id: 2, at: minutesAgo(41), kind: "say", text: "好，我开个任务去小红书搜，挑走路能到的。" },
     {
       id: 3,
-      at: minutesAgo(32),
-      kind: "report",
-      task: "小红书：西岸智塔附近面馆",
-      result: "done",
-      text: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n1. 阿娘面馆：黄鱼面，排队快\n2. 味千拉面：豚骨汤浓",
+      at: minutesAgo(31),
+      kind: "task",
+      text: "下载并启动 yetone/magpie: cd /tmp/magpie-run && curl -L -o magpie.tar.gz https://github.com/yetone/magpie/releases/latest && tar xzf magpie.tar.gz",
     },
-    { id: 4, at: minutesAgo(3), kind: "owner", text: "第一家几点关门？" },
-    { id: 5, at: minutesAgo(2), kind: "say", text: "早上好，昨晚的两个任务都做完了。" },
+    { id: 4, at: minutesAgo(3), kind: "owner", text: "有啥参考的产品么" },
+    {
+      id: 5,
+      at: minutesAgo(2),
+      kind: "say",
+      task: "Agent 资产分发调研",
+      text: [
+        "完整清单在这：~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md，**26 个链接**都验过。",
+        "",
+        "- **目录与市场**：Claude Marketplace、claude-plugins-official、ClawHub",
+        "- **索引**：Official MCP Registry、Glama（12 万+ server）、[mcp.so](https://mcp.so)",
+        "- **打包与版本**：MCP Bundle `.mcpb`、`npx skills`",
+        "",
+        "| 方向 | 值得看 |",
+        "| --- | --- |",
+        "| 签名 | Sigstore、npm provenance |",
+        "| 审核 | 平台审核 + 命名空间验证 |",
+        "",
+        "最关键的一点：**签名是最大缺口**，目录大多只做到平台审核加命名空间验证。",
+        "",
+        "1. 先看 Claude Marketplace 的格式",
+        "2. 再对照 MCP Registry 的 server.json",
+        "3. 最后看 ClawHub 怎么做版本",
+        "",
+        "还想往哪个方向再挖？",
+      ].join("\n"),
+    },
+    { id: 6, at: minutesAgo(1.9), kind: "owner", text: "把这几个整理一下给我看看" },
+    // A reply with a herd-ui fence using every component (ADR 0074).
+    {
+      id: 7,
+      at: minutesAgo(1.8),
+      kind: "say",
+      task: "Agent 资产分发调研",
+      text: [
+        "整理好了，三个最值得参考的放在一起比：",
+        "",
+        herdUiFence({
+          title: "Agent 资产分发：三个参考",
+          items: [
+            { type: "text", content: "按**分发方式**和**信任模型**挑的，数字是今天看到的。" },
+            {
+              type: "stats",
+              items: [
+                { label: "验过的链接", value: "26" },
+                { label: "目录", value: "9", hint: "含 3 个官方" },
+                { label: "做了签名", value: "2", hint: "缺口最大" },
+              ],
+            },
+            {
+              type: "table",
+              columns: ["产品", "形态", "签名", "版本"],
+              rows: [
+                ["Claude Marketplace", "插件目录", "无", "git tag"],
+                ["MCP Registry", "server.json 索引", "命名空间验证", "semver"],
+                ["ClawHub", "技能市场", "无", "自动递增"],
+              ],
+            },
+            {
+              type: "keyvalue",
+              pairs: [
+                { key: "任务", value: "Agent 资产分发调研" },
+                { key: "用时", value: "18 分钟" },
+                { key: "来源", value: "官方文档 + GitHub" },
+              ],
+            },
+            {
+              type: "steps",
+              steps: [
+                { title: "收集目录和索引", desc: "26 个链接", status: "done" },
+                { title: "对比签名和版本", status: "doing" },
+                { title: "写成一页结论", status: "todo" },
+              ],
+            },
+            {
+              type: "list",
+              items: ["`.mcpb` 是打包格式，不管分发", "`npx skills` 直接从 GitHub 装"],
+            },
+            {
+              type: "callout",
+              tone: "warning",
+              title: "签名是最大缺口",
+              content: "目录大多只做到平台审核加命名空间验证，装进来的东西没人签过。",
+            },
+            {
+              type: "code",
+              lang: "json",
+              code: '{\n  "name": "io.github.yetone/magpie",\n  "version": "0.4.2"\n}',
+            },
+            {
+              type: "link",
+              url: "https://github.com/yetone/magpie",
+              title: "yetone/magpie",
+              desc: "把 MCP server 打包成一个能双击运行的应用。",
+              meta: "★ 38k · TypeScript",
+            },
+            {
+              type: "file",
+              path: "~/.agentherd/tasks/b1ead723/agent-asset-distribution-products.md",
+              title: "完整清单",
+              desc: "26 个链接，按方向分好",
+            },
+            {
+              type: "image",
+              path: "/tmp/lark-mail-auth.png",
+              title: "飞书邮箱授权码",
+              desc: "用飞书扫一下，10 分钟内有效",
+            },
+            { type: "divider", label: "接下来" },
+            {
+              type: "choices",
+              question: "往哪个方向再挖？",
+              options: ["签名", "版本管理", "先不用"],
+            },
+          ],
+        }),
+        "",
+        "选一个我就接着查。",
+      ].join("\n"),
+    },
   ];
-  let petLineId = petHistory.length;
+  let petLineId = 7;
+  const waitingCard: PetCard = {
+    ref: "fake:m9",
+    at: minutesAgo(1),
+    open: true,
+    view: {
+      kind: "item",
+      itemId: "item-1",
+      taskLabel: "清理旧日志",
+      title: "运行 rm -rf ./logs/*",
+      body: "rm -rf ./logs/*",
+      risk: "high",
+      reason: "一次删除大量文件，需要你确认",
+      options: [
+        { action: "allow", label: "同意" },
+        { action: "deny", label: "拒绝" },
+        { action: "skip", label: "跳过" },
+      ],
+    },
+  };
+  const petCards: PetCard[] = [
+    {
+      ref: "fake:m2",
+      at: minutesAgo(41.5),
+      open: false,
+      view: {
+        kind: "ask",
+        askId: "a1",
+        text: "要走路能到的吗？",
+        options: [
+          { action: "0", label: "要，走路十分钟以内" },
+          { action: "1", label: "不用" },
+        ],
+        final: "要，走路十分钟以内",
+      },
+    },
+    {
+      ref: "fake:m5",
+      at: minutesAgo(32),
+      open: false,
+      view: {
+        kind: "report",
+        taskId: "s9",
+        result: "done",
+        title: "小红书：西岸智塔附近面馆",
+        subtitle: "已完成 · 无项目 · Pi · 9m",
+        body: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n- 阿娘面馆：黄鱼面，排队快\n- 味千拉面：豚骨汤浓\n- 和府捞面：环境好，适合坐着聊\n\n要不要我把营业时间也查一下？",
+        summarized: true,
+        fullReply:
+          "我在小红书搜了「西岸智塔 面」「传媒港 面馆」两组词，读了 14 篇笔记，按距离和提到的次数排了一下……",
+        fullReplyBy: "Pi",
+        automaticDecisions: [
+          "自动同意：XIAOHONGSHU_SEARCH_FEEDS ×2、XIAOHONGSHU_GET_FEED_DETAIL ×5",
+        ],
+      },
+    },
+    // A Herder reply that offers herd-ui choices comes as a text card (ADR 0074); 下载跑一下 picks.
+    {
+      ref: "fake:m11",
+      at: minutesAgo(1.2),
+      open: true,
+      view: {
+        kind: "text",
+        target: `${HERD_UI_TARGET}3f6c1a2e-8d4b-4c1e-9a7f-0b2d5e6f7a81`,
+        text: [
+          "magpie 的发布包我看过了，能直接跑：",
+          "",
+          herdUiFence({
+            items: [
+              {
+                type: "callout",
+                tone: "success",
+                content: "最新版 **v0.4.2**，macOS 包 18 MB，校验和对得上。",
+              },
+              { type: "choices", question: "现在就跑一下吗？", options: ["下载跑一下", "先不用"] },
+            ],
+          }),
+        ].join("\n"),
+      },
+    },
+    ...(petSim === "waiting" ? [waitingCard] : []),
+  ];
   let pet: PetView = {
     connected: sim !== "fresh" && sim !== "network",
     last: petHistory.at(-1),
     history: petHistory,
+    cards: petCards,
     pending:
       petSim === "waiting"
         ? [
@@ -149,19 +349,41 @@ function installFakeBridge(): void {
     emit({ topic: "pet", data: structuredClone(pet) });
   };
   if (petSim === "done") {
-    setTimeout(
-      () =>
-        petSays({
+    setTimeout(() => {
+      const card: PetCard = {
+        ref: "fake:m20",
+        at: new Date().toISOString(),
+        open: false,
+        view: {
+          kind: "report",
+          taskId: "s2",
+          result: "done",
+          title: "修登录 401",
+          subtitle: "已完成 · web-portal · Pi · 12m",
+          body: "登录修好了，测试都过了，PR 已开。",
+          summarized: false,
+          automaticDecisions: [],
+        },
+      };
+      petLineId++;
+      pet = {
+        ...pet,
+        cards: [...pet.cards, card],
+        last: {
+          id: petLineId,
+          at: card.at,
           kind: "report",
           task: "修登录 401",
           result: "done",
           text: "登录修好了，测试都过了，PR 已开。",
-        }),
-      1500,
-    );
+          card: card.ref,
+        },
+      };
+      emit({ topic: "pet", data: structuredClone(pet) });
+    }, 1500);
   }
 
-  const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
+  let tasks = sampleTasks(sim === "empty" || sim === "no-agent");
 
   let models: ModelsView = {
     services: sampleServices(),
@@ -391,9 +613,39 @@ function installFakeBridge(): void {
       return delay(pet);
     },
     petPress: (target, action) => {
+      if (target.startsWith(HERD_UI_TARGET)) {
+        // An answer of a reply's herd-ui choices (ADR 0074): the card keeps it and closes.
+        const offer = pet.cards.find(
+          (c) => c.open && c.view.kind === "text" && c.view.target === target,
+        );
+        if (offer === undefined || offer.view.kind !== "text")
+          return Promise.reject(new Error("这件事已经处理过了"));
+        const label =
+          herdUiChoices(offer.view.text).find((c) => c.action === action)?.label ?? action;
+        pet = {
+          ...pet,
+          cards: pet.cards.map((c) =>
+            c === offer && c.view.kind === "text"
+              ? { ...c, open: false, view: { ...c.view, chosen: label } }
+              : c,
+          ),
+        };
+        emit({ topic: "pet", data: structuredClone(pet) });
+        setTimeout(() => petSays({ kind: "say", text: `好，就「${label}」。我这就去办。` }), 1200);
+        return delay(pet);
+      }
       const card = pet.pending.find((p) => p.target === target);
       if (card === undefined) return Promise.reject(new Error("这件事已经处理过了"));
-      pet = { ...pet, pending: pet.pending.filter((p) => p !== card) };
+      const label = card.options.find((o) => o.action === action)?.label ?? action;
+      pet = {
+        ...pet,
+        pending: pet.pending.filter((p) => p !== card),
+        cards: pet.cards.map((c) =>
+          c.view.kind === "item" && c.view.itemId === target
+            ? { ...c, open: false, view: { ...c.view, options: [], final: `你已${label}` } }
+            : c,
+        ),
+      };
       emit({ topic: "pet", data: structuredClone(pet) });
       petSays({
         kind: "task",
@@ -401,6 +653,23 @@ function installFakeBridge(): void {
         text: action === "allow" ? "你同意了，继续干活。" : "好的，这步不做了。",
       });
       return delay(pet);
+    },
+    stopTask: (taskId) => {
+      tasks = {
+        ...tasks,
+        tasks: tasks.tasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                stage: "failed",
+                lastReport: "已报告：你停下了这个任务，做到一半的事没有做完。",
+                updatedAt: new Date().toISOString(),
+              }
+            : t,
+        ),
+      };
+      emit({ topic: "tasks", data: structuredClone(tasks) });
+      return delay(undefined);
     },
     feeds: () => delay(feeds),
     setFeed: (source, on) => {
@@ -753,6 +1022,19 @@ function installFakeBridge(): void {
 
   const fakeBridge: Bridge = {
     host: fake,
+    // The pet window's own calls do nothing here, but pictures (ADR 0075) are drawn: a made-up
+    // code for any png path, and nothing for a path with "missing" in it.
+    pet: {
+      dragStart: () => {},
+      dragMove: () => {},
+      dragEnd: async () => false,
+      resize: () => {},
+      interacting: () => {},
+      onMouseLeave: () => () => {},
+      openApp: () => {},
+      openFile: (path) => console.info("[AgentHerd] open", path),
+      readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),
+    },
     onEvent: (listener) => {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
@@ -766,6 +1048,29 @@ function installFakeBridge(): void {
   };
   window.agentherd = fakeBridge;
   console.info("[AgentHerd] window.agentherd not found; using the in-memory dev bridge.");
+}
+
+/** A made-up QR-like picture, for the pet's pictures in the dev bridge. */
+function fakePicture(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 210;
+  canvas.height = 210;
+  const g = canvas.getContext("2d");
+  if (g === null) return "";
+  g.fillStyle = "#fff";
+  g.fillRect(0, 0, 210, 210);
+  g.fillStyle = "#111";
+  let seed = 7;
+  for (let y = 0; y < 21; y++) {
+    for (let x = 0; x < 21; x++) {
+      seed = (seed * 9301 + 49297) % 233280;
+      const corner = (x < 7 && y < 7) || (x > 13 && y < 7) || (x < 7 && y > 13);
+      const ring = corner && (x % 14 === 0 || x % 14 === 6 || y % 14 === 0 || y % 14 === 6);
+      const eye = corner && x % 14 >= 2 && x % 14 <= 4 && y % 14 >= 2 && y % 14 <= 4;
+      if (corner ? ring || eye : seed / 233280 > 0.5) g.fillRect(x * 10, y * 10, 10, 10);
+    }
+  }
+  return canvas.toDataURL("image/png");
 }
 
 let fakeInstalled = false;

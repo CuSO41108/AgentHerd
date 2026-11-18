@@ -1,6 +1,7 @@
 # ADR 0070: A desktop pet that says what Feishu says and takes answers
 
-- Status: Accepted
+- Status: Accepted; what the conversation shows extended by [ADR 0072](0072-cards-in-the-pet.md), how it looks by [ADR 0073](0073-the-pets-conversation-looks-like-a-chat.md)
+  (cards as in Feishu, a card for each task)
 - Date: 2026-11-17
 - Changes: the local API no longer only reads items (spec 02 §4): the pet can press a card's
   button for the owner
@@ -43,7 +44,8 @@
    question; not a task's message, an offer, a report or a card), which rings anyway. Several
    lines typed before the answer are quoted together; an update in place of that message keeps
    the quote. With no answer in 2 minutes, or when the channel stops, the line is posted alone.
-   A press on a card that is no longer open is refused
+   Holding the line also keeps `petSay` from waiting on Feishu. A press on a card that is no
+   longer open is refused
    ("这件事已经处理过了"); with no channel connected, both are refused.
 3. **Mood from state, not from a model.** The pet's mood follows the host: something waits for
    the owner → waiting; a report or error just came → celebrate or error for 6 s; a task is
@@ -63,7 +65,9 @@
    and growing up and left when the conversation opens. It takes the first click even while
    another app is in front (`acceptFirstMouse`), so one click opens her, puts the cursor in the
    input or presses 同意. Drag moves it (the corner is saved); the small – button folds it into a
-   round dot with a red count of open cards and of lines that came while it was folded. The main
+   round dot with a red count of open cards and of lines that came while it was folded. On Windows,
+   transparent space outside the figure and conversation panel ignores mouse events
+   (`setIgnoreMouseEvents`), so other apps behind the pet stay clickable. The main
    window still decides when the app quits; the dock icon brings the main window back.
 5a. **Always the conversation.** A click on the figure opens the conversation both ways, newest
    at the bottom, with the open card and the input under it; ×, Esc or another click closes it.

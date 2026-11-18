@@ -1073,8 +1073,17 @@ export class TaskRunner {
         return this.runTurn(f, text, images, wake, trigger, from);
       }
       const conflicts = await this.syncOut(f);
-      if (ctx.registry.get(sessionId)?.state !== "ended") ctx.registry.set(sessionId, "error");
-      await sendReport(ctx, f, ctx.texts.failedBody(message), null);
+      // The owner ended it mid-turn: stopped, not failed (ADR 0072).
+      const stopped = f.ended && f.endedWhy === ctx.texts.endedByOwner;
+      if (!stopped && ctx.registry.get(sessionId)?.state !== "ended") {
+        ctx.registry.set(sessionId, "error");
+      }
+      await sendReport(
+        ctx,
+        f,
+        stopped ? ctx.texts.stoppedByOwner : ctx.texts.failedBody(message),
+        null,
+      );
       await this.tellConflicts(f, conflicts);
       await this.ops.endTask(sessionId, ctx.texts.turnFailed);
       throw error;

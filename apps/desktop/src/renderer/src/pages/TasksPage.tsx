@@ -2,7 +2,7 @@
 // its task; a request whose task the board does not have goes to 其他请求 at the top.
 
 import { AlertTriangle, ChevronRight, ListTodo } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { hhmm, RISK_LABEL, STAGE_LABEL, STAGE_ORDER } from "../components/labels";
 import { TaskTranscript } from "../components/TaskTranscript";
 import { Badge, Dot, EmptyState, Group, Section, Segmented, type Tone } from "../components/ui";
@@ -151,6 +151,13 @@ export function TasksPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [showEnded, setShowEnded] = useState(false);
   const [openId, setOpenId] = useState<string | undefined>(() => devOpen()?.replace(/^task-/, ""));
+  // The pet asked to show a task (ADR 0072).
+  const asked = useApp((s) => s.openTask);
+  useEffect(() => {
+    if (asked === undefined) return;
+    setOpenId(asked);
+    useApp.setState({ openTask: undefined });
+  }, [asked]);
 
   const tasks = view?.tasks ?? [];
   const items = view?.items ?? [];

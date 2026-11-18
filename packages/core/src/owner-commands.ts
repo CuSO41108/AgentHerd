@@ -3,7 +3,15 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { AskView, Inbound, InboundFile, InboundImage, MessageRef } from "@agentherd/protocol";
+import type {
+  AskView,
+  Inbound,
+  InboundFile,
+  InboundImage,
+  MessageRef,
+  TextView,
+} from "@agentherd/protocol";
+import { HERD_UI_TARGET, herdUiChoices, herdUiPlain } from "@agentherd/protocol/herd-ui";
 import type { Timer } from "./clock.ts";
 import { parseCommand } from "./commands.ts";
 import { type HerdContext, openTasks, say, steerable, type TaskOps } from "./herd-context.ts";
@@ -17,9 +25,20 @@ import { WORKSPACE_TARGET } from "./task-runner.ts";
 import type { Task } from "./tasks.ts";
 import { taskTitle } from "./tasks.ts";
 
+/** How many Herder replies keep their choices open at once; older ones expire (ADR 0074). */
+export const CHOICES_OPEN_MAX = 20;
+
+interface OpenChoices {
+  ref: MessageRef | undefined;
+  view: TextView;
+  answers: { action: string; label: string; question?: string }[];
+}
+
 export class OwnerCommands {
   /** Open questions from the Herder, by ask id. */
   private readonly asks = new Map<string, { ref: MessageRef; view: AskView; timer: Timer }>();
+  /** Herder replies whose herd-ui choices can still be picked, by target (ADR 0074). */
+  private readonly choices = new Map<string, OpenChoices>();
 
   private readonly ctx: HerdContext;
   private readonly relay: Relay;
@@ -44,6 +63,9 @@ export class OwnerCommands {
         if (this.asks.has(inbound.target))
           return await this.onAskAnswer(inbound.target, inbound.action);
         if (inbound.target === HERDER_RETRY_TARGET) return ctx.herder()?.retry?.();
+        if (inbound.target.startsWith(HERD_UI_TARGET)) {
+          return await this.onChoice(inbound.target, inbound.action);
+        }
         if (inbound.target.startsWith(INTAKE_TARGET)) {
           return await ctx.intake()?.answer(inbound.target, inbound.action);
         }
@@ -98,6 +120,46 @@ export class OwnerCommands {
       });
     });
     this.asks.set(askId, { ref, view, timer });
+  }
+
+  /**
+   * Sends a Herder reply. One whose herd-ui offers choices gets a target, so a tap on an answer
+   * (in the pet or the channel) comes back here and goes to the Herder as the owner's answer
+   * (ADR 0074). The choices stay open until one is picked; the oldest expire past CHOICES_OPEN_MAX.
+   */
+  async herderSays(text: string): Promise<void> {
+    const answers = herdUiChoices(text);
+    if (answers.length === 0) return say(this.ctx, text);
+    const target = `${HERD_UI_TARGET}${randomUUID()}`;
+    const view: TextView = { kind: "text", text, target };
+    const ref = await this.ctx.outbox.send(view);
+    this.choices.set(target, { ref, view, answers });
+    for (const old of this.choices.keys()) {
+      if (this.choices.size <= CHOICES_OPEN_MAX) break;
+      this.choices.delete(old);
+    }
+  }
+
+  private async onChoice(target: string, action: string): Promise<void> {
+    const { ctx } = this;
+    const open = this.choices.get(target);
+    const answer = open?.answers.find((a) => a.action === action);
+    if (open === undefined || answer === undefined) {
+      ctx.store.audit("herder.choice.expired", { target, action });
+      await say(ctx, ctx.texts.choiceExpired);
+      return;
+    }
+    this.choices.delete(target);
+    ctx.store.audit("herder.choice", { answer: answer.label });
+    if (open.ref !== undefined) {
+      try {
+        await ctx.opts.channel.update(open.ref, { ...open.view, chosen: answer.label });
+      } catch (error) {
+        ctx.store.audit("send.error", { kind: "text", message: (error as Error).message });
+      }
+    }
+    const question = answer.question ?? firstPlainLine(open.view.text);
+    ctx.herder()?.ownerAnswer(question, answer.label);
   }
 
   /** Closes an open Herder question without a pick; the Herder hears why. */
@@ -321,4 +383,14 @@ export function safeName(name: string): string {
   const dot = base.lastIndexOf(".");
   const ext = dot > 0 && base.length - dot <= 10 ? base.slice(dot) : "";
   return base.slice(0, 120 - ext.length) + ext;
+}
+
+/** The first line of a reply's words, for the question a choice answers. */
+function firstPlainLine(text: string): string {
+  const line =
+    herdUiPlain(text)
+      .split("\n")
+      .map((l) => l.replace(/^[#>*\-\s]+/, "").trim())
+      .find((l) => l !== "") ?? "";
+  return line.length <= 200 ? line : `${line.slice(0, 199)}…`;
 }

@@ -138,7 +138,10 @@ later task gets and which counts as the owner allowing that step.
   `herd.db` with the read tools; after a fold the Herder must re-read it.
 - The whole conversation is kept in `herd.db` (`herder_log`) and reloaded after a restart; nothing
   is cut. Before each request it goes through billion-context's kernel (`packages/context-kernel`):
-  each message gets a ref, and parts the Herder folded with `compress` show as its summary. Summaries
+  each message gets a ref (the owner's messages and tool results only; the Herder's own replies go
+  without one, and a line it writes that begins like a ref tag never reaches the owner,
+  [ADR 0073](../adr/0073-the-pets-conversation-looks-like-a-chat.md)), and parts the Herder folded
+  with `compress` show as its summary. Summaries
   keep unresolved owner instructions verbatim; `search_context` and `decompress` bring folded parts
   back. The window is the model's, at most 128,000 tokens. At 90 % of it AgentHerd folds the oldest
   whole turns itself (never the current one); a "context too long" error folds about half and
@@ -494,6 +497,13 @@ question to the owner goes on its own line after a blank line; a long answer is 
 paragraphs. The owner found a list of five repositories run together in one block hard to read
 (「完全粘在一起，这一大段话，没有换行之类的」, 2026-11-18); `stylePrompt()` and the report prompt
 (`voicePrompt`) both say so.
+Things that read better as components go in a ```` ```herd-ui ```` block after a sentence or two of
+words ([ADR 0074](../adr/0074-the-herder-draws-with-herd-ui-blocks.md)): things compared → a table,
+several numbers → stats, three or more steps → steps, a repository or page → a link, a file → a
+file, a command → code, a risk → a callout, an offer at the end → choices (a press comes back as
+the owner's answer). The block is repaired before sending; a block with nothing usable gets one
+rewrite in the same turn, then only the words go.
+
 - Messages are folded in the channel, not shortened ([05-channels.md](05-channels.md#2-what-the-owner-sees)).
 
 ## 3. Approval pipeline

@@ -3,17 +3,47 @@
 
 import type { HostEvent, RemoteHost } from "@agentherd/host/api";
 
+export interface PetRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** True when window-local point (x, y) is inside one of the pet's interactive regions. */
+export function hitPetRegion(
+  x: number,
+  y: number,
+  size: { width: number; height: number },
+  regions: readonly PetRegion[],
+): boolean {
+  if (x < 0 || y < 0 || x > size.width || y > size.height) return false;
+  return regions.some((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
+}
+
 /** The desktop pet window's own calls (ADR 0070); main ignores them from other windows. */
 export interface PetBridge {
-  /** A drag on the figure began; moves are counted from here. */
+  /** A drag on the figure began; main follows the cursor from here. */
   dragStart(): void;
-  /** Moves the pet window by this many screen pixels from where the drag began. */
-  dragMove(dx: number, dy: number): void;
-  dragEnd(): void;
-  /** Fits the window to the pet, keeping its bottom-right corner where it is. */
-  resize(width: number, height: number): void;
-  /** Brings up the main window. */
-  openApp(): void;
+  /** Nudges main to update the drag position right away. */
+  dragMove(dx?: number, dy?: number): void;
+  /** Ends the drag; resolves true when the window actually moved. */
+  dragEnd(): Promise<boolean>;
+  /** Fits the window to the pet and updates its interactive hit regions. */
+  resize(width: number, height: number, regions?: readonly PetRegion[]): void;
+  /** Locks mouse hit-testing active while a pointer button is held inside the pet. */
+  interacting(active: boolean): void;
+  /** Called when the cursor leaves the pet's interactive regions on Windows. */
+  onMouseLeave(listener: () => void): () => void;
+  /** Brings up the main window, at a task when one is named (ADR 0072). */
+  openApp(taskId?: string): void;
+  /** Opens a file a message names, or shows it in Finder when it is not a document (ADR 0073). */
+  openFile(path: string): void;
+  /**
+   * A picture the Herder shows, as a data URL; undefined when it is not a picture main will read
+   * (ADR 0075). Missing in older builds.
+   */
+  readImage?(path: string): Promise<string | undefined>;
 }
 
 export interface Bridge {
@@ -23,6 +53,8 @@ export interface Bridge {
   onEvent(listener: (event: HostEvent) => void): () => void;
   /** Whether main is connected to the host process. */
   onConnection(listener: (connected: boolean) => void): () => void;
+  /** The pet asked the main window to show a task. Returns an unsubscribe function. */
+  onOpenTask?(listener: (taskId: string) => void): () => void;
 }
 
 declare global {
