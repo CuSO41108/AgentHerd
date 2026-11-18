@@ -19,7 +19,7 @@ import {
   foldedMarkdown,
   markdown,
 } from "./card-parts.ts";
-import { herdUiElements } from "./herd-ui-card.ts";
+import { herdUiElements, withPictures } from "./herd-ui-card.ts";
 import { readableMath } from "./math.ts";
 import type { CardTexts } from "./texts.ts";
 import { CARD_TEXTS } from "./texts.ts";
@@ -241,9 +241,10 @@ export function renderCard(
     }
     case "text": {
       // A reply with herd-ui fences is drawn as components (ADR 0074), never folded as a whole.
-      const elements = hasHerdUi(view.text)
-        ? herdUiElements(view.text, { t, target: view.target, chosen: view.chosen, images })
-        : foldedMarkdown(view.text, t.showAll);
+      const text = withPictures(view.text, images);
+      const elements = hasHerdUi(text)
+        ? herdUiElements(text, { t, target: view.target, chosen: view.chosen, images })
+        : foldedMarkdown(text, t.showAll);
       if (view.options !== undefined && view.target !== undefined) {
         for (const o of view.options) elements.push(actionRow(view.target, o.action, o.label));
       }
@@ -288,9 +289,10 @@ export function renderCard(
     }
     case "report": {
       // A report has no answer target: choices in its fences are shown as a list.
-      const elements = hasHerdUi(view.body)
-        ? herdUiElements(view.body, { t, images })
-        : foldedMarkdown(view.body, t.showAll);
+      const body = withPictures(view.body, images);
+      const elements = hasHerdUi(body)
+        ? herdUiElements(body, { t, images })
+        : foldedMarkdown(body, t.showAll);
       if (view.summarized && view.fullReply !== undefined) {
         const label =
           view.fullReplyBy === undefined ? t.fullReply : t.fullReplyBy(view.fullReplyBy);

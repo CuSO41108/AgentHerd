@@ -8,8 +8,12 @@ import {
   herdUiImages,
   herdUiImageType,
   herdUiPlain,
+  localPicture,
+  markdownImages,
   parseLooseJson,
   readHerdUi,
+  replaceMarkdownImages,
+  replyPictures,
   splitHerdUi,
 } from "../src/herd-ui.ts";
 
@@ -269,5 +273,40 @@ describe("pictures (ADR 0075)", () => {
     expect(herdUiImageType("/a/b.webp")).toBe("image/webp");
     expect(herdUiImageType("/a/b.svg")).toBeUndefined();
     expect(herdUiImageType("/a/png")).toBeUndefined();
+  });
+});
+
+describe("Markdown pictures (ADR 0075)", () => {
+  it("finds Markdown images, with spaces in angle brackets and a title", () => {
+    const text =
+      '扫这个：\n![飞书授权码](/tmp/lark-mail-auth.png)\n还有 ![截图](<~/Desktop/My Shot.png> "窗口") 和 ![](https://e.com/a.png)';
+    expect(markdownImages(text)).toEqual([
+      { alt: "飞书授权码", src: "/tmp/lark-mail-auth.png" },
+      { alt: "截图", src: "~/Desktop/My Shot.png" },
+      { alt: "", src: "https://e.com/a.png" },
+    ]);
+    expect(replaceMarkdownImages(text, (i) => `[${i.alt}]`)).toBe(
+      "扫这个：\n[飞书授权码]\n还有 [截图] 和 []",
+    );
+  });
+
+  it("takes only pictures on this computer", () => {
+    expect(localPicture("/tmp/a.PNG")).toBe("/tmp/a.PNG");
+    expect(localPicture("~/x.webp")).toBe("~/x.webp");
+    expect(localPicture("https://e.com/a.png")).toBeUndefined();
+    expect(localPicture("tmp/a.png")).toBeUndefined();
+    expect(localPicture("/tmp/run.sh")).toBeUndefined();
+  });
+
+  it("lists every picture a reply shows once, also inside a block", () => {
+    const block = JSON.stringify({
+      items: [
+        { type: "text", content: "![码](/tmp/b.png)" },
+        { type: "image", path: "/tmp/c.png" },
+      ],
+    });
+    const text = `![码](/tmp/a.png) ![again](/tmp/a.png)\n\n\`\`\`herd-ui\n${block}\n\`\`\``;
+    expect(replyPictures(text)).toEqual(["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"]);
+    expect(replyPictures("![log](/tmp/run.log) ![web](https://e.com/a.png)")).toEqual([]);
   });
 });

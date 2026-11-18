@@ -9,7 +9,9 @@ import {
   hasHerdUi,
   herdUiChoices,
   herdUiPlain,
+  localPicture,
   nodeText,
+  replaceMarkdownImages,
   specText,
   splitHerdUi,
 } from "@agentherd/protocol/herd-ui";
@@ -274,6 +276,24 @@ function image(node: Of<"image">, key: string): Element[] {
     },
     ...(caption.length === 0 ? [] : [markdown(grey(caption.join("\n")))]),
   ];
+}
+
+/**
+ * Markdown images in a reply as Feishu draws them (ADR 0075): a picture on this computer that was
+ * uploaded becomes `![alt](image_key)`, which Feishu's Markdown shows inline; one that was not is
+ * named with its path; a picture on the web becomes a link, since Feishu shows only uploaded
+ * images. Done on the whole text, block JSON included, before it is drawn.
+ */
+export function withPictures(text: string, images?: ReadonlyMap<string, string>): string {
+  if (!text.includes("![")) return text;
+  return replaceMarkdownImages(text, ({ alt, src }) => {
+    const path = localPicture(src);
+    const key = path === undefined ? undefined : images?.get(path);
+    const name = alt === "" ? baseName(src) : alt.replace(/[[\]]/g, "");
+    if (key !== undefined) return `![${name}](${key})`;
+    if (/^https?:\/\//i.test(src)) return `[🖼️ ${name}](${src})`;
+    return `🖼️ ${name}：${src}`;
+  });
 }
 
 function baseName(path: string): string {

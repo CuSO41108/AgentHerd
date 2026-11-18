@@ -6,6 +6,7 @@ import {
   pictureMime,
   pictureToShow,
 } from "../src/main/open-file";
+import { type PetMenuPlace, petMenuItems } from "../src/main/pet-menu";
 
 const HOME = "/Users/me";
 const files = new Set([
@@ -82,5 +83,40 @@ describe("reading a picture the Herder shows (ADR 0075)", () => {
     expect(pictureMime(PNG)).toBe("image/png");
     expect(pictureMime(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39]))).toBe("image/gif");
     expect(pictureMime(new TextEncoder().encode("<svg"))).toBeUndefined();
+  });
+});
+
+describe("the pet's right-click menu (ADR 0075)", () => {
+  const place = (over: Partial<PetMenuPlace>): PetMenuPlace => ({
+    selectionText: "",
+    linkURL: "",
+    mediaType: "none",
+    isEditable: false,
+    editFlags: { canCut: false, canCopy: false, canPaste: false, canSelectAll: false },
+    ...over,
+  });
+  const labels = (p: PetMenuPlace) => petMenuItems(p).map((i) => i.label);
+
+  it("copies selected words, a picture and a link", () => {
+    expect(labels(place({ selectionText: "授权完回我一句" }))).toEqual(["复制"]);
+    expect(labels(place({ mediaType: "image" }))).toEqual(["复制图片"]);
+    expect(
+      labels(place({ linkURL: "https://accounts.feishu.cn/x", selectionText: "链接" })),
+    ).toEqual(["复制", "复制链接"]);
+    expect(labels(place({ linkURL: "javascript:alert(1)" }))).toEqual([]);
+    expect(labels(place({ selectionText: "  " }))).toEqual([]);
+  });
+
+  it("cuts, copies and pastes in the input", () => {
+    const flags = { canCut: true, canCopy: true, canPaste: true, canSelectAll: true };
+    expect(labels(place({ isEditable: true, editFlags: flags }))).toEqual([
+      "剪切",
+      "复制",
+      "粘贴",
+      "全选",
+    ]);
+    expect(
+      labels(place({ isEditable: true, editFlags: { ...flags, canCut: false, canCopy: false } })),
+    ).toEqual(["粘贴", "全选"]);
   });
 });

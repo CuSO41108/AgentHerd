@@ -341,6 +341,29 @@ body {
   background: none;
 }
 
+/* A picture in a reply (ADR 0075), the way Markdown shows one: in the text, no frame. Kept out of
+   text selection so selecting words never tints it; right-click copies it. */
+.pet-md-picture {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 6px 0;
+  border-radius: 6px;
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.pet-md-picture-wait {
+  display: block;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--pet-muted);
+}
+
+.pet-md-picture-missing {
+  color: var(--pet-muted);
+}
+
 .pet-md-pre {
   margin: 2px 0 6px;
 }

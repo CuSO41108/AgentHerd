@@ -415,52 +415,14 @@
   }
 }
 
-/* A picture the Herder shows (ADR 0075): whole, as wide as the reply, a tap opens it. */
-.pet-ui-image {
-  margin: 0;
+/* A picture shown as an `image` item (ADR 0075): drawn like a Markdown picture, caption under it. */
+.pet-ui-picture {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.pet-ui-image-box {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 60px;
-  padding: 6px;
-  border: 1px solid var(--pet-line);
-  border-radius: 10px;
-  background: #fff;
-  cursor: zoom-in;
-}
-
-.pet-ui-image-box:hover {
-  border-color: var(--pet-accent);
-}
-
-.pet-ui-image-img {
-  display: block;
-  max-width: 100%;
-  max-height: 360px;
-  object-fit: contain;
-  border-radius: 6px;
-}
-
-.pet-ui-image-wait {
-  color: var(--pet-muted);
-  font-size: 12px;
-}
-
-.pet-ui-image-caption {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.pet-ui-picture-caption {
   font-size: 12px;
   color: var(--pet-muted);
-}
-
-.pet-ui-image-caption b {
-  color: var(--pet-ink);
-  font-weight: 600;
 }

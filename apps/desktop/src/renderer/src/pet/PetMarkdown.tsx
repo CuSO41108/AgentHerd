@@ -1,8 +1,10 @@
 // The Herder's words in the pet as Markdown (ADR 0073), drawn as React elements from the app's own
 // parser: no HTML from a message ever reaches the page. Links open in the browser (main decides).
 
+import { localPicture } from "@agentherd/protocol/herd-ui";
 import type { ReactNode } from "react";
 import { type Block, type Inline, parseInline, parseMarkdown } from "../markdown";
+import { PetPicture } from "./PetPicture";
 
 function inlines(nodes: Inline[]): ReactNode[] {
   return nodes.map((n, i) => {
@@ -26,6 +28,20 @@ function inlines(nodes: Inline[]): ReactNode[] {
             {inlines(n.children)}
           </a>
         );
+      case "image": {
+        // A picture on this computer is drawn (ADR 0075); one on the web is only a link, since
+        // the pet loads nothing from the web.
+        const path = localPicture(n.src);
+        if (path !== undefined) return <PetPicture key={key} path={path} alt={n.alt} />;
+        if (/^https?:\/\//i.test(n.src)) {
+          return (
+            <a key={key} href={n.src} target="_blank" rel="noreferrer" title={n.src}>
+              🖼️ {n.alt === "" ? n.src : n.alt}
+            </a>
+          );
+        }
+        return `🖼️ ${n.alt === "" ? n.src : n.alt}`;
+      }
       default:
         return null;
     }

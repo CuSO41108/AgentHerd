@@ -853,3 +853,56 @@ export function herdUiImages(text: string): string[] {
   }
   return [...out];
 }
+
+/**
+ * A Markdown image, `![alt](src)` or `![alt](<src with spaces>)`, with an optional title. The
+ * Herder writes pictures on this computer this way (ADR 0075); the pet draws them and Feishu
+ * uploads them. Global: use with `matchAll` or `replace`.
+ */
+export const MARKDOWN_IMAGE =
+  /!\[([^\]\n]*)\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+"[^"\n]*")?\s*\)/g;
+
+/** A Markdown image found in text: what it shows and where it is. */
+export interface MarkdownImage {
+  alt: string;
+  src: string;
+}
+
+/** The Markdown images in text, in order. */
+export function markdownImages(text: string): MarkdownImage[] {
+  return [...text.matchAll(MARKDOWN_IMAGE)].map((m) => ({
+    alt: (m[1] ?? "").trim(),
+    src: (m[2] ?? m[3] ?? "").trim(),
+  }));
+}
+
+/** Replaces each Markdown image in text with what `draw` makes of it. */
+export function replaceMarkdownImages(
+  text: string,
+  draw: (image: MarkdownImage) => string,
+): string {
+  return text.replace(MARKDOWN_IMAGE, (_all, alt: string, angled?: string, bare?: string) =>
+    draw({ alt: alt.trim(), src: (angled ?? bare ?? "").trim() }),
+  );
+}
+
+/** The path of a picture on this computer (`/…` or `~/…`, png/jpg/gif/webp), or undefined. */
+export function localPicture(src: string): string | undefined {
+  const path = src.trim();
+  if (!(path.startsWith("/") || path.startsWith("~/"))) return undefined;
+  return herdUiImageType(path) === undefined ? undefined : path;
+}
+
+/**
+ * Every picture on this computer a reply shows, in order, each once: Markdown images anywhere in
+ * it (also inside a block's text) and `image` items of its herd-ui blocks.
+ */
+export function replyPictures(text: string): string[] {
+  const out = new Set<string>();
+  for (const image of markdownImages(text)) {
+    const path = localPicture(image.src);
+    if (path !== undefined) out.add(path);
+  }
+  for (const path of herdUiImages(text)) out.add(path);
+  return [...out];
+}

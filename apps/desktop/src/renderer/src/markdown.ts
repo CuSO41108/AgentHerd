@@ -1,5 +1,5 @@
 // A small Markdown reader for what agents write: headings, paragraphs, lists, quotes, fenced
-// code, tables, rules and inline code, bold, italic, strikethrough and links. It returns plain
+// code, tables, rules and inline code, bold, italic, strikethrough, links and images. It returns plain
 // data, never HTML, so the renderer builds React elements and agent text cannot inject markup.
 
 export type Inline =
@@ -7,6 +7,8 @@ export type Inline =
   | { kind: "code"; text: string }
   | { kind: "strong" | "em" | "del"; children: Inline[] }
   | { kind: "link"; href: string; children: Inline[] }
+  /** `![alt](src)`: the renderer decides what it may show (ADR 0075); src is not checked here. */
+  | { kind: "image"; alt: string; src: string }
   | { kind: "break" };
 
 export type ListItem = { text: string; checked?: boolean; children: Block[] };
@@ -214,6 +216,17 @@ export function parseInline(text: string): Inline[] {
         continue;
       }
     }
+    const image = /^!\[([^\]\n]*)\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+"[^"\n]*")?\s*\)/.exec(rest);
+    if (image !== null) {
+      flush();
+      out.push({
+        kind: "image",
+        alt: (image[1] ?? "").trim(),
+        src: (image[2] ?? image[3] ?? "").trim(),
+      });
+      i += image[0].length;
+      continue;
+    }
     const link = /^\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/.exec(rest);
     if (link !== null && SAFE_HREF.test(link[2] ?? "")) {
       flush();
@@ -281,6 +294,7 @@ export function plainText(text: string): string {
       .map((n) => {
         if (n.kind === "text" || n.kind === "code") return n.text;
         if (n.kind === "break") return " ";
+        if (n.kind === "image") return n.alt;
         return flat(n.children);
       })
       .join("");

@@ -1,8 +1,9 @@
 # ADR 0075: The Herder shows pictures in the pet and in Feishu
 
-- Status: Accepted
+- Status: Accepted; changed the same day: pictures are Markdown images (decision 0)
 - Date: 2026-11-18
-- Changes: [0074](0074-the-herder-draws-with-herd-ui-blocks.md) (a thirteenth component, `image`)
+- Changes: [0074](0074-the-herder-draws-with-herd-ui-blocks.md) (a thirteenth component, `image`),
+  [0073](0073-the-pets-conversation-looks-like-a-chat.md) (the pet's Markdown shows images)
 
 ## Context
 
@@ -21,6 +22,27 @@
 
 ## Decision
 
+0. **Changed the same day: a picture is a Markdown image.** The first version (decisions 1–4 as
+   written) drew pictures from a herd-ui `image` item in a framed box. Seeing it, the owner said
+   「这个图片看起来有点诡异」「也不能复制啥的」「我比较希望就是md渲染的那种…在我们的主管里面」
+   (m23337–m23352), asked whether Feishu would then be left out (m23359), and agreed when shown
+   that Feishu's card Markdown takes `![hover](image_key)`. Now:
+   - The Herder writes `![飞书邮箱授权码](/tmp/lark-mail-auth.png)` on its own line, in its words
+     or in a block's text item. The prompt teaches this instead of the `image` item.
+   - The pet's Markdown reader (`apps/desktop/src/renderer/src/markdown.ts`) reads images; the
+     pet draws one on this computer in the text, without a frame (`PetPicture`), read by main as
+     below; a picture on the web is only a link; one main will not read is named with its path as
+     text. The main window names pictures, it does not draw them.
+   - Feishu uploads every picture a reply shows (`replyPictures`: Markdown images on this
+     computer and `image` items) and rewrites each Markdown image as `![alt](image_key)`, which
+     the card's Markdown shows inline; one it could not upload becomes `🖼️ alt：path`, a web
+     picture a link (`withPictures`).
+   - The `image` item is still read and drawn the same unframed way, with its title and
+     description as a quiet line under it.
+   - The pet gets a right-click menu (`apps/desktop/src/main/pet-menu.ts`): 复制 for selected
+     words, 复制图片, 复制链接, and 剪切 / 复制 / 粘贴 / 全选 in the input. Electron shows none of
+     its own, so nothing could be copied with the mouse. A picture is kept out of text selection,
+     so selecting words no longer tints it blue.
 1. **An `image` item.** herd-ui gets `{"type":"image","path","title"?,"desc"?}`: a full path (`/…`
    or `~/…`) to a png, jpg, gif or webp on this computer. The parser forgives as for other items
    (`qrcode`, `screenshot`, `img`… are read as `image`; `src`, `url`, `alt`, `caption` as its
@@ -70,6 +92,9 @@ started app, a cleanup whose only path is a log, and 「刚才任务说微信登
 
 The sign-in link stayed in words or a link item next to the QR code in every run.
 
+With Markdown images (decision 0), same model and cases, 3 runs: 9 of 9 pictures shown, all as
+Markdown images, 0 of 3 logs shown as pictures.
+
 ## Alternatives
 
 - **Send the picture as its own image message.** Feishu would show it, but apart from the words
@@ -95,5 +120,9 @@ The sign-in link stayed in words or a link item next to the QR code in every run
   the same picture, failure named by path and retried after the wait, unreadable files, reports,
   `readPicture` refusing scripts, fakes, empty and oversized files.
 - `apps/desktop/test/open-file.test.ts`: `pictureToShow` and `pictureMime`.
-- `packages/herder/test/herd-ui.test.ts`: the prompt teaches `image`; a task result with a
-  repaired block is said, not dropped.
+- `packages/herder/test/herd-ui.test.ts`: the prompt teaches Markdown pictures; a task result
+  with a repaired block is said, not dropped.
+- `packages/protocol/test/herd-ui.test.ts` ("Markdown pictures"), `apps/desktop/test/markdown.test.ts`
+  ("images"): reading `![alt](src)`; `packages/channel-feishu/test/herd-ui-image.test.ts`
+  ("Markdown pictures"): upload and `![alt](image_key)`, path or link when it cannot be shown;
+  `apps/desktop/test/open-file.test.ts`: the right-click menu.

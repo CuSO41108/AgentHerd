@@ -156,6 +156,50 @@ describe("pictures in Feishu cards (ADR 0075)", () => {
   });
 });
 
+describe("Markdown pictures in Feishu cards (ADR 0075)", () => {
+  const MD = "扫这个码授权：\n\n![飞书邮箱授权码](/tmp/lark-mail-auth.png)\n\n授权完回我一句。";
+
+  it("uploads a Markdown picture and shows it inline with its key", async () => {
+    const { channel, puts, uploads } = await setup({ upload: async () => "img_v3_md" });
+    await channel.send({ kind: "text", text: MD });
+    expect(uploads).toHaveLength(1);
+    const md = markdownOf(puts[0]?.card ?? {});
+    expect(md).toContain("![飞书邮箱授权码](img_v3_md)");
+    expect(md).not.toContain("/tmp/lark-mail-auth.png");
+  });
+
+  it("names a picture it could not upload by its path, and a web picture becomes a link", async () => {
+    const { channel, puts, errors } = await setup({
+      upload: async () => {
+        throw new Error("no permission");
+      },
+    });
+    await channel.send({ kind: "text", text: `${MD}\n![图](https://e.com/a.png)` });
+    const md = markdownOf(puts[0]?.card ?? {});
+    expect(md).toContain("🖼️ 飞书邮箱授权码：/tmp/lark-mail-auth.png");
+    expect(md).toContain("[🖼️ 图](https://e.com/a.png)");
+    expect(md).not.toContain("![");
+    expect(errors[0]).toContain("/tmp/lark-mail-auth.png");
+  });
+
+  it("uploads a picture written as Markdown inside a block's text, and reports' pictures", async () => {
+    const { channel, puts } = await setup({ upload: async () => "img_v3_in" });
+    const text = fence({ items: [{ type: "text", content: "![码](/tmp/code.png)" }] });
+    await channel.send({ kind: "text", text });
+    expect(markdownOf(puts[0]?.card ?? {})).toContain("![码](img_v3_in)");
+    await channel.send({
+      kind: "report",
+      taskId: "t1",
+      result: "done",
+      title: "截图",
+      body: "![窗口](/tmp/shot.png)",
+      summarized: false,
+      automaticDecisions: [],
+    });
+    expect(markdownOf(puts[1]?.card ?? {})).toContain("![窗口](img_v3_in)");
+  });
+});
+
 describe("readPicture", () => {
   const dir = mkdtempSync(join(tmpdir(), "herd-pic-"));
   const png = join(dir, "qr.png");

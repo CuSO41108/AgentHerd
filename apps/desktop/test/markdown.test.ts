@@ -95,3 +95,20 @@ describe("plainText", () => {
     expect(plainText("## 完成\n- **改了** `a.ts`\n- 测试通过")).toBe("完成 改了 a.ts 测试通过");
   });
 });
+
+describe("images (ADR 0075)", () => {
+  it("reads a Markdown image, also with spaces in angle brackets", () => {
+    expect(parseInline("扫码：![飞书授权码](/tmp/lark-mail-auth.png)")).toEqual([
+      { kind: "text", text: "扫码：" },
+      { kind: "image", alt: "飞书授权码", src: "/tmp/lark-mail-auth.png" },
+    ]);
+    expect(parseInline('![截图](<~/Desktop/My Shot.png> "窗口")')).toEqual([
+      { kind: "image", alt: "截图", src: "~/Desktop/My Shot.png" },
+    ]);
+  });
+
+  it("is a link only when it has no bang, and gives its words to plain text", () => {
+    expect(parseInline("[站](https://a.b)")[0]?.kind).toBe("link");
+    expect(plainText("看 ![码](/tmp/a.png) 就行")).toBe("看 码 就行");
+  });
+});
