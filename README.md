@@ -74,35 +74,23 @@ own words reach the agent unchanged.
 
 Needs macOS or Windows, Node 22.18+, pnpm and a Feishu (or Lark) account.
 
-**macOS**
-
 ```bash
 pnpm install
-pnpm --filter @agentherd/desktop exec install-electron
-pnpm --filter @agentherd/desktop fetch-agents
-pnpm --filter @agentherd/desktop start
-```
-
-**Windows (PowerShell)**
-
-```powershell
-corepack enable   # once, if pnpm is not on PATH yet
-pnpm install
-pnpm --filter @agentherd/desktop exec install-electron
-pnpm --filter @agentherd/desktop fetch-agents
 pnpm --filter @agentherd/desktop start
 ```
 
 The first run walks you through it: scan a QR code to connect Feishu, add a model service and
 its key (or sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi
-and Codex come with the app (`fetch-agents` downloads them for a source checkout); on the **Agent**
-page, press 验证 to check that one starts. Then send the Herder a message in Feishu.
+and Codex come with the app; on the **Agent** page, press 验证 to check that one starts. In
+development, run `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev
+app looks (`pnpm --filter @agentherd/desktop dev` runs with live reload). Then send the Herder a
+message in Feishu.
 
-- **Development & relaunch:** `pnpm --filter @agentherd/desktop dev` runs with live reload. On
-  Windows, closing the main window hides it to the system tray so Feishu and the pet stay
-  connected — right-click the tray icon to quit before starting another copy.
-- **Packaging:** `pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and an
-  unsigned `.dmg` on macOS. There is no Windows installer yet; run from source on Windows.
+- **Windows:** run the same commands in PowerShell. Closing the window keeps AgentHerd connected
+  in the system tray — right-click the tray icon to quit. There is no Windows installer yet; run
+  from source.
+- **macOS packaging:** `pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and
+  an unsigned `.dmg`.
 
 <details>
 <summary>Command line, without the app</summary>

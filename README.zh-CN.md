@@ -55,29 +55,16 @@ AgentHerd 是一个 Electron 应用，里面是一个无界面的核心。核心
 
 需要 macOS 或 Windows、Node 22.18+、pnpm，以及一个飞书（或 Lark）账号。
 
-**macOS**
-
 ```bash
 pnpm install
-pnpm --filter @agentherd/desktop exec install-electron
-pnpm --filter @agentherd/desktop fetch-agents
 pnpm --filter @agentherd/desktop start
 ```
 
-**Windows（PowerShell）**
+第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key（也可以用 ChatGPT、Claude、Copilot 等订阅账号登录），给主管选模型。Pi 和 Codex 随 App
+自带，在「Agent」页点「验证」确认能启动。开发时先运行一次 `pnpm --filter @agentherd/desktop fetch-agents`，把它们放到开发版找得到的地方（改界面代码可用 `pnpm --filter @agentherd/desktop dev` 热重载）。然后在飞书里给主管发条消息就行。
 
-```powershell
-corepack enable   # 第一次用：如果 PATH 里还没有 pnpm，先开启
-pnpm install
-pnpm --filter @agentherd/desktop exec install-electron
-pnpm --filter @agentherd/desktop fetch-agents
-pnpm --filter @agentherd/desktop start
-```
-
-第一次打开会一步步带你：扫码接入飞书，添加模型服务和 Key（也可以用 ChatGPT、Claude、Copilot 等订阅账号登录），给主管选模型。Pi 和 Codex 随 App 自带（从源码运行时，`fetch-agents` 会把它们下载好），在「Agent」页点「验证」确认能启动。然后在飞书里给主管发条消息就行。
-
-- **日常开发与重开：** 改界面代码时可用 `pnpm --filter @agentherd/desktop dev` 热重载。Windows 上点窗口右上角关闭会收进系统托盘继续保持飞书与桌宠连接；要彻底退出或重开新实例，请右键托盘图标选退出。
-- **打包：** macOS 上运行 `pnpm --filter @agentherd/desktop package:mac` 打出 `AgentHerd.app` 和 `.dmg`（暂未签名）；Windows 暂无安装包，请按上面的方式从源码运行。
+- **Windows：** 在 PowerShell 里运行上面两行命令即可。点窗口右上角关闭会收进系统托盘保持连接，彻底退出请右键托盘图标；目前暂无 Windows 安装包，请从源码运行。
+- **macOS 打包：** `pnpm --filter @agentherd/desktop package:mac` 打出 `AgentHerd.app` 和 `.dmg`（暂未签名）。
 
 <details>
 <summary>不用 App，用命令行</summary>
