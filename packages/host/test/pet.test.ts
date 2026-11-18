@@ -220,6 +220,46 @@ describe("PetFeed (ADR 0070)", () => {
     await old.stop();
     expect(feed.connected).toBe(true);
   });
+
+  it("delivers petSay before slow Feishu echo settles while keeping channel order", async () => {
+    let echoStarted!: () => void;
+    let releaseEcho!: () => void;
+    const waitEchoStart = new Promise<void>((r) => {
+      echoStarted = r;
+    });
+    const fake = new FakeChannel("owner");
+    const sent: string[] = [];
+    const slow: typeof fake = Object.assign(Object.create(fake) as FakeChannel, {
+      async send(view: Parameters<FakeChannel["send"]>[0]) {
+        if (view.kind === "text" && view.text.startsWith("（在桌宠里说）")) {
+          echoStarted();
+          await new Promise<void>((r) => {
+            releaseEcho = r;
+          });
+        }
+        if (view.kind === "text") sent.push(view.text);
+        return fake.send(view);
+      },
+      start: fake.start.bind(fake),
+      stop: fake.stop.bind(fake),
+      update: fake.update.bind(fake),
+      pin: fake.pin.bind(fake),
+    });
+    const feed = new PetFeed({ changed: () => {}, echo: (text) => `（在桌宠里说）${text}` });
+    const channel = feed.wrap(slow);
+    const inbound: Inbound[] = [];
+    await channel.start(BINDING, async (i) => {
+      inbound.push(i);
+    });
+    await feed.say("你好");
+    await waitEchoStart;
+    expect(inbound).toEqual([{ kind: "message", text: "你好", from: "owner" }]);
+    expect(sent).toEqual([]);
+    const reply = channel.send({ kind: "text", text: "回复" });
+    releaseEcho();
+    await reply;
+    expect(sent).toEqual(["（在桌宠里说）你好", "回复"]);
+  });
 });
 
 const REPORT: ReportView = {

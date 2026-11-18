@@ -1027,8 +1027,10 @@ function installFakeBridge(): void {
     pet: {
       dragStart: () => {},
       dragMove: () => {},
-      dragEnd: () => {},
+      dragEnd: async () => false,
       resize: () => {},
+      interacting: () => {},
+      onMouseLeave: () => () => {},
       openApp: () => {},
       openFile: (path) => console.info("[AgentHerd] open", path),
       readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),

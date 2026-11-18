@@ -215,9 +215,10 @@ function FileCard({
   node: Of<"file"> | Of<"image">;
   openFile(path: string): void;
 }) {
-  const cut = node.path.lastIndexOf("/");
+  const cut = Math.max(node.path.lastIndexOf("/"), node.path.lastIndexOf("\\"));
   const name = node.title ?? node.path.slice(cut + 1);
-  const sub = node.desc ?? (node.title === undefined ? node.path.slice(0, cut) : node.path);
+  const sub =
+    node.desc ?? (node.title === undefined ? (cut >= 0 ? node.path.slice(0, cut) : "") : node.path);
   const icon = node.type === "image" ? "🖼️" : "📄";
   return <FileChip path={node.path} name={name} sub={sub} icon={icon} openFile={openFile} />;
 }
@@ -247,7 +248,8 @@ function ImageCard({ node, openFile }: { node: Of<"image">; openFile(path: strin
     };
   }, [node.path]);
   if (src === null) return <FileCard node={node} openFile={openFile} />;
-  const name = node.title ?? node.path.slice(node.path.lastIndexOf("/") + 1);
+  const cut = Math.max(node.path.lastIndexOf("/"), node.path.lastIndexOf("\\"));
+  const name = node.title ?? node.path.slice(cut + 1);
   return (
     <figure className="pet-ui-image">
       <button

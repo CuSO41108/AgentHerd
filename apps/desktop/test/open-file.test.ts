@@ -36,6 +36,19 @@ describe("opening a file a message names (ADR 0073)", () => {
     expect(fileToOpen(42, isFile, HOME)).toBeUndefined();
     expect(fileToOpen("/tmp/a\0.md", isFile, HOME)).toBeUndefined();
   });
+
+  it("handles Windows drive and ~\\ paths cleanly", () => {
+    const winFiles = new Set(["G:\\AgentHerd\\README.md", "C:\\Users\\me\\.agentherd\\run.cmd"]);
+    const winHas = (p: string) => winFiles.has(p);
+    expect(fileToOpen("G:\\AgentHerd\\README.md", winHas, "C:\\Users\\me")).toEqual({
+      path: "G:\\AgentHerd\\README.md",
+      how: "open",
+    });
+    expect(fileToOpen("~\\.agentherd\\run.cmd", winHas, "C:\\Users\\me")).toEqual({
+      path: "C:\\Users\\me\\.agentherd\\run.cmd",
+      how: "reveal",
+    });
+  });
 });
 
 describe("reading a picture the Herder shows (ADR 0075)", () => {
@@ -57,6 +70,13 @@ describe("reading a picture the Herder shows (ADR 0075)", () => {
     const url = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
     expect(pictureToShow("/tmp/qr.png", d, HOME)).toBe(url);
     expect(pictureToShow("~/shot.PNG", d, HOME)).toBe(url);
+  });
+
+  it("handles Windows drive and ~\\ picture paths cleanly", () => {
+    const d = disk({ "G:\\AgentHerd\\qr.png": PNG, "C:\\Users\\me\\shot.PNG": PNG });
+    const url = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
+    expect(pictureToShow("G:\\AgentHerd\\qr.png", d, "C:\\Users\\me")).toBe(url);
+    expect(pictureToShow("~\\shot.PNG", d, "C:\\Users\\me")).toBe(url);
   });
 
   it("reads nothing that is not a picture of a fair size", () => {

@@ -35,8 +35,8 @@
    `{kind: "action", target, action, from: ownerId}` and `petSay(text)` delivers
    `{kind: "message", text, from: ownerId}` to the herd, exactly what a press or a message in
    Feishu delivers. So the inbox, asks, offers and the Herder need no change, and the Feishu card
-   closes too. A typed message is also posted to the chat as 「（在桌宠里说）…」, so the Feishu
-   conversation still reads in order. A press on a card that is no longer open is refused
+   closes too. A typed message is also posted to the chat as 「（在桌宠里说）…」, without holding
+   up `petSay` (replies wait behind it so Feishu still reads in order). A press on a card that is no longer open is refused
    ("这件事已经处理过了"); with no channel connected, both are refused.
 3. **Mood from state, not from a model.** The pet's mood follows the host: something waits for
    the owner → waiting; a report or error just came → celebrate or error for 6 s; a task is
@@ -56,7 +56,9 @@
    and growing up and left when the conversation opens. It takes the first click even while
    another app is in front (`acceptFirstMouse`), so one click opens her, puts the cursor in the
    input or presses 同意. Drag moves it (the corner is saved); the small – button folds it into a
-   round dot with a red count of open cards and of lines that came while it was folded. The main
+   round dot with a red count of open cards and of lines that came while it was folded. On Windows,
+   transparent space outside the figure and conversation panel ignores mouse events
+   (`setIgnoreMouseEvents`), so other apps behind the pet stay clickable. The main
    window still decides when the app quits; the dock icon brings the main window back.
 5a. **Always the conversation.** A click on the figure opens the conversation both ways, newest
    at the bottom, with the open card and the input under it; ×, Esc or another click closes it.
