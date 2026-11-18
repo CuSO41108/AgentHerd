@@ -328,6 +328,18 @@ export function modelName(model: string | undefined): string | undefined {
   return model.slice(model.lastIndexOf("/") + 1);
 }
 
+/**
+ * Who runs a task, short: the agent label already names the model on new hosts
+ * ("Pi · deepseek/deepseek-flash"), so the model is not said twice.
+ */
+export function runnerOf(agent: string, model: string | undefined): string {
+  const short = modelName(model);
+  if (model === undefined || short === undefined) return agent;
+  if (agent.includes(model)) return agent.replace(model, short);
+  if (agent.includes(short)) return agent;
+  return agent === "" ? short : `${agent} · ${short}`;
+}
+
 /** A message the owner just sent in the pet, before herd.db records its turn. */
 export interface PendingSay {
   /** Negative id so React keys never collide with herd.db turn ids. */
@@ -356,4 +368,59 @@ export function remainingSays(
     else kept.push(item);
   }
   return kept;
+}
+
+/** The pages of the expanded pet (ADR 0078): the conversation, the tasks, the cards. */
+export const PET_TABS = ["chat", "tasks", "cards"] as const;
+export type PetTab = (typeof PET_TABS)[number];
+
+/** A saved page, or the conversation when there is none or it is unknown. */
+export function readTab(saved: string | null): PetTab {
+  return PET_TABS.find((t) => t === saved) ?? "chat";
+}
+
+/** Ended tasks the 任务 page still shows: those of the last day, as on the board. */
+export const TASKS_ENDED_MS = 24 * 60 * 60_000;
+
+/** Running tasks that need the owner come first. */
+const RUNNING_ORDER: Record<Stage, number> = {
+  "needs-owner": 0,
+  stuck: 1,
+  working: 2,
+  queued: 3,
+  done: 4,
+  failed: 4,
+};
+
+/**
+ * The 任务 page: tasks still running (waiting for the owner or stuck first, then the newest), and
+ * those that ended in the last day, newest first.
+ */
+export function taskGroups(
+  tasks: readonly Task[],
+  now = Date.now(),
+): { running: Task[]; ended: Task[] } {
+  const newest = (a: Task, b: Task) =>
+    (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
+  const running = tasks
+    .filter(canStop)
+    .sort((a, b) => RUNNING_ORDER[a.stage] - RUNNING_ORDER[b.stage] || newest(a, b));
+  const ended = tasks
+    .filter((t) => !canStop(t) && now - (Date.parse(t.updatedAt) || 0) <= TASKS_ENDED_MS)
+    .sort(newest);
+  return { running, ended };
+}
+
+/**
+ * The 卡片 page: cards whose buttons still work (waiting for the owner), in the order they came,
+ * then the others, newest first.
+ */
+export function cardGroups(cards: readonly PetCard[]): { waiting: PetCard[]; recent: PetCard[] } {
+  const waiting = cards.filter((c) => c.open);
+  const recent = cards
+    .map((c, i) => ({ c, i, t: Date.parse(c.at) || 0 }))
+    .filter(({ c }) => !c.open)
+    .sort((a, b) => b.t - a.t || b.i - a.i)
+    .map(({ c }) => c);
+  return { waiting, recent };
 }

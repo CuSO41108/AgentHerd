@@ -6,7 +6,7 @@
 // Its top-left corner and edges resize it. Drag the figure anywhere; the small button folds it
 // into a dot, which counts what came meanwhile.
 
-import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
+import type { PetCard, PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
   Fragment,
   type KeyboardEvent,
@@ -25,6 +25,7 @@ import {
   badgeOf,
   CHAT_DEFAULT,
   type ChatSize,
+  cardGroups,
   conversationOf,
   dragChat,
   type Entry,
@@ -37,10 +38,13 @@ import {
   newestScroll,
   newLine,
   type PendingSay,
+  type PetTab,
   readChatSize,
+  readTab,
   remainingSays,
   separatorOf,
   statusOf,
+  taskGroups,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
@@ -56,6 +60,8 @@ const AVATAR_SCALE = 0.36;
 const COLLAPSED_KEY = "agentherd.pet.collapsed";
 /** The size the owner gave the conversation (ADR 0070). */
 const CHAT_KEY = "agentherd.pet.chat";
+/** The page the expanded pet shows (ADR 0078). */
+const TAB_KEY = "agentherd.pet.tab";
 /** Room on the screen before the pet has measured itself: the figure, input and margins. */
 const CHAT_CHROME = { width: 60, height: 280 };
 
@@ -130,6 +136,13 @@ export function Pet() {
   const [note, setNote] = useState<string>();
   const [hello, setHello] = useState(false);
   const [chat, setChat] = useState<ChatSize>(() => readChatSize(localStorage.getItem(CHAT_KEY)));
+  const [tab, setTabState] = useState<PetTab>(() => readTab(localStorage.getItem(TAB_KEY)));
+  /** New lines that came while another page was shown. */
+  const [chatUnread, setChatUnread] = useState(0);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const openRef = useRef(open);
+  openRef.current = open;
   /** The largest conversation that fits on this screen next to the rest of the pet. */
   const [room, setRoom] = useState<ChatSize>(screenRoom);
   const lastId = useRef<number | undefined>(undefined);
@@ -170,9 +183,16 @@ export function Pet() {
       if (f !== undefined) setFlash({ mood: f, until: t + FLASH_MS });
       setLastActive(t);
       setNote(undefined);
-      // Shown in full at once; a folded pet only counts it.
+      // Shown in full at once; a folded pet only counts it. A closed panel opens on the
+      // conversation; an open one on another page counts it on the 对话 tab (ADR 0078).
       if (folded.current) setUnread((n) => n + 1);
-      else setOpen(true);
+      else {
+        if (!openRef.current) {
+          setTabState("chat");
+          localStorage.setItem(TAB_KEY, "chat");
+        } else if (tabRef.current !== "chat") setChatUnread((n) => n + 1);
+        setOpen(true);
+      }
     };
     h.pet()
       .then((v) => apply(v, true))
@@ -244,11 +264,16 @@ export function Pet() {
   useLayoutEffect(() => {
     const el = listEl.current;
     if (!shown || el === null || newestKey === "") return;
+    // The other pages start at their top.
+    if (tab !== "chat") {
+      el.scrollTop = 0;
+      return;
+    }
     const newest = el.lastElementChild;
     const top = newest instanceof HTMLElement ? newest.offsetTop - 4 : el.scrollHeight;
     el.scrollTop = newestScroll(top, el.scrollHeight - el.clientHeight);
     fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
-  }, [shown, newestKey]);
+  }, [shown, newestKey, tab]);
 
   // Measures how big the conversation may get: the screen less the rest of the pet.
   const size = fitChat(chat, room);
@@ -409,6 +434,8 @@ export function Pet() {
   const send = async () => {
     const text = draft.trim();
     if (text === "" || offline) return;
+    // What the owner says shows in the conversation.
+    setTab("chat");
     const id = nextSayId.current--;
     const afterId = view.history.at(-1)?.id ?? 0;
     const prevLastId = view.last?.id;
@@ -459,10 +486,11 @@ export function Pet() {
   };
   const openTask = (taskId: string) => bridge.pet?.openApp(taskId);
 
-  // The first card that waits for the owner, scrolled to from the note above the input.
-  const toWaiting = () => {
-    const el = listEl.current?.querySelector<HTMLElement>("[data-open='1']");
-    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+  // Pages of the expanded pet (ADR 0078); the choice is kept.
+  const setTab = (next: PetTab) => {
+    setTabState(next);
+    localStorage.setItem(TAB_KEY, next);
+    if (next === "chat") setChatUnread(0);
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -534,11 +562,70 @@ export function Pet() {
     return <LineView line={entry.line} openFile={openFile} />;
   };
 
+  const taskPage = taskGroups(tasks, now);
+  const cardPage = cardGroups(view.cards ?? []);
+  const tabButton = (id: PetTab, label: string, count: number, tone: "blue" | "amber") => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === id}
+      className={tab === id ? "pet-tab on" : "pet-tab"}
+      onClick={() => setTab(id)}
+    >
+      {label}
+      {count > 0 && <span className={`pet-tab-count ${tone}`}>{count}</span>}
+    </button>
+  );
+  const taskView = (task: Task) => (
+    <TaskCard
+      key={task.id}
+      task={task}
+      now={now}
+      busy={busy}
+      stop={(id) => void stop(id)}
+      open={openTask}
+    />
+  );
+  const tasksPage =
+    taskPage.running.length === 0 && taskPage.ended.length === 0 ? (
+      <div className="pet-empty">现在没有任务。跟主管说要做的事，它会开任务。</div>
+    ) : (
+      <>
+        {taskPage.running.length > 0 && (
+          <div className="pet-section">在跑 · {taskPage.running.length}</div>
+        )}
+        {taskPage.running.map(taskView)}
+        {taskPage.ended.length > 0 && (
+          <div className="pet-section">一天内结束的 · {taskPage.ended.length}</div>
+        )}
+        {taskPage.ended.map(taskView)}
+      </>
+    );
+  const cardView = (card: PetCard) => (
+    <div key={card.ref} className="pet-cardwrap" data-open={card.open ? "1" : "0"}>
+      <CardView card={card} actions={actions} />
+    </div>
+  );
+  const cardsPage =
+    cardPage.waiting.length === 0 && cardPage.recent.length === 0 ? (
+      <div className="pet-empty">还没有卡片。要你确认的事、任务的结果都会在这里。</div>
+    ) : (
+      <>
+        {cardPage.waiting.length > 0 && (
+          <div className="pet-section">等你处理 · {cardPage.waiting.length}</div>
+        )}
+        {cardPage.waiting.map(cardView)}
+        {cardPage.recent.length > 0 && <div className="pet-section">最近的卡片</div>}
+        {cardPage.recent.map(cardView)}
+      </>
+    );
+
+  // On the 卡片 page the waiting cards are already in sight.
   const waiting =
-    view.pending.length === 0 ? undefined : (
-      <button type="button" className="pet-waiting" onClick={toWaiting}>
+    view.pending.length === 0 || tab === "cards" ? undefined : (
+      <button type="button" className="pet-waiting" onClick={() => setTab("cards")}>
         <i aria-hidden="true" />
-        {view.pending.length} 件等你确认 ↑
+        {view.pending.length} 件等你确认 →
       </button>
     );
 
@@ -617,16 +704,27 @@ export function Pet() {
               ✕
             </button>
           </div>
+          <div className="pet-tabs" role="tablist" aria-label="桌宠的页面">
+            {tabButton("chat", "对话", chatUnread, "blue")}
+            {tabButton("tasks", "任务", taskPage.running.length, "blue")}
+            {tabButton("cards", "卡片", cardPage.waiting.length, "amber")}
+          </div>
           <div
             className="pet-chat-list"
             ref={listEl}
+            role="tabpanel"
             style={{ height: size.list }}
             onScroll={(e) => {
+              if (tab !== "chat") return;
               const el = e.currentTarget;
               fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
             }}
           >
-            {entries.length === 0 ? (
+            {tab === "tasks" ? (
+              tasksPage
+            ) : tab === "cards" ? (
+              cardsPage
+            ) : entries.length === 0 ? (
               <div className="pet-empty">
                 还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。
               </div>
