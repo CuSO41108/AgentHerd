@@ -25,6 +25,7 @@ const bridge: Bridge = {
     dragEnd: () => ipcRenderer.send("pet:drag-end"),
     resize: (width, height) => ipcRenderer.send("pet:resize", width, height),
     openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
+    openFile: (path) => ipcRenderer.send("pet:open-file", path),
   },
   onConnection(listener) {
     const handler = (_e: unknown, connected: boolean) => listener(connected);

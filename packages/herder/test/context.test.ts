@@ -123,12 +123,13 @@ describe("HerderContext", () => {
     );
     expect(textOf(out[2])).toMatch(/^<acp [^>]*>m00002<\/acp>\n\[Owner's message\]\n看看任务$/);
     const asked = out[3] as Extract<AgentMessage, { role: "assistant" }>;
-    expect(textOf(asked)).toMatch(/^<acp [^>]*>m00003<\/acp>\n我看一下$/);
+    expect(textOf(asked)).toBe("我看一下"); // the Herder's own words carry no tag
+
     expect(asked.content[1]).toBe(
       (log[1] as Extract<AgentMessage, { role: "assistant" }>).content[1],
     );
     expect(textOf(out[4])).toMatch(/^<acp [^>]*>m00005<\/acp>\nOpen tasks: none$/);
-    expect(textOf(out[5])).toMatch(/^<acp [^>]*>m00006<\/acp>\n现在没有任务。$/);
+    expect(textOf(out[5])).toBe("现在没有任务。");
     expect(out).toHaveLength(6);
     expect(textOf(log[0])).toBe("[Owner's message]\n看看任务");
   });
@@ -216,11 +217,13 @@ describe("HerderContext", () => {
 
   it("a message taken back with a failed turn does not keep its old size in the ref", () => {
     const first = owner("你好");
-    const s = setup([first, reply("y".repeat(8000))]);
+    const s = setup([first, owner("y".repeat(8000))]);
     expect(textOf(s.project()[3])).toMatch(/^<acp tokens="2\.0K" type="text">m00003<\/acp>\n/);
     s.context.rollback(1);
-    s.box.messages = [SYSTEM, first, reply("好")];
-    expect(textOf(s.project()[3])).toMatch(/^<acp tokens="1" type="text">m00003<\/acp>\n好$/);
+    s.box.messages = [SYSTEM, first, owner("好")];
+    expect(textOf(s.project()[3])).toMatch(
+      /^<acp tokens="\d" type="text">m00003<\/acp>\n\[Owner's message\]\n好$/,
+    );
   });
 
   it("when the engine fails, the newest whole turns go out as they are", () => {
@@ -240,5 +243,22 @@ describe("HerderContext", () => {
         '<acp tokens="3" type="text">m00005</acp>\n好的，<acp tokens="1.2K" type="session_list">m00007</acp>看过了',
       ),
     ).toBe("好的，看过了");
+  });
+
+  it("removes lines that begin like a tag but end otherwise", () => {
+    expect(withoutContextMarks('<acp tokens="39" type="text">m00205</p>\n找到两个：\n- 甲')).toBe(
+      "找到两个：\n- 甲",
+    );
+    expect(withoutContextMarks('  <acp tokens="39" text="text">m00195</p>\n好')).toBe("好");
+    expect(withoutContextMarks("我用 <acp> 标签吗？")).toBe("我用 <acp> 标签吗？");
+  });
+
+  it("takes tags the model wrote itself out of its earlier replies", () => {
+    const out = setup([
+      owner("在吗"),
+      reply('<acp tokens="39" type="text">m00205</p>\n在的'),
+      owner("好"),
+    ]).project();
+    expect(textOf(out[3])).toBe("在的");
   });
 });

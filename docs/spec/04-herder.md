@@ -138,7 +138,10 @@ later task gets and which counts as the owner allowing that step.
   `herd.db` with the read tools; after a fold the Herder must re-read it.
 - The whole conversation is kept in `herd.db` (`herder_log`) and reloaded after a restart; nothing
   is cut. Before each request it goes through billion-context's kernel (`packages/context-kernel`):
-  each message gets a ref, and parts the Herder folded with `compress` show as its summary. Summaries
+  each message gets a ref (the owner's messages and tool results only; the Herder's own replies go
+  without one, and a line it writes that begins like a ref tag never reaches the owner,
+  [ADR 0073](../adr/0073-the-pets-conversation-looks-like-a-chat.md)), and parts the Herder folded
+  with `compress` show as its summary. Summaries
   keep unresolved owner instructions verbatim; `search_context` and `decompress` bring folded parts
   back. The window is the model's, at most 128,000 tokens. At 90 % of it AgentHerd folds the oldest
   whole turns itself (never the current one); a "context too long" error folds about half and

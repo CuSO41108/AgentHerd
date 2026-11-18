@@ -7,6 +7,7 @@
 // writes text of its own and makes no model calls.
 
 import type { HerderTurn, OwnerCard } from "@agentherd/core";
+import { withoutContextMarks } from "@agentherd/herder";
 import type {
   Channel,
   ChannelBinding,
@@ -147,7 +148,9 @@ export function historyOf(
 ): PetLine[] {
   const lines: PetLine[] = [];
   for (const turn of turns) {
-    const text = cut(turn.text, PET_HISTORY_TEXT_MAX);
+    // Older replies may still begin with a ref tag the model wrote itself (ADR 0045).
+    const said = turn.role === "herder" || turn.role === "ask";
+    const text = cut(said ? withoutContextMarks(turn.text) : turn.text, PET_HISTORY_TEXT_MAX);
     if (text === "") continue;
     const base = { id: turn.id, at: turn.at, text };
     if (turn.role === "owner" || turn.role === "answer") {

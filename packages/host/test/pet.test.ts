@@ -188,6 +188,11 @@ describe("PetFeed (ADR 0070)", () => {
       () => undefined,
     );
     expect(long[0]?.text).toHaveLength(PET_HISTORY_TEXT_MAX);
+    const tagged = historyOf(
+      [{ id: 2, at, role: "herder", text: '<acp tokens="39" type="text">m00205</p>\n找到两个' }],
+      () => undefined,
+    );
+    expect(tagged[0]?.text).toBe("找到两个");
   });
 
   it("refuses stale buttons, empty text and a stopped herd", async () => {

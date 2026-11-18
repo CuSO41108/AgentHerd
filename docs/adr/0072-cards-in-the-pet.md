@@ -1,6 +1,6 @@
 # ADR 0072: The pet shows the cards Feishu shows, and a card for each task
 
-- Status: Accepted
+- Status: Accepted; how the cards look changed by [0073](0073-the-pets-conversation-looks-like-a-chat.md)
 - Date: 2026-11-18
 - Changes: [0070](0070-a-desktop-pet.md) (the pet showed the Herder's lines as text and only the
   first card that waited for the owner)

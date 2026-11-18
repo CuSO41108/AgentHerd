@@ -259,3 +259,89 @@ export function foldBody(body: string): { head: string; folded: boolean } {
     folded: true,
   };
 }
+
+/** A file a message names (ADR 0073): shown under it with a button that opens it. */
+export interface FileRef {
+  path: string;
+  name: string;
+  /** Its folder, as the message wrote it. */
+  dir: string;
+}
+
+/** Absolute or ~/ paths, up to a space, quote, bracket or Chinese punctuation; not inside a link. */
+const FILE_PATH =
+  /(?<![\w.:/-])(?:~|\/(?:Users|tmp|private|var|home|opt|Volumes))\/[^\s`'"<>()（）[\]{}，。；：、！？「」]+/g;
+const FILE_NAME = /\.[A-Za-z0-9]{1,8}$/;
+/** At most this many files under one message. */
+export const FILES_MAX = 6;
+
+/** The files a message names, in order, each once. A path without an extension is a folder. */
+export function filesIn(text: string): FileRef[] {
+  const out: FileRef[] = [];
+  for (const m of text.matchAll(FILE_PATH)) {
+    const path = m[0].replace(/[.,;:!?*_]+$/, "");
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    if (!FILE_NAME.test(name) || out.some((f) => f.path === path)) continue;
+    out.push({ path, name, dir: path.slice(0, path.length - name.length - 1) });
+    if (out.length === FILES_MAX) break;
+  }
+  return out;
+}
+
+/** A reply longer than this is folded behind 「展开全文」. */
+export const FOLD_LINES = 12;
+export const FOLD_TEXT = 600;
+/** Lines a folded reply shows. */
+const FOLD_SHOWN = 8;
+
+/** Whether a reply is folded, and how many more lines 「展开全文」 shows. */
+export function foldOf(text: string): { folded: boolean; more: number } {
+  const lines = text.split("\n").length;
+  if (lines <= FOLD_LINES && text.length <= FOLD_TEXT) return { folded: false, more: 0 };
+  return { folded: true, more: Math.max(0, lines - FOLD_SHOWN) };
+}
+
+/** A pause this long in the conversation gets a time line. */
+export const GAP_MS = 10 * 60_000;
+
+/**
+ * The time line before an entry: the day and time at the start and on a new day, the time after a
+ * pause of `GAP_MS`, nothing otherwise.
+ */
+export function separatorOf(
+  at: string,
+  previous: string | undefined,
+  now = new Date(),
+): string | undefined {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const before = previous === undefined ? undefined : new Date(previous);
+  const sameDay = before !== undefined && before.toDateString() === d.toDateString();
+  if (sameDay) return d.getTime() - before.getTime() >= GAP_MS ? time : undefined;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return `今天 ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${time}`;
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+}
+
+/** A task's event as one quiet line: which task, then what happened (「title: text」). */
+export function eventOf(text: string): { task?: string; text: string } {
+  const at = text.indexOf(": ");
+  if (at <= 0 || at > 80) return { text };
+  return { task: text.slice(0, at), text: text.slice(at + 2) };
+}
+
+/** The line under 「主管」 at the top of the conversation. */
+export function statusOf(connected: boolean, working: number): string {
+  if (!connected) return "还没连上飞书";
+  return working > 0 ? `飞书已连接 · ${working} 个任务在跑` : "飞书已连接";
+}
+
+/** The model of a task without its service: "deepseek/deepseek-flash" → "deepseek-flash". */
+export function modelName(model: string | undefined): string | undefined {
+  if (model === undefined || model === "") return undefined;
+  return model.slice(model.lastIndexOf("/") + 1);
+}
