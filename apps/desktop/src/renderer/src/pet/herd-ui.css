@@ -415,10 +415,12 @@
   }
 }
 
-/* A picture shown as an `image` item (ADR 0075): drawn like a Markdown picture, caption under it. */
+/* A picture shown as an `image` item (ADR 0075): drawn like a Markdown picture, caption under it.
+   Items sit at the start so a small picture keeps its own size instead of stretching to the width. */
 .pet-ui-picture {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
 }
 
