@@ -106,6 +106,11 @@ export interface HerdOptions {
     on(): readonly FeedSource[];
     read(source: FeedSource, query: FeedQuery, mark: boolean): Promise<FeedItem[]>;
   };
+  /** Tencent WeStock live quotes + research CLI availability (ADR 0076). */
+  westock?: {
+    state(): { enabled: boolean; cliReady: boolean };
+    quote(query: string): Promise<string>;
+  };
   /** Lines every new task gets about tools on this Mac (ADR 0059). Read on every task. */
   toolNotes?: () => string[];
   /** Minutes between two looks at those accounts (default 20, give or take 5). */

@@ -378,6 +378,20 @@ function sourceLines(host: HerderHost): string[] {
   ];
 }
 
+/** Tencent WeStock live quotes + research CLI status (ADR 0076). */
+function westockLines(host: HerderHost): string[] {
+  const ws = host.westock?.();
+  if (ws === undefined) return [];
+  if (!ws.enabled) {
+    return [
+      "Tencent WeStock (腾讯自选股): turned off in 设置 › 应用连接 (ask the owner to turn it on before looking up live quotes).",
+    ];
+  }
+  return [
+    `Tencent WeStock (腾讯自选股): live quotes on via stock_quote; deep research CLI (westock): ${ws.cliReady ? "ready for tasks" : "not installed (tasks still get WESTOCK_QUOTE for live quotes; owner can install westock CLI in 应用连接)"}.`,
+  ];
+}
+
 /** A mail watch by id prefix or words of what it is about. */
 function oneWatch(host: HerderHost, query: string): { id: string; about: string } {
   const q = normalize(query);
@@ -709,6 +723,13 @@ const feedReadSchema = obj({
   ),
 });
 
+const stockQuoteSchema = obj({
+  query: str({
+    description:
+      'Market summary ("大盘"/"A股"/"港股"/"美股"/"指数") or one or more comma-separated stock/index/ETF names or codes (e.g. "腾讯控股", "600519", "NVDA,AAPL", "中证500")',
+  }),
+});
+
 const mailUnwatchSchema = obj({
   watch: str({ description: "Mail watch id prefix or words of what it is about" }),
 });
@@ -751,6 +772,7 @@ export function herderTools(
           ...scheduleLines(host),
           ...noticeLines(host),
           ...sourceLines(host),
+          ...westockLines(host),
         ];
         return ok(lines.join("\n"));
       },
@@ -1140,6 +1162,23 @@ export function herderTools(
       },
     };
     all.push(feedTool as unknown as AgentTool);
+  }
+  const stockQuote = host.stockQuote;
+  if (stockQuote !== undefined && (host.westock?.()?.enabled ?? true)) {
+    const stockTool = {
+      name: "stock_quote",
+      label: "Stock quotes",
+      description:
+        "Reads live stock, index, or ETF market quotes (price, change, pct, open, high/low, prevClose, turnover, turnover rate, PE, market cap) from Tencent Finance for A-shares, HK, US and major indices. Read-only, zero login. Never invent quotes; report numbers strictly as returned and note market data is objective reference only, not investment advice.",
+      parameters: stockQuoteSchema,
+      execute: async (_id: string, args: { query: string }) => {
+        if (host.westock?.()?.enabled === false) {
+          return ok("腾讯自选股 is turned off in 设置 › 应用连接; ask the owner to turn it on.");
+        }
+        return ok(await stockQuote(args.query));
+      },
+    };
+    all.push(stockTool as unknown as AgentTool);
   }
   if (host.watchIntake !== undefined) {
     all.push(...intakeTools(host, turn).map((t) => t as unknown as AgentTool));

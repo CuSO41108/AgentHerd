@@ -27,6 +27,8 @@ export interface CliConfig {
   socials?: Partial<Record<"xiaohongshu" | "zhihu", import("./socials.ts").SocialConfig>>;
   /** News sources turned off in 应用连接 (ADR 0059); all are on unless listed. */
   feedsOff?: ("github-trending" | "hacker-news" | "arxiv")[];
+  /** Turn off built-in Tencent WeStock live quotes in 应用连接 (ADR 0076); on unless true. */
+  westockOff?: boolean;
   /** The owner's Obsidian vault, told to every new task (ADR 0059). */
   obsidianVault?: string;
   /** The desktop pet (ADR 0070); DEFAULT_PET where missing. */

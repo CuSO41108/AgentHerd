@@ -52,6 +52,7 @@ const TOOLS: Record<string, string> = {
   notice_level: "改消息去处",
   style_set: "换说话风格",
   feed_read: "看资讯",
+  stock_quote: "查行情",
   relay_start: "开始转发",
   relay_end: "结束转发",
   compress: "折叠旧对话",

@@ -156,7 +156,11 @@ export interface HerderHost {
   feeds?(): readonly FeedSource[];
   /** Reads one; `mark` records the items as told to the owner. */
   readFeed?(source: FeedSource, query: FeedQuery, mark: boolean): Promise<FeedItem[]>;
-  /** Lines every new task gets: tools on this Mac the agent can use (lark-cli, Obsidian, ADR 0059). */
+  /** Whether Tencent WeStock quote lookup and local research CLI are ready (ADR 0076). */
+  westock?(): { enabled: boolean; cliReady: boolean };
+  /** Reads live market quotes (indices, A-shares, HK, US) from Tencent Finance (ADR 0076). */
+  stockQuote?(query: string): Promise<string>;
+  /** Lines every new task gets: tools on this computer the agent can use (ADR 0059, ADR 0076). */
   toolNotes?(): string[];
   /** New-work watches (ADR 0052), when GitHub is set up. */
   intakeWatches?(): IntakeWatch[];

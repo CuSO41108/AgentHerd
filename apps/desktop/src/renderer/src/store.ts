@@ -18,6 +18,7 @@ import type {
   TasksView,
   TranscriptView,
   WatchView,
+  WestockView,
 } from "@agentherd/host/api";
 import { create } from "zustand";
 import type { Bridge } from "../../shared/bridge";
@@ -69,6 +70,8 @@ interface AppState {
   login: LoginView | undefined;
   /** 应用连接 › 资讯; loaded when the page shows. */
   feeds: FeedView[] | undefined;
+  /** 应用连接 › 腾讯自选股; kept by "westock" events. */
+  westock: WestockView | undefined;
   providers: ProviderView[];
   setup: SetupState | undefined;
   page: Page;
@@ -127,6 +130,7 @@ export const useApp = create<AppState>()((set, get) => ({
   lark: undefined,
   login: undefined,
   feeds: undefined,
+  westock: undefined,
   providers: [],
   setup: undefined,
   page: hashPage() ?? "tasks",
@@ -222,6 +226,9 @@ function applyEvent(event: HostEvent): void {
       break;
     case "lark":
       useApp.setState({ lark: event.data });
+      break;
+    case "westock":
+      useApp.setState({ westock: event.data });
       break;
     case "login":
       useApp.setState({ login: event.data });

@@ -270,6 +270,13 @@ export class Herd {
             readFeed: (source: FeedSource, query: FeedQuery, mark: boolean) =>
               (this.opts.feeds as NonNullable<HerdOptions["feeds"]>).read(source, query, mark),
           }),
+      ...(this.opts.westock === undefined
+        ? {}
+        : {
+            westock: () => (this.opts.westock as NonNullable<HerdOptions["westock"]>).state(),
+            stockQuote: (query: string) =>
+              (this.opts.westock as NonNullable<HerdOptions["westock"]>).quote(query),
+          }),
       ...(this.mail === undefined
         ? {}
         : {

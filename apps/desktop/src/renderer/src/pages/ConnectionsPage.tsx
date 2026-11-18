@@ -9,6 +9,7 @@ import { LarkRow } from "../components/LarkSection";
 import { ObsidianRow } from "../components/ObsidianRow";
 import { SocialRows } from "../components/SocialSection";
 import { Group, Section } from "../components/ui";
+import { WestockSection } from "../components/WestockSection";
 import { call, useApp } from "../store";
 
 /** 「已连接 4 个 · 1 个出错」 over 小红书, 知乎, 飞书, Notion and Obsidian. */
@@ -40,6 +41,7 @@ export function ConnectionsPage() {
     void call((h) => h.lark()).then((lark) => lark && useApp.setState({ lark }));
     void call((h) => h.apps()).then((apps) => apps && useApp.setState({ apps }));
     void call((h) => h.feeds()).then((feeds) => feeds && useApp.setState({ feeds }));
+    void call((h) => h.westock()).then((westock) => westock && useApp.setState({ westock }));
   }, []);
   return (
     <div className="flex flex-col gap-7">
@@ -55,6 +57,7 @@ export function ConnectionsPage() {
           </Group>
         </Section>
       </div>
+      <WestockSection />
       <FeedsSection />
     </div>
   );

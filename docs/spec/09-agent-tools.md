@@ -4,7 +4,8 @@ Applied ADRs: [0019](../adr/0019-relay-verbatim-board-and-reports.md),
 [0029](../adr/0029-only-mass-deletes-ask-the-owner.md),
 [0056](../adr/0056-leaving-the-mac-asks-and-questions-close.md),
 [0041](../adr/0041-agent-tools-through-a-local-mcp-gateway.md),
-[0060](../adr/0060-pi-tools-through-the-mcp-gateway.md).
+[0060](../adr/0060-pi-tools-through-the-mcp-gateway.md),
+[0076](../adr/0076-westock-market-quotes-and-research-cli.md).
 
 AgentHerd gives every task one MCP server, `agentherd`. Through it the agent reports progress
 (`herd_report`) and, when the owner has connected apps, uses them (Gmail, Slack, GitHub …)
@@ -221,6 +222,21 @@ reads them with `feed_read` (04-herder).
 
 **Notes.** Notion is a Composio app (§3). An Obsidian vault folder set in 应用连接 → 账号 → Obsidian
 (`obsidianVault` in config.json, expanding `~/` and `~\`, checked to exist) is told to every new task like lark-cli.
+
+## 3d. Tencent WeStock market quotes and research CLI (ADR 0076)
+
+**Live quotes (`WESTOCK_QUOTE` / `stock_quote`).** Unless switched off in 应用连接 → 行情与投研 →
+腾讯自选股 (`westockOff` in config.json), no sign-in is needed. Agents get the read-only
+`WESTOCK_QUOTE` MCP tool beside Composio and news tools, and the Herder gets `stock_quote`
+(04-herder) backed by `smartbox.gtimg.cn` search and GBK-decoded `qt.gtimg.cn` market packets across
+A-shares, HK, US, ETFs, and major indices. Every formatted answer states that objective market data
+is for reference only and is not investment advice.
+
+**Official research CLI (`westock`).** When the owner installs the `@tencent-adm/westock-data` CLI
+from 应用连接, the host verifies the download from `stockbuddy.qq.com` against its pinned SHA-256
+digest (`packages/host/src/westock.ts`), places the executable under `<home>/bin`, prepends that
+folder to task `PATH`, and describes `westock` availability to new tasks via `toolNotes()`. Removing
+the managed CLI deletes only `<home>/bin/westock(.exe)`.
 
 ## 4. Failure behavior
 
