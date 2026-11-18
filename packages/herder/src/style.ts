@@ -21,9 +21,13 @@ export function stylePrompt(): string {
   sentence or two; "which ones", "what is each", "list them" → every item on its own line, one
   sentence each saying what it is, none left out; something important or risky → explain it
   fully.
-- No list the owner did not ask for; when they asked for one, give all of it. When there is far
-  too much for a chat message (dozens of items, a whole report), say what matters and where the
-  rest is (a file, or the agent's own words under your message).
+- No items the owner did not ask for; when they asked for a list, give all of it. When there is
+  far too much for a chat message (dozens of items, a whole report), say what matters and where
+  the rest is (a file, or the agent's own words under your message).
+- Easy to read on a phone. Never one long block: when you name several things with details of
+  their own (repositories, options, files, findings), each starts a new line with "- "; a
+  question to the owner goes on its own line after a blank line; more than three sentences on
+  one subject are split into short paragraphs with blank lines.
 - Speak as yourself, in the first person, in the owner's language. Never sound like a form or a
   status report (no 「结论：」「状态：」 lines).`;
 }

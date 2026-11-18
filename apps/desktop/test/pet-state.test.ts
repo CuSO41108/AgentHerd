@@ -1,21 +1,22 @@
 import type { PetView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
+  badgeOf,
   CHAT_DEFAULT,
   CHAT_MIN,
-  cannedLine,
-  clickPlan,
   clockOf,
+  cut,
   dragChat,
   FLASH_MS,
   fitChat,
   flashOf,
   historyHead,
-  lineText,
   moodOf,
   newestScroll,
+  newLine,
   readChatSize,
   SLEEP_AFTER_MS,
+  trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
 
@@ -58,22 +59,40 @@ describe("pet mood (ADR 0070)", () => {
   });
 });
 
-describe("pet lines", () => {
-  it("does not repeat the line before", () => {
-    const first = cannedLine("working");
-    expect(cannedLine("working", first)).not.toBe(first);
-    expect(cannedLine("sleeping", cannedLine("sleeping"))).toBe("我先眯一会儿…");
+describe("new lines open the conversation (ADR 0070)", () => {
+  const at = "2026-11-18T03:44:18Z";
+
+  it("takes the first look as history, then opens for every newer line", () => {
+    const line = { id: 5, at, kind: "say" as const, text: "好" };
+    expect(newLine(undefined, line)).toBe(false);
+    expect(newLine(5, line)).toBe(false);
+    expect(newLine(4, line)).toBe(true);
+    expect(newLine(4, undefined)).toBe(false);
   });
 
-  it("names the task and cuts long text", () => {
-    expect(
-      lineText({ id: 1, at: "", kind: "report", task: "修登录", result: "done", text: "好了" }),
-    ).toBe("「修登录」做完了：好了");
-    expect(lineText({ id: 1, at: "", kind: "task", task: "修登录", text: "跑测试" })).toBe(
-      "「修登录」跑测试",
-    );
-    const long = lineText({ id: 1, at: "", kind: "say", text: "字".repeat(200) });
-    expect(long).toHaveLength(90);
+  it("shows the latest line after the conversation when the conversation lacks it", () => {
+    const history = [{ id: 1, at: "2026-11-18T03:40:00Z", kind: "say" as const, text: "在查了" }];
+    const progress = { id: 9, at, kind: "task" as const, task: "搜面馆", text: "启动中" };
+    expect(trailingLine(history, progress)).toBe(progress);
+    // Already the newest message of the conversation, spaces aside.
+    expect(trailingLine(history, { ...progress, text: "在查 了" })).toBeUndefined();
+    // Older than the conversation's newest message, or a card of its own.
+    expect(trailingLine(history, { ...progress, at: "2026-11-18T03:00:00Z" })).toBeUndefined();
+    expect(trailingLine(history, { ...progress, kind: "ask" })).toBeUndefined();
+    expect(trailingLine([], progress)).toBe(progress);
+    expect(trailingLine(history, undefined)).toBeUndefined();
+  });
+
+  it("counts on the folded dot what waits or came meanwhile", () => {
+    expect(badgeOf(0, 0)).toBe(0);
+    expect(badgeOf(2, 1)).toBe(2);
+    expect(badgeOf(0, 3)).toBe(3);
+  });
+
+  it("cuts a task name or title to one line", () => {
+    expect(cut("修\n登录", 10)).toBe("修 登录");
+    const long = cut("字".repeat(200), 30);
+    expect(long).toHaveLength(30);
     expect(long.endsWith("…")).toBe(true);
   });
 });
@@ -111,14 +130,7 @@ describe("pet frames", () => {
   });
 });
 
-describe("the expanded pet (ADR 0070)", () => {
-  it("one click opens the bubble, a double click switches to the conversation", () => {
-    expect(clickPlan(false, false)).toBe("open");
-    expect(clickPlan(true, false)).toBe("close-later");
-    expect(clickPlan(true, true)).toBe("switch");
-    expect(clickPlan(false, true)).toBe("switch");
-  });
-
+describe("the conversation (ADR 0070)", () => {
   it("heads a line with its task and how it ended", () => {
     const at = "2026-11-17T12:00:00Z";
     expect(historyHead({ id: 1, at, kind: "owner", text: "搜面馆" })).toBeUndefined();
