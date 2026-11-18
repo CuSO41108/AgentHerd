@@ -242,6 +242,7 @@ body {
 }
 
 .pet-msg {
+  flex: none;
   align-self: flex-start;
   max-width: 86%;
   padding: 5px 9px;
@@ -283,6 +284,8 @@ body {
 
 /* Cards, drawn as Feishu draws them (ADR 0072). */
 .pet-cardx {
+  /* A card keeps its height in the scrolling list; overflow: hidden would let flex shrink it. */
+  flex: none;
   align-self: stretch;
   border: 1px solid var(--pet-line);
   border-radius: 10px;
