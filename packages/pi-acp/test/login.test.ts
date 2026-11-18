@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,7 +22,10 @@ const loginModel = JSON.stringify({
 
 /** A host stand-in: checks the token line, then answers one modelAuth call. */
 function fakeHost(answer: (params: unknown) => object): Promise<string> {
-  const path = join(mkdtempSync(join(tmpdir(), "ah-")), "s.sock");
+  const path =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\ah-login-${randomBytes(8).toString("hex")}`
+      : join(mkdtempSync(join(tmpdir(), "ah-")), "s.sock");
   const server = createServer((socket) => {
     let rest = "";
     let token: string | undefined;

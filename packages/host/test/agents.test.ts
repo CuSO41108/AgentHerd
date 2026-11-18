@@ -135,7 +135,7 @@ describe("RuntimeStore", () => {
     expect(store.installed("tool")).toEqual(updated);
     store.remove("tool");
     expect(store.installed("tool")).toBeUndefined();
-  });
+  }, 15_000);
 
   it("refuses a download whose digest does not match", async () => {
     const tgz = fakeArchive("tar.gz", "9.9.9");

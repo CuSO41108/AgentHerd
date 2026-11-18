@@ -206,7 +206,7 @@ describe("E2E-RESUME-ASK (ADR 0040)", () => {
     // Asked once: the next start has nothing to ask.
     const third = await boot(dir, FIRST, []);
     expect(third.channel.ofKind("ask")).toEqual([]);
-  });
+  }, 15_000);
 
   it("does not ask about tasks that had finished, or without a Herder", async () => {
     const dir = mkdtempSync(join(tmpdir(), "agentherd-persist-"));

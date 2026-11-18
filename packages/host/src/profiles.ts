@@ -253,7 +253,7 @@ export const CLAUDE_EXECUTABLE_ENV = "CLAUDE_CODE_EXECUTABLE";
 
 /**
  * The owner's own Claude Code CLI (ADR 0069): `AGENTHERD_CLAUDE_CLI`, `claude` on PATH, or where
- * Anthropic's installers put it (an app started from Finder has a short PATH).
+ * Anthropic's installers put it (a GUI app has a short PATH).
  */
 export function localClaude(
   env: NodeJS.ProcessEnv = process.env,
@@ -265,10 +265,17 @@ export function localClaude(
   if (named !== undefined && named !== "") return named;
   const onSystem = onPath(["claude"], envValue(env, "PATH"), exists, platform);
   if (onSystem !== undefined) return onSystem;
-  if (platform === "win32") return undefined;
+  if (platform === "win32") {
+    const localAppData = envValue(env, "LOCALAPPDATA") ?? win32.join(home, "AppData", "Local");
+    return [
+      win32.join(home, ".local", "bin", "claude.exe"),
+      win32.join(home, ".claude", "local", "claude.exe"),
+      win32.join(localAppData, "Programs", "claude", "claude.exe"),
+    ].find((p) => exists(p));
+  }
   return [
-    join(home, ".local", "bin", "claude"),
-    join(home, ".claude", "local", "claude"),
+    posix.join(home, ".local", "bin", "claude"),
+    posix.join(home, ".claude", "local", "claude"),
     "/opt/homebrew/bin/claude",
     "/usr/local/bin/claude",
   ].find((p) => exists(p));
