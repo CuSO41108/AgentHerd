@@ -168,6 +168,8 @@ export interface CoreTexts {
   allClosed: string;
   /** A Herder question closed because the owner wrote in the chat instead. */
   answeredInChat: string;
+  /** A tap on a Herder reply's choice that is no longer open (ADR 0074). */
+  choiceExpired: string;
   /** A Herder question nobody answered in time. */
   askTimedOut(minutes: number): string;
   // Why an item expired or a task ended.
@@ -364,6 +366,7 @@ const zh: CoreTexts = {
   skipAll: "都先不管",
   allClosed: "都处理完了",
   answeredInChat: "你在聊天里回了",
+  choiceExpired: "这个选项已经过期了，直接告诉我你要哪个吧。",
   askTimedOut: (m) => `${m >= 60 && m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`}没人回，先放下了`,
   turnEnded: "Agent 这一轮已结束",
   agentStoppedWaiting: "Agent 不再等待",
@@ -560,6 +563,7 @@ const en: CoreTexts = {
   skipAll: "None now",
   allClosed: "All handled",
   answeredInChat: "You answered in the chat",
+  choiceExpired: "That choice has expired; just tell me which one you want.",
   askTimedOut: (m) =>
     `No answer in ${m >= 60 && m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`}; set aside`,
   turnEnded: "the agent's turn ended",

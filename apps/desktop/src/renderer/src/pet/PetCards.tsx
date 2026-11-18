@@ -3,7 +3,9 @@
 // task, which follows the task as it runs. Buttons answer for the owner, as a tap in Feishu does.
 
 import type { PetCard, PetCardView, TasksView } from "@agentherd/host/api";
+import { hasHerdUi } from "@agentherd/protocol/herd-ui";
 import { type ReactNode, useState } from "react";
+import { ReplyBody } from "./PetConversation";
 import { PetMarkdown } from "./PetMarkdown";
 import {
   canStop,
@@ -13,6 +15,7 @@ import {
   foldBody,
   modelName,
   reportHead,
+  stepOf,
   TASK_STAGE,
 } from "./pet-state";
 
@@ -31,6 +34,7 @@ interface Actions {
   offline: boolean;
   press(target: string, action: string): void;
   openTask(taskId: string): void;
+  openFile(path: string): void;
 }
 
 function Shell(props: {
@@ -215,11 +219,39 @@ export function CardView(props: { card: PetCard; actions: Actions }) {
       );
     }
     case "text": {
+      // A Herder reply with herd-ui choices (ADR 0074): drawn as its reply, the answers live.
+      const target = view.target;
+      if (target !== undefined && view.options === undefined && hasHerdUi(view.text)) {
+        return (
+          <div
+            className={`pet-reply${view.tone === "error" ? " bad" : ""}`}
+            title={clockOf(card.at)}
+          >
+            {view.taskLabel !== undefined && (
+              <span className="pet-from">📋 「{view.taskLabel}」</span>
+            )}
+            <ReplyBody
+              text={view.text}
+              choices={{
+                open: card.open,
+                chosen: view.chosen,
+                disabled: actions.busy || actions.offline,
+                press: (action) => actions.press(target, action),
+              }}
+              openFile={actions.openFile}
+            />
+          </div>
+        );
+      }
       const tone: Tone = view.tone === "error" ? "red" : view.tone === "alarm" ? "amber" : "blue";
       const head = view.title ?? (view.taskLabel === undefined ? "AgentHerd" : view.taskLabel);
       return (
         <Shell tone={card.open ? tone : "gray"} head={head} at={card.at}>
-          <PetMarkdown text={view.text} />
+          {hasHerdUi(view.text) ? (
+            <ReplyBody text={view.text} openFile={actions.openFile} />
+          ) : (
+            <PetMarkdown text={view.text} />
+          )}
           {card.open && view.target !== undefined && view.options !== undefined && (
             <Buttons target={view.target} options={view.options} actions={actions} />
           )}
@@ -240,6 +272,7 @@ export function TaskCard(props: {
   const { task } = props;
   const stage = TASK_STAGE[task.stage];
   const running = canStop(task);
+  const step = stepOf(task);
   const [asking, setAsking] = useState(false);
   const meta = [task.agent, modelName(task.model), elapsedOf(task, props.now)].filter(
     (x) => x !== undefined && x !== "",
@@ -253,9 +286,9 @@ export function TaskCard(props: {
         <span className={`pet-pill ${stage.tone}`}>{stage.text}</span>
       </div>
       <div className="pet-task-meta">{meta.join(" · ")}</div>
-      {task.lastReport !== "" && (
-        <div className="pet-task-step" title={task.lastReport}>
-          {cut(task.lastReport, 160)}
+      {step !== undefined && (
+        <div className="pet-task-step" title={step}>
+          {cut(step, 160)}
         </div>
       )}
       {running && <div className="pet-task-bar" aria-hidden="true" />}

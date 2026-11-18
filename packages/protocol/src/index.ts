@@ -218,8 +218,10 @@ export interface TextView {
   title?: string;
   /** Buttons under the text, e.g. 「重试」. */
   options?: ItemOption[];
-  /** Target of the buttons' actions. */
+  /** Target of the buttons' actions, and of the answers a herd-ui `choices` offers (ADR 0074). */
   target?: string;
+  /** The answer the owner picked among the reply's herd-ui choices; then none can be pressed. */
+  chosen?: string;
   /** Sent as a reply to this message (an acknowledgement answers the owner's request). */
   replyTo?: MessageRef;
 }

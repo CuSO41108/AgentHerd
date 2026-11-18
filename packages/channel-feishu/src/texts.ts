@@ -23,6 +23,8 @@ export interface CardTexts {
   endRelay: string;
   backToHerder: string;
   askAnswered: (answer: string) => string;
+  /** Shown when a reply was only herd-ui fences and none of them could be read (ADR 0074). */
+  herdUiUnreadable: string;
   /** Header of a Herder question card. */
   askHeader: string;
   /** Header of an approval card. */
@@ -69,6 +71,7 @@ export const CARD_TEXTS: Record<Locale, CardTexts> = {
     endRelay: "结束转接",
     backToHerder: "已回到主管",
     askAnswered: (answer) => `你选了：**${answer}**`,
+    herdUiUnreadable: "（主管想展示的内容格式有误，没能显示。）",
     askHeader: "主管问你",
     itemHeader: (task) => (task === undefined ? "⚠️ 等你确认" : `⚠️ 等你确认 · ${task}`),
     errorHeader: "❌ 主管出错了",
@@ -109,6 +112,7 @@ export const CARD_TEXTS: Record<Locale, CardTexts> = {
     endRelay: "End relay",
     backToHerder: "Back to the Herder",
     askAnswered: (answer) => `You chose: **${answer}**`,
+    herdUiUnreadable: "(The Herder meant to show something here, but it could not be read.)",
     askHeader: "The Herder asks",
     itemHeader: (task) => (task === undefined ? "⚠️ Needs your OK" : `⚠️ Needs your OK · ${task}`),
     errorHeader: "❌ The Herder hit an error",

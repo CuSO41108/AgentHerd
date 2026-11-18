@@ -30,6 +30,7 @@ import {
   SLEEP_AFTER_MS,
   separatorOf,
   statusOf,
+  stepOf,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
 import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
@@ -278,6 +279,15 @@ describe("cards and tasks in the conversation (ADR 0072)", () => {
     expect(canStop(done)).toBe(false);
     // An ended task counts until its last change, not until now.
     expect(elapsedOf(done, Date.parse(at(0)) + 86_400_000)).toBe("5 分钟");
+  });
+
+  it("shows the step of a running or waiting task, none once it ended", () => {
+    expect(stepOf(task("a", 0, "working"))).toBe("在跑测试");
+    expect(stepOf(task("b", 0, "needs-owner"))).toBe("在跑测试");
+    const reported = { lastReport: "已报告：做完了，测试都过了" };
+    expect(stepOf({ ...task("c", 0, "done"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("d", 0, "failed"), ...reported })).toBeUndefined();
+    expect(stepOf({ ...task("e", 0, "queued"), lastReport: "  " })).toBeUndefined();
   });
 
   it("colors report cards and folds long bodies as Feishu does", () => {

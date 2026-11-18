@@ -1,6 +1,6 @@
 # ADR 0073: The pet's conversation looks like a chat: Markdown, files to open, quiet task rows
 
-- Status: Accepted
+- Status: Accepted; replies can also hold herd-ui blocks (ADR 0074)
 - Date: 2026-11-18
 - Changes: [0070](0070-a-desktop-pet.md) and [0072](0072-cards-in-the-pet.md) (how the conversation
   is drawn), [0045](0045-herder-context-folded-by-the-model.md) (the Herder's own replies carry no

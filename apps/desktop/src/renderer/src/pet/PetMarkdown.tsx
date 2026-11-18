@@ -127,6 +127,15 @@ function Blocks({ blocks }: { blocks: Block[] }) {
   );
 }
 
+/** One line of inline Markdown (bold, code, links…), styled as the messages are. */
+export function PetInline({ text }: { text: string }) {
+  return (
+    <span className="pet-md">
+      <Text text={text} />
+    </span>
+  );
+}
+
 /** A message rendered as Markdown. */
 export function PetMarkdown({ text }: { text: string }) {
   return (

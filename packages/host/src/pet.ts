@@ -17,6 +17,7 @@ import type {
   SetupUI,
   View,
 } from "@agentherd/protocol";
+import { hasHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
 import type { PetCard, PetCardView, PetLine, PetPending } from "./api.ts";
 
 /** Longest text the pet keeps for one line or one card body. */
@@ -29,6 +30,13 @@ export const PET_HISTORY_TEXT_MAX = 1500;
 export const PET_CARDS_MAX = 60;
 /** Longest report or agent reply a card in the pet keeps; the app has the whole task. */
 export const PET_CARD_TEXT_MAX = 4000;
+/** Longest text with a herd-ui block the pet keeps: cutting the block would lose it (ADR 0074). */
+export const PET_UI_TEXT_MAX = 12_000;
+
+/** How long a text may be in the pet: longer when it carries a herd-ui block. */
+function maxFor(text: string, max: number): number {
+  return hasHerdUi(text) ? Math.max(max, PET_UI_TEXT_MAX) : max;
+}
 
 function cut(text: string, max = PET_TEXT_MAX): string {
   const t = text.trim();
@@ -39,13 +47,18 @@ function key(ref: MessageRef): string {
   return `${ref.channelId}:${ref.id}`;
 }
 
-/** The views the pet shows as cards: reports, approvals, questions, and offers with buttons. */
+/**
+ * The views the pet shows as cards: reports, approvals, questions, offers with buttons, and
+ * Herder replies whose herd-ui offers choices (ADR 0074).
+ */
 export function isCardView(view: View): view is PetCardView {
   return (
     view.kind === "report" ||
     view.kind === "item" ||
     view.kind === "ask" ||
-    (view.kind === "text" && view.target !== undefined && (view.options?.length ?? 0) > 0)
+    (view.kind === "text" &&
+      view.target !== undefined &&
+      ((view.options?.length ?? 0) > 0 || herdUiChoices(view.text).length > 0))
   );
 }
 
@@ -66,7 +79,12 @@ function buttonsOf(view: View): { target: string; action: string }[] {
   }
   if (view.kind === "text" && view.target !== undefined) {
     const target = view.target;
-    return (view.options ?? []).map((o) => ({ target, action: o.action }));
+    if ((view.options?.length ?? 0) > 0) {
+      return (view.options ?? []).map((o) => ({ target, action: o.action }));
+    }
+    // A reply's choices work until one is picked.
+    if (view.chosen !== undefined) return [];
+    return herdUiChoices(view.text).map((a) => ({ target, action: a.action }));
   }
   return [];
 }
@@ -115,7 +133,8 @@ function pendingOf(view: View): PetPending | undefined {
 function lineOf(view: View): Omit<PetLine, "id" | "at"> | undefined {
   switch (view.kind) {
     case "text": {
-      const text = cut(view.title === undefined ? view.text : `${view.title}：${view.text}`);
+      const words = view.title === undefined ? view.text : `${view.title}：${view.text}`;
+      const text = cut(words, maxFor(words, PET_TEXT_MAX));
       if (view.tone === "error") return { kind: "error", text, ...task(view.taskLabel) };
       if (view.taskLabel !== undefined || view.tone !== undefined) {
         return { kind: "task", text, ...task(view.taskLabel) };
@@ -150,7 +169,8 @@ export function historyOf(
   for (const turn of turns) {
     // Older replies may still begin with a ref tag the model wrote itself (ADR 0045).
     const said = turn.role === "herder" || turn.role === "ask";
-    const text = cut(said ? withoutContextMarks(turn.text) : turn.text, PET_HISTORY_TEXT_MAX);
+    const words = said ? withoutContextMarks(turn.text) : turn.text;
+    const text = cut(words, maxFor(words, PET_HISTORY_TEXT_MAX));
     if (text === "") continue;
     const base = { id: turn.id, at: turn.at, text };
     if (turn.role === "owner" || turn.role === "answer") {
@@ -174,11 +194,14 @@ function plain(text: string): string {
 
 /**
  * A line of herd.db that a card already shows: the question of an ask card, the Herder's words
- * of a report it spoke, the note a report or an answered approval left for the Herder.
+ * of a report it spoke, the note a report or an answered approval left for the Herder, a reply
+ * whose choices make it a card (ADR 0074).
  */
 function shownAsCard(turn: HerderTurn, views: readonly PetCardView[]): boolean {
   const text = plain(turn.text);
+  const said = turn.role === "herder" ? plain(withoutContextMarks(turn.text)) : "";
   for (const view of views) {
+    if (view.kind === "text" && said !== "" && said === plain(view.text)) return true;
     if (view.kind === "ask" && turn.role === "ask" && text.startsWith(plain(view.text))) {
       return true;
     }
@@ -214,6 +237,7 @@ function forPet(view: PetCardView): PetCardView {
         : { lines: view.lines.map((l) => ({ ...l, body: cut(l.body, 600) })) }),
     };
   }
+  if (view.kind === "text") return { ...view, text: cut(view.text, maxFor(view.text, 2000)) };
   return view;
 }
 

@@ -3,6 +3,8 @@
 
 import "../dev-bridge";
 import "./pet.css";
+// Generated UI in replies (ADR 0074), after the pet's own look.
+import "./herd-ui.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Pet } from "./Pet";
