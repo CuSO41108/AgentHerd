@@ -85,8 +85,9 @@ export function requestAuth(
       const call = { jsonrpc: "2.0", id: 1, method: AUTH_METHOD, params: { service } };
       socket.write(`${JSON.stringify({ token })}\n${JSON.stringify(call)}\n`);
     });
-    socket.on("data", (chunk: Buffer) => {
-      rest += chunk.toString("utf8");
+    socket.setEncoding("utf8"); // a chunk can end inside a character
+    socket.on("data", (chunk: string) => {
+      rest += chunk;
       let nl = rest.indexOf("\n");
       while (nl >= 0) {
         const line = rest.slice(0, nl).trim();
