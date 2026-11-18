@@ -49,6 +49,15 @@ export {
   withAuth,
 } from "./logins.ts";
 export {
+  checkPublic,
+  htmlToText,
+  isPrivateAddress,
+  LOOKUP_TOOL_NAMES,
+  Lookup,
+  type LookupOptions,
+  lookupTools,
+} from "./lookup.ts";
+export {
   HERDER_KINDS,
   LESSONS_MAX,
   lessonsText,

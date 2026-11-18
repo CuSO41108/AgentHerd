@@ -9,6 +9,9 @@ import { sortForBoard, type Task } from "./tasks.ts";
 
 /** Rows on the board; older finished tasks drop off. */
 export const BOARD_MAX_ROWS = 20;
+/** A finished or failed task stays on the board this long after its last change (ADR 0071). */
+export const BOARD_ENDED_KEEP_MS = 24 * 60 * 60 * 1000;
+const ENDED: ReadonlySet<Task["stage"]> = new Set(["done", "failed"]);
 /** Default wait before an update is sent. */
 export const BOARD_DEBOUNCE_MS = 1000;
 
@@ -24,13 +27,17 @@ export interface BoardOptions {
 }
 
 /**
- * Builds the board view: sorted, at most `BOARD_MAX_ROWS` rows.
+ * Builds the board view: open tasks and tasks that ended in the last day, sorted, at most
+ * `BOARD_MAX_ROWS` rows. Older ended tasks are only in the app (ADR 0071).
  * @param tasks All known tasks.
+ * @param now The time the board is built.
  */
-export function boardView(tasks: readonly Task[]): BoardView {
+export function boardView(tasks: readonly Task[], now: Date = new Date()): BoardView {
+  const since = now.getTime() - BOARD_ENDED_KEEP_MS;
+  const shown = tasks.filter((t) => !ENDED.has(t.stage) || Date.parse(t.updatedAt) >= since);
   return {
     kind: "board",
-    rows: sortForBoard(tasks)
+    rows: sortForBoard(shown)
       .slice(0, BOARD_MAX_ROWS)
       .map((t) => ({
         taskId: t.id,
@@ -82,7 +89,7 @@ export class Board {
   }
 
   private async send(resend: boolean): Promise<void> {
-    const view = boardView(this.opts.tasks());
+    const view = boardView(this.opts.tasks(), this.opts.clock.now());
     const { channel, store } = this.opts;
     try {
       if (this.ref === undefined || resend) {

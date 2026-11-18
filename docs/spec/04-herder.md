@@ -47,15 +47,18 @@ Images in a message go the same way as its text; how the Herder and agents get t
 
 ### What the Herder does with a direct message
 
-1. **Not a task** (a question about state, small talk): it answers from the store.
-2. **About a running task:** it asks the owner whether to relay, or sends the message to that
+1. **Not a task** (a question about state, small talk, a quick question about the web): it
+   answers from the store, or with `web_search` / `web_read` (ADR 0071).
+2. **More on a recent task** (the next step of what it did, e.g. download what a search found):
+   `session_prompt` to that task, also when it ended (ADR 0071).
+3. **About a running task:** it asks the owner whether to relay, or sends the message to that
    session if the owner said so.
-3. **A new task:** it resolves the project directory and the agent profile from the message,
+4. **A new task:** it resolves the project directory and the agent profile from the message,
    the owner's defaults and the last choice. If one of them stays unclear, it asks one
    question with a suggested answer.
-4. **Capacity:** if `maxConcurrentSessions` (default 3) are running, the task is queued and
+5. **Capacity:** if `maxConcurrentSessions` (default 3) are running, the task is queued and
    the owner is told its place.
-5. **Start:** `session/new` in the project directory, then the prompt (below). The board gets a
+6. **Start:** `session/new` in the project directory, then the prompt (below). The board gets a
    new row.
 
 ### Verbatim rule
@@ -105,6 +108,7 @@ The Herder may add, never rewrite.
 | Read | `task_get`, `task_list`, `session_transcript`, `decisions_list`, `read`, `grep`, `list`, `git_log`, `git_diff` (read tools only inside known project directories) |
 | Schedules | `schedule_add(about, prompt, kind, at?, days?, hours?)`, `schedule_change(schedule, …, paused?)`, `schedule_remove(schedule)`: what the Herder does at set times, only when the owner asks ([ADR 0055](../adr/0055-schedules-the-herder-makes.md)) |
 | Context | `compress`, `decompress`, `search_context`, `acp_status`: fold finished parts of its own conversation, find and show them again ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)) |
+| Web | `web_search(query, source?, limit?)` (web results from DuckDuckGo, then Bing; `source: github` lists repositories), `web_read(url, maxChars?)` (a public page as text; a GitHub repository's facts from the API): read-only, public hosts only, for quick answers without a task ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)) |
 
 There is no tool to approve an item, write files or run shell commands. Every Herder tool call
 is checked by the guard list first; a match goes to the owner instead of running. Every call is

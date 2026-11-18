@@ -671,8 +671,14 @@ export class Host implements HostApi {
   }
 
   private herderFactory() {
-    const choice = herderFromSettings(this.settings(), this.opts.secrets, this.opts.env, () =>
-      this.placement(),
+    const gh = this.opts.gh ?? runGh(withSystemProxy());
+    const choice = herderFromSettings(
+      this.settings(),
+      this.opts.secrets,
+      this.opts.env,
+      () => this.placement(),
+      // The owner's own GitHub sign-in, when there is one, lifts GitHub's limit (ADR 0071).
+      { githubToken: () => gh(["auth", "token"]) },
     );
     return "factory" in choice ? choice.factory : undefined;
   }

@@ -68,7 +68,7 @@ The owner talks to one bot in a direct chat. What it sends there:
 
 | Message | When | Notifies? |
 | --- | --- | --- |
-| Task board | One pinned card. Rows: task, stage, project, agent, last report, updated. Tasks that need the owner come first. Updated in place by code when a stage changes; a select menu under the table starts a relay. | Only when first sent |
+| Task board | One pinned card. Rows: task, stage, project, agent, last report, updated. Open tasks, and ended ones only for 24 hours after their last change ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)); at most 20 rows. Tasks that need the owner come first. Updated in place by code when a stage changes; a select menu under the table starts a relay. | Only when first sent |
 | Item card | An approval, labeled with its task, with 批准 / 拒绝 / 先不管. At most one open item per session; newer items for the same session queue behind it. Items of different sessions that are open together share one card: numbered lines with their own buttons, 「全部批准」 / 「都先不管」, and the owner can reply 「都批」 or 「批 1、3」 ([ADR 0056](../adr/0056-leaving-the-mac-asks-and-questions-close.md)). Updated in place with the final state: "Allowed by you", "Denied by you", "Left by you", "No answer in 1 hour; the step was not done". | Yes |
 | Agent text | During a relay: everything the agent says, verbatim, with a task prefix | Yes |
 | Completion report | Every time a task ends (done, blocked, failed): title, what was done, verification, outputs, risks, automatic decisions; long replies and decisions are folded. Feishu shows "Relay to this task" only for non-done results. Replying to any report still reaches that task. | Yes |

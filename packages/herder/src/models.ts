@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { Herder, type HerderModel } from "./herder.ts";
 import { LOGIN_FIELD, loginStream, loginsFor, subscriptionModel } from "./logins.ts";
+import type { LookupOptions } from "./lookup.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import { fallbackOrder } from "./tools.ts";
 
@@ -196,6 +197,7 @@ export function herderFromSettings(
   secrets: SecretStore,
   env?: Record<string, string>,
   modelTiers?: () => TierPlacement,
+  lookup?: LookupOptions,
 ): HerderChoice | { reason: string } {
   const choice = modelFor(settings, "herder");
   if (choice === undefined) return { reason: "no model chosen for the Herder" };
@@ -220,6 +222,7 @@ export function herderFromSettings(
         getApiKey: () => key ?? "none",
         fallbacks: () => herderFallbacks(settings, secrets, ref, modelTiers?.(), env),
         ...(modelTiers === undefined ? {} : { modelTiers }),
+        ...(lookup === undefined ? {} : { lookup }),
       }),
   };
 }

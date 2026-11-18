@@ -25,6 +25,7 @@ import {
   withoutMarksDeep,
 } from "./context.ts";
 import { errorKind, HELD_RETRY_MS, RETRY_DELAYS_MS, shortError } from "./errors.ts";
+import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts";
 import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import {
@@ -67,6 +68,8 @@ export interface HerderOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Clock in ms, for tests. */
   now?: () => number;
+  /** How web_search and web_read reach the web (ADR 0071); false leaves them out. */
+  lookup?: LookupOptions | false;
 }
 
 /** A model the Herder can run on. */
@@ -191,6 +194,7 @@ export class Herder implements HerderPort {
             ...(this.host.memory === undefined
               ? []
               : memoryTools(this.host.memory, () => this.turn, this.host.embedder)),
+            ...(opts.lookup === false ? [] : lookupTools(opts.lookup)),
           ].map(withoutMarksInArgs),
           ...this.context.tools(),
         ],
@@ -682,7 +686,13 @@ export class Herder implements HerderPort {
     if (message === undefined) return { ok: true };
     const added = this.agent.state.messages.slice(before);
     // Folding or reading the conversation changed nothing outside it, so the turn may run again.
-    const acted = added.some((m) => m.role === "toolResult" && !CONTEXT_TOOL_NAMES.has(m.toolName));
+    // Folding the conversation or looking something up changes nothing outside.
+    const acted = added.some(
+      (m) =>
+        m.role === "toolResult" &&
+        !CONTEXT_TOOL_NAMES.has(m.toolName) &&
+        !LOOKUP_TOOL_NAMES.has(m.toolName),
+    );
     const lead = leadingSystem(this.agent.state.messages);
     this.agent.state.messages = this.agent.state.messages.slice(0, before);
     this.context.rollback(before - lead);
