@@ -24,13 +24,18 @@ const bridge: Bridge = {
     dragMove: (dx, dy) => ipcRenderer.send("pet:drag-move", dx, dy),
     dragEnd: () => ipcRenderer.send("pet:drag-end"),
     resize: (width, height) => ipcRenderer.send("pet:resize", width, height),
-    openApp: () => ipcRenderer.send("pet:open-app"),
+    openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
   },
   onConnection(listener) {
     const handler = (_e: unknown, connected: boolean) => listener(connected);
     ipcRenderer.on("host:connection", handler);
     void ipcRenderer.invoke("host:connected").then((c: boolean) => listener(c));
     return () => ipcRenderer.removeListener("host:connection", handler);
+  },
+  onOpenTask(listener) {
+    const handler = (_e: unknown, taskId: string) => listener(taskId);
+    ipcRenderer.on("app:open-task", handler);
+    return () => ipcRenderer.removeListener("app:open-task", handler);
   },
 };
 

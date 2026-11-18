@@ -1,6 +1,7 @@
 # ADR 0070: A desktop pet that says what Feishu says and takes answers
 
-- Status: Accepted
+- Status: Accepted; what the conversation shows extended by [ADR 0072](0072-cards-in-the-pet.md)
+  (cards as in Feishu, a card for each task)
 - Date: 2026-11-17
 - Changes: the local API no longer only reads items (spec 02 §4): the pet can press a card's
   button for the owner

@@ -75,30 +75,9 @@ body {
   transform: rotate(45deg);
 }
 
-.pet-task,
-.pet-more,
 .pet-note {
   color: var(--pet-muted);
   font-size: 12px;
-}
-
-.pet-title {
-  font-weight: 600;
-  word-break: break-word;
-  padding-right: 10px;
-}
-
-.pet-body {
-  margin-top: 4px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  background: var(--pet-control);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 5.8em;
-  overflow: hidden;
 }
 
 .pet-actions {
@@ -127,10 +106,6 @@ body {
 .pet-actions button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.pet-more {
-  margin-top: 6px;
 }
 
 .pet-input {
@@ -306,10 +281,218 @@ body {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.pet-chat .pet-card {
+/* Cards, drawn as Feishu draws them (ADR 0072). */
+.pet-cardx {
+  align-self: stretch;
+  border: 1px solid var(--pet-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--pet-bg);
+}
+
+.pet-cardx-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+
+.pet-cardx-title {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.pet-cardx-h.green {
+  background: rgba(52, 199, 89, 0.14);
+}
+.pet-cardx-h.red {
+  background: rgba(255, 59, 48, 0.13);
+}
+.pet-cardx-h.amber {
+  background: rgba(255, 149, 0, 0.15);
+}
+.pet-cardx-h.purple {
+  background: rgba(175, 82, 222, 0.14);
+}
+.pet-cardx-h.blue {
+  background: rgba(0, 124, 247, 0.12);
+}
+.pet-cardx-h.gray {
+  background: var(--pet-control);
+}
+
+.pet-cardx-sub {
+  padding: 4px 10px 0;
+  color: var(--pet-muted);
+  font-size: 11px;
+}
+
+.pet-cardx-b {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px 2px;
+}
+
+.pet-cardx-time {
+  color: var(--pet-muted);
+  font-size: 10px;
+  text-align: right;
+  padding: 0 10px 5px;
+}
+
+.pet-cardx-strong {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.pet-tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--pet-control);
+}
+.pet-tag.green {
+  color: #248a3d;
+}
+.pet-tag.red {
+  color: #d70015;
+}
+.pet-tag.amber {
+  color: #c93400;
+}
+.pet-tag.blue {
+  color: var(--pet-accent);
+}
+.pet-tag.gray {
+  color: var(--pet-muted);
+}
+
+.pet-code {
+  margin: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--pet-control);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 8.5em;
+  overflow: auto;
+}
+
+.pet-muted {
+  color: var(--pet-muted);
+  font-size: 12px;
+}
+
+.pet-final {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.pet-step {
+  color: var(--pet-muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pet-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--pet-line);
+}
+
+.pet-fold-btn {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--pet-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pet-fold-part {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pet-quote {
+  padding-left: 8px;
+  border-left: 2px solid var(--pet-line);
+  color: var(--pet-muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 14em;
+  overflow: auto;
+}
+
+.pet-list {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--pet-muted);
+  font-size: 12px;
+}
+
+.pet-cardx .pet-actions {
+  margin: 2px 0 4px;
+}
+
+.pet-actions button.danger {
+  background: #ff3b30;
+  border-color: #ff3b30;
+  color: #fff;
+}
+
+.pet-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 0 4px;
+}
+
+.pet-answers button {
+  text-align: left;
+  border: 1px solid var(--pet-line);
+  background: var(--pet-control);
+  color: var(--pet-ink);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font: inherit;
+  white-space: normal;
+  word-break: break-word;
+  cursor: pointer;
+}
+
+.pet-answers button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pet-waiting {
+  display: block;
+  width: 100%;
   margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--pet-line);
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 149, 0, 0.15);
+  color: var(--pet-ink);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
 }
 
 .pet-stage {

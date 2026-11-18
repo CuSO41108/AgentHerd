@@ -1,20 +1,26 @@
-import type { PetView } from "@agentherd/host/api";
+import type { PetCard, PetView, TasksView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
   badgeOf,
   CHAT_DEFAULT,
   CHAT_MIN,
+  canStop,
   clockOf,
+  conversationOf,
   cut,
   dragChat,
+  elapsedOf,
   FLASH_MS,
+  FOLD_CHARS,
   fitChat,
   flashOf,
+  foldBody,
   historyHead,
   moodOf,
   newestScroll,
   newLine,
   readChatSize,
+  reportHead,
   SLEEP_AFTER_MS,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
@@ -185,5 +191,96 @@ describe("sizing the conversation (ADR 0070)", () => {
     // newest message starts below the last screenful: just the bottom
     expect(newestScroll(900, 640)).toBe(640);
     expect(newestScroll(-4, 0)).toBe(0);
+  });
+});
+
+describe("cards and tasks in the conversation (ADR 0072)", () => {
+  const at = (m: number) => new Date(Date.UTC(2026, 10, 18, 10, m)).toISOString();
+  const task = (id: string, started: number, stage: TasksView["tasks"][number]["stage"]) => ({
+    id,
+    title: `任务 ${id}`,
+    project: "demo",
+    agent: "Pi · deepseek/deepseek-flash",
+    stage,
+    lastReport: "在跑测试",
+    startedAt: at(started),
+    updatedAt: at(started + 5),
+    automaticDecisions: [],
+  });
+  const report: PetCard = {
+    ref: "f:r",
+    at: at(20),
+    open: false,
+    view: {
+      kind: "report",
+      taskId: "t1",
+      result: "done",
+      title: "任务 t1",
+      body: "做完了",
+      summarized: false,
+      automaticDecisions: [],
+    },
+  };
+
+  it("puts lines, cards and tasks in time order", () => {
+    const view: PetView = {
+      connected: true,
+      pending: [],
+      history: [
+        { id: 1, at: at(5), kind: "owner", text: "修一下登录" },
+        { id: 2, at: at(30), kind: "say", text: "还有别的吗" },
+      ],
+      cards: [report],
+      last: { id: 9, at: at(20), kind: "report", text: "做完了", card: "f:r" },
+    };
+    const tasks = [task("t1", 6, "done"), task("old", 1, "done")];
+    expect(conversationOf(view, tasks, Date.parse(at(31))).map((e) => e.key)).toEqual([
+      "h1",
+      "tt1",
+      "cf:r",
+      "h2",
+    ]);
+  });
+
+  it("shows the latest line once when it is not a card", () => {
+    const view: PetView = {
+      connected: true,
+      pending: [],
+      history: [{ id: 1, at: at(5), kind: "owner", text: "在吗" }],
+      cards: [],
+      last: { id: 4, at: at(6), kind: "task", text: "开始干活了", task: "任务 t1" },
+    };
+    expect(conversationOf(view, [], Date.parse(at(7))).map((e) => e.key)).toEqual(["h1", "l4"]);
+  });
+
+  it("with no conversation shows the tasks of the last day", () => {
+    const view: PetView = { connected: true, pending: [], history: [], cards: [] };
+    const now = Date.parse(at(0)) + 2 * 86_400_000;
+    const tasks = [task("new", 0, "working"), task("older", 0, "done")];
+    tasks[0] = { ...tasks[0], startedAt: new Date(now - 3_600_000).toISOString() } as never;
+    expect(conversationOf(view, tasks, now).map((e) => e.key)).toEqual(["tnew"]);
+  });
+
+  it("tells how long a task runs and whether it can be stopped", () => {
+    const running = task("a", 0, "working");
+    expect(canStop(running)).toBe(true);
+    expect(elapsedOf(running, Date.parse(at(0)) + 45_000)).toBe("45 秒");
+    expect(elapsedOf(running, Date.parse(at(0)) + 3 * 3_600_000 + 5 * 60_000)).toBe("3 小时 5 分");
+    const done = task("b", 0, "done");
+    expect(canStop(done)).toBe(false);
+    // An ended task counts until its last change, not until now.
+    expect(elapsedOf(done, Date.parse(at(0)) + 86_400_000)).toBe("5 分钟");
+  });
+
+  it("colors report cards and folds long bodies as Feishu does", () => {
+    expect(reportHead({ ...report.view, result: "failed" } as never)).toEqual({
+      icon: "❌",
+      tone: "red",
+    });
+    expect(reportHead({ ...report.view, result: "stopped" } as never).tone).toBe("gray");
+    expect(foldBody("短的")).toEqual({ head: "短的", folded: false });
+    const long = `${"甲".repeat(300)}\n${"乙".repeat(300)}`;
+    expect(foldBody(long)).toEqual({ head: "甲".repeat(300), folded: true });
+    expect(foldBody("丙".repeat(FOLD_CHARS + 1)).head).toHaveLength(FOLD_CHARS);
   });
 });

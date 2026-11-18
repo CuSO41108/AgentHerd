@@ -122,6 +122,16 @@ function showWindow(): void {
   if (process.platform === "darwin") app.focus({ steal: true });
 }
 
+/** Shows the main window; with a task, opens it there (asked by the pet, ADR 0072). */
+function openApp(taskId?: string): void {
+  showWindow();
+  if (taskId === undefined || win === undefined) return;
+  const w = win;
+  const tell = () => w.webContents.send("app:open-task", taskId);
+  if (w.webContents.isLoading()) w.webContents.once("did-finish-load", tell);
+  else tell();
+}
+
 function createTray(): void {
   if (
     process.platform !== "win32" ||
@@ -248,7 +258,7 @@ app.whenReady().then(() => {
     ...(process.env.ELECTRON_RENDERER_URL === undefined
       ? {}
       : { devUrl: process.env.ELECTRON_RENDERER_URL }),
-    openApp: showWindow,
+    openApp: openApp,
   });
   createWindow();
   createTray();

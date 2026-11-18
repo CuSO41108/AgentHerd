@@ -22,7 +22,8 @@ export interface PetWindowOptions {
   /** The renderer folder of a build, or the dev server's address. */
   rendererDir: string;
   devUrl?: string;
-  openApp: () => void;
+  /** Brings up the main window, at a task when one is named. */
+  openApp: (taskId?: string) => void;
 }
 
 export class PetWindow {
@@ -84,8 +85,9 @@ export class PetWindow {
         return;
       w.setBounds(bounds);
     });
-    ipcMain.on("pet:open-app", (e) => {
-      if (this.own(e) !== undefined) this.opts.openApp();
+    ipcMain.on("pet:open-app", (e, taskId: unknown) => {
+      if (this.own(e) === undefined) return;
+      this.opts.openApp(typeof taskId === "string" && taskId !== "" ? taskId : undefined);
     });
   }
 

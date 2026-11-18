@@ -31,6 +31,7 @@ import type {
   MemoryView,
   ModelsView,
   ModelTiersView,
+  PetCard,
   PetView,
   RemoteHost,
   SchedulesView,
@@ -105,22 +106,72 @@ function installFakeBridge(): void {
   const petHistory: PetView["history"] = [
     { id: 1, at: minutesAgo(42), kind: "owner", text: "帮我小红书搜一下西岸智塔附近好吃的面条" },
     { id: 2, at: minutesAgo(41), kind: "say", text: "好，我开个任务去小红书搜，挑走路能到的。" },
-    {
-      id: 3,
-      at: minutesAgo(32),
-      kind: "report",
-      task: "小红书：西岸智塔附近面馆",
-      result: "done",
-      text: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n1. 阿娘面馆：黄鱼面，排队快\n2. 味千拉面：豚骨汤浓",
-    },
     { id: 4, at: minutesAgo(3), kind: "owner", text: "第一家几点关门？" },
     { id: 5, at: minutesAgo(2), kind: "say", text: "早上好，昨晚的两个任务都做完了。" },
   ];
-  let petLineId = petHistory.length;
+  let petLineId = 5;
+  const waitingCard: PetCard = {
+    ref: "fake:m9",
+    at: minutesAgo(1),
+    open: true,
+    view: {
+      kind: "item",
+      itemId: "item-1",
+      taskLabel: "清理旧日志",
+      title: "运行 rm -rf ./logs/*",
+      body: "rm -rf ./logs/*",
+      risk: "high",
+      reason: "一次删除大量文件，需要你确认",
+      options: [
+        { action: "allow", label: "同意" },
+        { action: "deny", label: "拒绝" },
+        { action: "skip", label: "跳过" },
+      ],
+    },
+  };
+  const petCards: PetCard[] = [
+    {
+      ref: "fake:m2",
+      at: minutesAgo(41.5),
+      open: false,
+      view: {
+        kind: "ask",
+        askId: "a1",
+        text: "要走路能到的吗？",
+        options: [
+          { action: "0", label: "要，走路十分钟以内" },
+          { action: "1", label: "不用" },
+        ],
+        final: "要，走路十分钟以内",
+      },
+    },
+    {
+      ref: "fake:m5",
+      at: minutesAgo(32),
+      open: false,
+      view: {
+        kind: "report",
+        taskId: "s9",
+        result: "done",
+        title: "小红书：西岸智塔附近面馆",
+        subtitle: "已完成 · 无项目 · Pi · 9m",
+        body: "找到了，最近的是传媒港 B1 那一排，走过去五分钟：\n- 阿娘面馆：黄鱼面，排队快\n- 味千拉面：豚骨汤浓\n- 和府捞面：环境好，适合坐着聊\n\n要不要我把营业时间也查一下？",
+        summarized: true,
+        fullReply:
+          "我在小红书搜了「西岸智塔 面」「传媒港 面馆」两组词，读了 14 篇笔记，按距离和提到的次数排了一下……",
+        fullReplyBy: "Pi",
+        automaticDecisions: [
+          "自动同意：XIAOHONGSHU_SEARCH_FEEDS ×2、XIAOHONGSHU_GET_FEED_DETAIL ×5",
+        ],
+      },
+    },
+    ...(petSim === "waiting" ? [waitingCard] : []),
+  ];
   let pet: PetView = {
     connected: sim !== "fresh" && sim !== "network",
     last: petHistory.at(-1),
     history: petHistory,
+    cards: petCards,
     pending:
       petSim === "waiting"
         ? [
@@ -149,19 +200,41 @@ function installFakeBridge(): void {
     emit({ topic: "pet", data: structuredClone(pet) });
   };
   if (petSim === "done") {
-    setTimeout(
-      () =>
-        petSays({
+    setTimeout(() => {
+      const card: PetCard = {
+        ref: "fake:m20",
+        at: new Date().toISOString(),
+        open: false,
+        view: {
+          kind: "report",
+          taskId: "s2",
+          result: "done",
+          title: "修登录 401",
+          subtitle: "已完成 · web-portal · Pi · 12m",
+          body: "登录修好了，测试都过了，PR 已开。",
+          summarized: false,
+          automaticDecisions: [],
+        },
+      };
+      petLineId++;
+      pet = {
+        ...pet,
+        cards: [...pet.cards, card],
+        last: {
+          id: petLineId,
+          at: card.at,
           kind: "report",
           task: "修登录 401",
           result: "done",
           text: "登录修好了，测试都过了，PR 已开。",
-        }),
-      1500,
-    );
+          card: card.ref,
+        },
+      };
+      emit({ topic: "pet", data: structuredClone(pet) });
+    }, 1500);
   }
 
-  const tasks = sampleTasks(sim === "empty" || sim === "no-agent");
+  let tasks = sampleTasks(sim === "empty" || sim === "no-agent");
 
   let models: ModelsView = {
     services: sampleServices(),
@@ -393,7 +466,16 @@ function installFakeBridge(): void {
     petPress: (target, action) => {
       const card = pet.pending.find((p) => p.target === target);
       if (card === undefined) return Promise.reject(new Error("这件事已经处理过了"));
-      pet = { ...pet, pending: pet.pending.filter((p) => p !== card) };
+      const label = card.options.find((o) => o.action === action)?.label ?? action;
+      pet = {
+        ...pet,
+        pending: pet.pending.filter((p) => p !== card),
+        cards: pet.cards.map((c) =>
+          c.view.kind === "item" && c.view.itemId === target
+            ? { ...c, open: false, view: { ...c.view, options: [], final: `你已${label}` } }
+            : c,
+        ),
+      };
       emit({ topic: "pet", data: structuredClone(pet) });
       petSays({
         kind: "task",
@@ -401,6 +483,23 @@ function installFakeBridge(): void {
         text: action === "allow" ? "你同意了，继续干活。" : "好的，这步不做了。",
       });
       return delay(pet);
+    },
+    stopTask: (taskId) => {
+      tasks = {
+        ...tasks,
+        tasks: tasks.tasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                stage: "failed",
+                lastReport: "已报告：你停下了这个任务，做到一半的事没有做完。",
+                updatedAt: new Date().toISOString(),
+              }
+            : t,
+        ),
+      };
+      emit({ topic: "tasks", data: structuredClone(tasks) });
+      return delay(undefined);
     },
     feeds: () => delay(feeds),
     setFeed: (source, on) => {

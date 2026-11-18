@@ -2,10 +2,11 @@
 // the owner still goes to Feishu; the pet sees the same views, shows the latest one in its bubble
 // with the buttons of whatever waits for the owner, and passes what the owner types or presses
 // there back in as the owner's own message or button press. The expanded pet shows the Herder's
-// conversation kept in herd.db (`historyOf`), so it reaches back past restarts. It never writes
-// text of its own and makes no model calls; its short idle lines live in the app.
+// conversation kept in herd.db (`historyOf`), so it reaches back past restarts, with the cards
+// sent to the owner (reports, approvals, questions) kept in herd.db too (ADR 0072). It never
+// writes text of its own and makes no model calls.
 
-import type { HerderTurn } from "@agentherd/core";
+import type { HerderTurn, OwnerCard } from "@agentherd/core";
 import type {
   Channel,
   ChannelBinding,
@@ -15,7 +16,7 @@ import type {
   SetupUI,
   View,
 } from "@agentherd/protocol";
-import type { PetLine, PetPending } from "./api.ts";
+import type { PetCard, PetCardView, PetLine, PetPending } from "./api.ts";
 
 /** Longest text the pet keeps for one line or one card body. */
 export const PET_TEXT_MAX = 600;
@@ -23,6 +24,10 @@ export const PET_TEXT_MAX = 600;
 export const PET_HISTORY_MAX = 80;
 /** Longest text of one line in the conversation. */
 export const PET_HISTORY_TEXT_MAX = 1500;
+/** Cards the expanded pet shows, the newest. */
+export const PET_CARDS_MAX = 60;
+/** Longest report or agent reply a card in the pet keeps; the app has the whole task. */
+export const PET_CARD_TEXT_MAX = 4000;
 
 function cut(text: string, max = PET_TEXT_MAX): string {
   const t = text.trim();
@@ -31,6 +36,38 @@ function cut(text: string, max = PET_TEXT_MAX): string {
 
 function key(ref: MessageRef): string {
   return `${ref.channelId}:${ref.id}`;
+}
+
+/** The views the pet shows as cards: reports, approvals, questions, and offers with buttons. */
+export function isCardView(view: View): view is PetCardView {
+  return (
+    view.kind === "report" ||
+    view.kind === "item" ||
+    view.kind === "ask" ||
+    (view.kind === "text" && view.target !== undefined && (view.options?.length ?? 0) > 0)
+  );
+}
+
+/** Every button on a card that still works, as the target and action it sends. */
+function buttonsOf(view: View): { target: string; action: string }[] {
+  if (view.kind === "item") {
+    if (view.final !== undefined) return [];
+    const own = view.options.map((o) => ({ target: view.itemId, action: o.action }));
+    const lines = (view.lines ?? [])
+      .filter((l) => l.final === undefined)
+      .flatMap((l) => l.options.map((o) => ({ target: l.itemId, action: o.action })));
+    return [...own, ...lines];
+  }
+  if (view.kind === "ask") {
+    return view.final === undefined
+      ? view.options.map((o) => ({ target: view.askId, action: o.action }))
+      : [];
+  }
+  if (view.kind === "text" && view.target !== undefined) {
+    const target = view.target;
+    return (view.options ?? []).map((o) => ({ target, action: o.action }));
+  }
+  return [];
 }
 
 /** What waits for the owner on this card, or undefined when nothing does (closed, or no buttons). */
@@ -128,6 +165,81 @@ export function historyOf(
   return lines;
 }
 
+function plain(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A line of herd.db that a card already shows: the question of an ask card, the Herder's words
+ * of a report it spoke, the note a report or an answered approval left for the Herder.
+ */
+function shownAsCard(turn: HerderTurn, views: readonly PetCardView[]): boolean {
+  const text = plain(turn.text);
+  for (const view of views) {
+    if (view.kind === "ask" && turn.role === "ask" && text.startsWith(plain(view.text))) {
+      return true;
+    }
+    if (view.kind === "report" && turn.taskId === view.taskId) {
+      if (turn.role === "herder" && text === plain(view.body)) return true;
+      if (turn.role === "event" && text === plain(`${view.title}: ${view.body}`)) return true;
+    }
+    if (view.kind === "item" && turn.role === "event") {
+      const titles = [view.title, ...(view.lines ?? []).map((l) => l.title)];
+      if (titles.some((t) => text.endsWith(`: ${plain(t)}`))) return true;
+    }
+  }
+  return false;
+}
+
+/** A card as the pet gets it: long texts cut, the app has the rest. */
+function forPet(view: PetCardView): PetCardView {
+  if (view.kind === "report") {
+    return {
+      ...view,
+      body: cut(view.body, PET_CARD_TEXT_MAX),
+      ...(view.fullReply === undefined
+        ? {}
+        : { fullReply: cut(view.fullReply, PET_CARD_TEXT_MAX) }),
+    };
+  }
+  if (view.kind === "item") {
+    return {
+      ...view,
+      body: cut(view.body, 2000),
+      ...(view.lines === undefined
+        ? {}
+        : { lines: view.lines.map((l) => ({ ...l, body: cut(l.body, 600) })) }),
+    };
+  }
+  return view;
+}
+
+/**
+ * The expanded pet's conversation (ADR 0072): the lines of herd.db and the cards sent to the
+ * owner since the first of those lines, without the lines a card already shows. `isOpen` says
+ * which cards can still be answered in this run.
+ */
+export function petConversation(
+  turns: readonly HerderTurn[],
+  stored: readonly OwnerCard[],
+  titleOf: (taskId: string) => string | undefined,
+  isOpen: (ref: string) => boolean,
+): { history: PetLine[]; cards: PetCard[] } {
+  // A full window of lines starts somewhere in the past: older cards would stand alone.
+  const from = turns.length >= PET_HISTORY_MAX ? (turns[0]?.at ?? "") : "";
+  const kept = stored.filter(
+    (c): c is OwnerCard & { view: PetCardView } => c.at >= from && isCardView(c.view),
+  );
+  const views = kept.map((c) => c.view);
+  return {
+    history: historyOf(
+      turns.filter((t) => !shownAsCard(t, views)),
+      titleOf,
+    ),
+    cards: kept.map((c) => ({ ref: c.ref, at: c.at, view: forPet(c.view), open: isOpen(c.ref) })),
+  };
+}
+
 type Entry = PetLine & { ref?: string };
 
 /**
@@ -142,14 +254,16 @@ export interface PetFeedOptions {
    * conversation. Undefined: nothing is posted.
    */
   echo?: (text: string) => string;
+  /** Keeps a card in its latest form, for the conversation after a restart (ADR 0072). */
+  keep?: (ref: string, view: PetCardView) => void;
   now?: () => Date;
 }
 
 export class PetFeed {
   private seq = 0;
   private lastLine: Entry | undefined;
-  /** Open cards by message ref, oldest first. */
-  private readonly open = new Map<string, PetPending>();
+  /** Cards with buttons that still work, by message ref, oldest first. */
+  private readonly open = new Map<string, View>();
   private sink: InboundSink | undefined;
   private ownerId: string | undefined;
   private inner: Channel | undefined;
@@ -185,7 +299,12 @@ export class PetFeed {
 
   /** Open cards, oldest first. */
   pending(): PetPending[] {
-    return [...this.open.values()];
+    return [...this.open.values()].flatMap((v) => pendingOf(v) ?? []);
+  }
+
+  /** The card sent as `ref` (`channelId:messageId`) can still be answered. */
+  isOpen(ref: string): boolean {
+    return this.open.has(ref);
   }
 
   /** The owner typed this in the pet's bubble: it reaches AgentHerd like a chat message. */
@@ -202,10 +321,10 @@ export class PetFeed {
 
   /** The owner pressed a button in the bubble: the same as pressing it on the Feishu card. */
   async press(target: string, action: string): Promise<void> {
-    const open = [...this.open.values()].find((p) => p.target === target);
-    if (open === undefined || !open.options.some((o) => o.action === action)) {
-      throw new Error("这件事已经处理过了");
-    }
+    const open = [...this.open.values()].some((v) =>
+      buttonsOf(v).some((b) => b.target === target && b.action === action),
+    );
+    if (!open) throw new Error("这件事已经处理过了");
     const { sink, ownerId } = this.inbound();
     await sink({ kind: "action", target, action, from: ownerId });
   }
@@ -236,23 +355,40 @@ export class PetFeed {
   /** @internal */
   sent(ref: MessageRef, view: View): void {
     const k = key(ref);
-    const pending = pendingOf(view);
-    if (pending !== undefined) this.open.set(k, pending);
+    this.keep(k, view);
+    const open = buttonsOf(view).length > 0;
+    if (open) this.open.set(k, view);
     const line = lineOf(view);
     if (line !== undefined) {
       this.seq++;
-      this.lastLine = { ...line, id: this.seq, at: this.now().toISOString(), ref: k };
+      this.lastLine = {
+        ...line,
+        id: this.seq,
+        at: this.now().toISOString(),
+        ref: k,
+        ...(isCardView(view) ? { card: k } : {}),
+      };
     }
-    if (pending !== undefined || line !== undefined) this.changed();
+    if (open || line !== undefined) this.changed();
+  }
+
+  private keep(ref: string, view: View): void {
+    if (this.opts.keep === undefined || !isCardView(view)) return;
+    try {
+      this.opts.keep(ref, view);
+    } catch {
+      // The pet shows less after a restart; the chat app has the card.
+    }
   }
 
   /** @internal An update in place: a card closed or changed, or a message was edited. */
   updated(ref: MessageRef, view: View): void {
     const k = key(ref);
-    let changed = false;
-    const pending = pendingOf(view);
-    if (pending !== undefined) {
-      this.open.set(k, pending);
+    this.keep(k, view);
+    // A card's new form shows in the conversation even when its buttons did not change.
+    let changed = isCardView(view);
+    if (buttonsOf(view).length > 0) {
+      this.open.set(k, view);
       changed = true;
     } else if (this.open.delete(k)) {
       changed = true;

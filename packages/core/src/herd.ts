@@ -524,6 +524,15 @@ export class Herd {
     return this.runner.endTask(taskId, why);
   }
 
+  /**
+   * The owner stopped a task from the app (ADR 0072): the same as telling the Herder it is
+   * finished. Its agent stops; the task stays and can be continued.
+   */
+  async stopTask(taskId: string): Promise<void> {
+    if (!this.tasks().some((t) => t.id === taskId)) throw new Error(`no task ${taskId}`);
+    await this.endTask(taskId, this.texts.endedByOwner);
+  }
+
   /** Looks at the new-work watches now (tests). */
   pollIntake(): Promise<void> {
     return this.intake?.poll() ?? Promise.resolve();

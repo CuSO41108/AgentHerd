@@ -2,10 +2,10 @@ import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Decision, Item, Rule } from "@agentherd/protocol";
+import type { Decision, Item, ReportView, Rule } from "@agentherd/protocol";
 import { describe, expect, it } from "vitest";
 import type { SessionRow } from "../src/index.ts";
-import { Store } from "../src/index.ts";
+import { OWNER_CARDS_KEEP, Store } from "../src/index.ts";
 
 const NOW = "2026-11-04T00:00:00.000Z";
 const REDACTED = "«redacted»";
@@ -488,5 +488,55 @@ describe("Store (herder_turns)", () => {
     ]);
     expect(store.searchHerderTurns("好")).toEqual([]);
     store.close();
+  });
+});
+
+describe("Store (owner_cards, ADR 0072)", () => {
+  const report = (body: string): ReportView => ({
+    kind: "report",
+    taskId: "t1",
+    result: "done",
+    title: "修登录 401",
+    body,
+    summarized: false,
+    automaticDecisions: [],
+  });
+
+  it("keeps each card in its latest form, oldest first, without secrets", () => {
+    const store = Store.open(":memory:", { secrets: { key: "sk-secret-123" } });
+    store.putOwnerCard("feishu:m1", report("在做"), "t1");
+    store.putOwnerCard("feishu:m2", { kind: "ask", askId: "a1", text: "用哪个？", options: [] });
+    store.putOwnerCard("feishu:m1", report("做完了，密钥 sk-secret-123 已换"));
+    const cards = store.ownerCards();
+    expect(cards.map((c) => c.ref)).toEqual(["feishu:m1", "feishu:m2"]);
+    expect(cards[0]?.taskId).toBe("t1");
+    expect(cards[0]?.view).toMatchObject({ kind: "report", body: "做完了，密钥 «redacted» 已换" });
+    expect(cards[1]?.taskId).toBeUndefined();
+    expect(store.ownerCards(1).map((c) => c.ref)).toEqual(["feishu:m2"]);
+    expect(store.ownerCards(10, "2999-01-01T00:00:00.000Z")).toEqual([]);
+    store.close();
+  });
+
+  it("keeps only the newest cards", () => {
+    const store = Store.open(":memory:");
+    for (let i = 0; i < OWNER_CARDS_KEEP + 3; i++) store.putOwnerCard(`f:${i}`, report(String(i)));
+    const cards = store.ownerCards(OWNER_CARDS_KEEP + 10);
+    expect(cards).toHaveLength(OWNER_CARDS_KEEP);
+    expect(cards.at(-1)?.ref).toBe(`f:${OWNER_CARDS_KEEP + 2}`);
+    store.close();
+  });
+
+  it("adds the table to a version-14 database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentherd-core-"));
+    const dbPath = join(dir, "herd.db");
+    Store.open(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("DROP TABLE owner_cards");
+    raw.exec("UPDATE schema_version SET version = 14");
+    raw.close();
+    const migrated = Store.open(dbPath);
+    migrated.putOwnerCard("f:1", report("ok"));
+    expect(migrated.ownerCards()).toHaveLength(1);
+    migrated.close();
   });
 });

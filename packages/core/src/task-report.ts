@@ -195,6 +195,8 @@ export async function sendReport(
       return;
     }
   }
+  // Its turn was cut because the owner ended the task: stopped, not failed (ADR 0072).
+  const stopped = f.ended && f.endedWhy === ctx.texts.endedByOwner && !f.finished;
   const speaks = toOwner && ctx.herder()?.voice !== undefined;
   let body: ReportBody;
   if (speaks) {
@@ -202,7 +204,7 @@ export async function sendReport(
       kind: "report",
       taskId: f.task.id,
       title: f.task.title,
-      result: reportResult(f.task.stage),
+      result: stopped ? "stopped" : reportResult(f.task.stage),
       reply,
       ...(own && f.report !== undefined ? { report: f.report } : {}),
     });
@@ -225,6 +227,7 @@ export async function sendReport(
     });
     restage(ctx, f);
   }
+  if (stopped) body = { ...body, result: "stopped" };
   const view = reportView(f.task, body, ctx.clock.now(), ctx.texts);
   if (toOwner) {
     // Kept and retried until the channel takes it; a reply to it goes to the task (ADR 0043).

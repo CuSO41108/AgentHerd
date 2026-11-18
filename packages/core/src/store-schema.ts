@@ -128,7 +128,21 @@ export const SCHEDULES_TABLE_SQL = `CREATE TABLE IF NOT EXISTS schedules(
 /** Schema 14: steps leaving the Mac the owner allowed for a task (ADR 0056). */
 export const TASK_ALLOWED_STEPS_SQL = "ALTER TABLE tasks ADD COLUMN allowed_steps_json TEXT;";
 
-export const LATEST_SCHEMA_VERSION = 14;
+/**
+ * Schema 15: the cards sent to the owner (reports, approvals, questions, offers), each in its
+ * latest form, so the desktop pet shows them after a restart (ADR 0072).
+ */
+export const OWNER_CARDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS owner_cards(
+  ref TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  task_id TEXT,
+  view_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS owner_cards_at ON owner_cards(at);`;
+
+export const LATEST_SCHEMA_VERSION = 15;
 
 export const SCHEMA_SQL = `
 CREATE TABLE sessions(
@@ -194,4 +208,5 @@ ${MAIL_WATCHES_TABLE_SQL}
 ${INTAKE_WATCHES_TABLE_SQL}
 ${SCHEDULES_TABLE_SQL}
 ${TASK_ALLOWED_STEPS_SQL}
+${OWNER_CARDS_TABLE_SQL}
 `;

@@ -14,7 +14,16 @@ import type {
   Task,
   TranscriptEntry,
 } from "@agentherd/core";
-import type { Locale, Mode, ReportResult, Risk } from "@agentherd/protocol";
+import type {
+  AskView,
+  ItemView,
+  Locale,
+  Mode,
+  ReportResult,
+  ReportView,
+  Risk,
+  TextView,
+} from "@agentherd/protocol";
 
 export const API_VERSION = 1;
 
@@ -307,6 +316,22 @@ export interface PetLine {
   task?: string;
   /** Only for reports. */
   result?: ReportResult;
+  /** It came as this card (`PetView.cards`), which shows it (ADR 0072). */
+  card?: string;
+}
+
+/** The views the pet shows as cards, like the chat app (ADR 0072). */
+export type PetCardView = ReportView | ItemView | AskView | TextView;
+
+/** A card sent to the owner, in its latest form, kept in herd.db (ADR 0072). */
+export interface PetCard {
+  /** `channelId:messageId`. */
+  ref: string;
+  /** When it was first sent. */
+  at: string;
+  view: PetCardView;
+  /** Its buttons work: sent in this run of AgentHerd and not answered yet. */
+  open: boolean;
 }
 
 /** A card waiting for the owner; its buttons work the same as in the chat app. */
@@ -329,9 +354,12 @@ export interface PetView {
   pending: PetPending[];
   /**
    * The Herder's conversation with the owner as herd.db keeps it, both ways, the last lines,
-   * oldest first (the expanded pet). Ids are those of `herder_turns`.
+   * oldest first (the expanded pet). Ids are those of `herder_turns`. Lines a card shows are
+   * left out.
    */
   history: PetLine[];
+  /** The cards sent to the owner over the same time, oldest first (ADR 0072). */
+  cards: PetCard[];
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */
@@ -563,6 +591,8 @@ export interface HostApi {
   petSay(text: string): Promise<PetView>;
   /** The owner pressed a button on a card in the pet's bubble. */
   petPress(target: string, action: string): Promise<PetView>;
+  /** The owner stopped a task (the pet's task card): its agent stops, the task stays (ADR 0072). */
+  stopTask(taskId: string): Promise<void>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -626,6 +656,7 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "pet",
   "petSay",
   "petPress",
+  "stopTask",
 ];
 
 export type HostEvent =

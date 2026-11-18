@@ -2,8 +2,9 @@
 // AgentHerd is doing. A click opens the conversation with the Herder, both ways and in full; it
 // also opens by itself when AgentHerd tells the owner something (the same as Feishu), without
 // taking the keyboard. It shows the buttons of whatever waits for the owner and passes what the
-// owner types to the Herder. Its top-left corner and edges resize it. Drag the figure anywhere;
-// the small button folds it into a dot, which counts what came meanwhile.
+// owner types to the Herder. Cards come in it as in Feishu, with a card for each task (ADR 0072).
+// Its top-left corner and edges resize it. Drag the figure anywhere; the small button folds it
+// into a dot, which counts what came meanwhile.
 
 import type { PetFigure, PetView, TasksView } from "@agentherd/host/api";
 import {
@@ -16,12 +17,13 @@ import {
 } from "react";
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
+import { CardView, TaskCard } from "./PetCards";
 import {
   badgeOf,
   CHAT_DEFAULT,
   type ChatSize,
   clockOf,
-  cut,
+  conversationOf,
   dragChat,
   FLASH_MS,
   fitChat,
@@ -33,7 +35,6 @@ import {
   newestScroll,
   newLine,
   readChatSize,
-  trailingLine,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
 
@@ -61,15 +62,23 @@ function errorText(error: unknown): string {
   return text.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
 }
 
-function countWorking(view: TasksView): number {
-  return view.tasks.filter((t) => t.stage === "working" || t.stage === "queued").length;
+type Task = TasksView["tasks"][number];
+
+function countWorking(tasks: readonly Task[]): number {
+  return tasks.filter((t) => t.stage === "working" || t.stage === "queued").length;
 }
 
 export function Pet() {
   const bridge = window.agentherd;
-  const [view, setView] = useState<PetView>({ connected: false, pending: [], history: [] });
+  const [view, setView] = useState<PetView>({
+    connected: false,
+    pending: [],
+    history: [],
+    cards: [],
+  });
   const [figure, setFigure] = useState<PetFigure>("deepseek");
-  const [working, setWorking] = useState(0);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const working = countWorking(tasks);
   const [online, setOnline] = useState(true);
   const [flash, setFlash] = useState<{ mood: "celebrate" | "error"; until: number }>();
   const [lastActive, setLastActive] = useState(() => Date.now());
@@ -135,13 +144,13 @@ export function Pet() {
       .then((s) => setFigure(s.pet?.figure ?? "deepseek"))
       .catch(() => undefined);
     h.tasks()
-      .then((t) => setWorking(countWorking(t)))
+      .then((t) => setTasks(t.tasks))
       .catch(() => undefined);
     const offEvent = bridge.onEvent((e) => {
       if (e.topic === "pet") apply(e.data, false);
       else if (e.topic === "status") setFigure(e.data.pet?.figure ?? "deepseek");
       else if (e.topic === "tasks") {
-        setWorking(countWorking(e.data));
+        setTasks(e.data.tasks);
         setLastActive(Date.now());
       }
     });
@@ -182,15 +191,16 @@ export function Pet() {
 
   // The conversation opens at its newest message, from its first line, and follows new ones.
   const shown = open && !collapsed;
-  const historyLength = view.history.length + (trailingLine(view.history, view.last) ? 1 : 0);
+  const entries = conversationOf(view, tasks, now);
+  const newestKey = entries.at(-1)?.key;
   useLayoutEffect(() => {
     const el = listEl.current;
-    if (!shown || el === null || historyLength < 0) return;
+    if (!shown || el === null || newestKey === "") return;
     const newest = el.lastElementChild;
     const top = newest instanceof HTMLElement ? newest.offsetTop - 4 : el.scrollHeight;
     el.scrollTop = newestScroll(top, el.scrollHeight - el.clientHeight);
     fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
-  }, [shown, historyLength]);
+  }, [shown, newestKey]);
 
   // Measures how big the conversation may get: the screen less the rest of the pet.
   const size = fitChat(chat, room);
@@ -348,18 +358,40 @@ export function Pet() {
     }
   };
 
+  const stop = async (taskId: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await bridge.host.stopTask(taskId);
+      setNote("已停下这个任务");
+    } catch (error) {
+      setNote(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openTask = (taskId: string) => bridge.pet?.openApp(taskId);
+
+  // The first card that waits for the owner, scrolled to from the note above the input.
+  const toWaiting = () => {
+    const el = listEl.current?.querySelector<HTMLElement>("[data-open='1']");
+    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.nativeEvent.isComposing) void send();
     if (e.key === "Escape") close();
   };
 
   const atlas = FIGURES[figure].atlas;
-  const pending = view.pending[0];
   const offline = !online || !view.connected;
   const badge = badgeOf(view.pending.length, unread);
-  const trailing = trailingLine(view.history, view.last);
-  const lines = view.history.map((line) => ({ key: `h${line.id}`, line }));
-  if (trailing !== undefined) lines.push({ key: `l${trailing.id}`, line: trailing });
+  const actions = {
+    busy,
+    offline,
+    press: (target: string, action: string) => void press(target, action),
+    openTask,
+  };
 
   if (collapsed) {
     return (
@@ -386,29 +418,11 @@ export function Pet() {
     );
   }
 
-  const card =
-    pending === undefined ? undefined : (
-      <div className="pet-card">
-        {pending.task !== undefined && <div className="pet-task">{cut(pending.task, 30)}</div>}
-        <div className="pet-title">{cut(pending.title, 120)}</div>
-        {pending.body !== "" && <div className="pet-body">{pending.body}</div>}
-        <div className="pet-actions">
-          {pending.options.map((o) => (
-            <button
-              key={o.action}
-              type="button"
-              disabled={busy || offline}
-              className={o.action === "allow" || o.action === "allow-all" ? "primary" : ""}
-              onClick={() => void press(pending.target, o.action)}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-        {view.pending.length > 1 && (
-          <div className="pet-more">还有 {view.pending.length - 1} 件等你</div>
-        )}
-      </div>
+  const waiting =
+    view.pending.length === 0 ? undefined : (
+      <button type="button" className="pet-waiting" onClick={toWaiting}>
+        {view.pending.length} 件等你处理 ↑
+      </button>
     );
 
   const talk = (
@@ -463,16 +477,36 @@ export function Pet() {
               fromBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight;
             }}
           >
-            {lines.length === 0 ? (
+            {entries.length === 0 ? (
               <div className="pet-note">
                 还没有和主管的对话。在这里或飞书里说的话都会出现在这儿。
               </div>
             ) : (
-              lines.map(({ key, line }) => {
+              entries.map((entry) => {
+                if (entry.kind === "card") {
+                  return (
+                    <div key={entry.key} data-open={entry.card.open ? "1" : "0"}>
+                      <CardView card={entry.card} actions={actions} />
+                    </div>
+                  );
+                }
+                if (entry.kind === "task") {
+                  return (
+                    <TaskCard
+                      key={entry.key}
+                      task={entry.task}
+                      now={now}
+                      busy={busy}
+                      stop={(id) => void stop(id)}
+                      open={openTask}
+                    />
+                  );
+                }
+                const { line } = entry;
                 const head = historyHead(line);
                 const tone = line.kind === "owner" ? " mine" : line.kind === "error" ? " bad" : "";
                 return (
-                  <div key={key} className={`pet-msg${tone}`}>
+                  <div key={entry.key} className={`pet-msg${tone}`}>
                     {head !== undefined && <div className="pet-msg-task">{head}</div>}
                     <div className="pet-msg-text">{line.text}</div>
                     <div className="pet-msg-time">{clockOf(line.at)}</div>
@@ -481,7 +515,7 @@ export function Pet() {
               })
             )}
           </div>
-          {card}
+          {waiting}
           {talk}
         </div>
       )}

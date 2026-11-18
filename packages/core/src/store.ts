@@ -28,6 +28,7 @@ import {
   MAIL_WATCHES_TABLE_SQL,
   MESSAGE_TASKS_TABLE_SQL,
   OUTBOX_TABLE_SQL,
+  OWNER_CARDS_TABLE_SQL,
   PR_WATCHES_TABLE_SQL,
   SCHEDULES_TABLE_SQL,
   SCHEMA_SQL,
@@ -163,6 +164,10 @@ export class Store {
           this.db.exec(TASK_ALLOWED_STEPS_SQL);
         }
         this.db.prepare("UPDATE schema_version SET version = ?").run(14);
+      }
+      if (version < 15) {
+        this.db.exec(OWNER_CARDS_TABLE_SQL);
+        this.db.prepare("UPDATE schema_version SET version = ?").run(15);
       }
     }
 
@@ -433,6 +438,43 @@ export class Store {
     this.db
       .prepare("INSERT INTO herder_turns(at, role, text, task_id) VALUES (?, ?, ?, ?)")
       .run(new Date().toISOString(), role, redact(cut, this.secrets), taskId ?? null);
+  }
+
+  /**
+   * Keeps a card sent to the owner in its latest form (ADR 0072): the first call adds it, later
+   * calls with the same ref replace its view. Only the newest `OWNER_CARDS_KEEP` are kept.
+   */
+  putOwnerCard(ref: string, view: View, taskId?: string): void {
+    const now = new Date().toISOString();
+    const json = redact(JSON.stringify(view), this.secrets);
+    this.db
+      .prepare(
+        `INSERT INTO owner_cards(ref, at, updated_at, kind, task_id, view_json) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(ref) DO UPDATE SET updated_at = excluded.updated_at, view_json = excluded.view_json,
+           task_id = COALESCE(excluded.task_id, owner_cards.task_id)`,
+      )
+      .run(ref, now, now, view.kind, taskId ?? null, json);
+    this.db
+      .prepare(
+        "DELETE FROM owner_cards WHERE ref NOT IN (SELECT ref FROM owner_cards ORDER BY at DESC, rowid DESC LIMIT ?)",
+      )
+      .run(OWNER_CARDS_KEEP);
+  }
+
+  /** The cards sent to the owner since `since` (ISO time), oldest first, at most `limit`. */
+  ownerCards(limit = 100, since = ""): OwnerCard[] {
+    const rows = this.db
+      .prepare(
+        "SELECT ref, at, updated_at, task_id, view_json FROM owner_cards WHERE at >= ? ORDER BY at DESC, rowid DESC LIMIT ?",
+      )
+      .all(since, limit);
+    return rows.reverse().map((r) => ({
+      ref: String(r.ref),
+      at: String(r.at),
+      updatedAt: String(r.updated_at),
+      ...(r.task_id === null ? {} : { taskId: String(r.task_id) }),
+      view: JSON.parse(String(r.view_json)) as View,
+    }));
   }
 
   /** The last `limit` lines of the Herder's conversation, oldest first. */
@@ -830,6 +872,20 @@ function toStoredTask(r: Record<string, unknown>): StoredTask {
     t.workspace = JSON.parse(r.workspace_json) as TaskWorkspace;
   }
   return t;
+}
+
+/** Cards kept for the desktop pet (ADR 0072); older ones are deleted. */
+export const OWNER_CARDS_KEEP = 500;
+
+/** A card sent to the owner, in its latest form (ADR 0072). */
+export interface OwnerCard {
+  /** `channelId:messageId`. */
+  ref: string;
+  /** When it was first sent. */
+  at: string;
+  updatedAt: string;
+  taskId?: string;
+  view: View;
 }
 
 /** A line of the Herder's conversation with the owner. */
