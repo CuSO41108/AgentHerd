@@ -30,6 +30,12 @@ export interface FeishuApi {
   downloadImage(messageId: string, imageKey: string): Promise<DownloadedFile>;
   /** A file, audio or video message's resource. */
   downloadFile(messageId: string, fileKey: string): Promise<DownloadedFile>;
+  /**
+   * Uploads a picture for messages and returns its image key (`im/v1/images`, ADR 0075). Needs
+   * the app's `im:resource` permission; without it Feishu refuses and the picture is shown by
+   * its path.
+   */
+  uploadImage?(data: Uint8Array): Promise<string>;
 }
 
 export interface DownloadedFile {
@@ -164,6 +170,15 @@ export function sdkApi(creds: FeishuCredentials): FeishuApi {
     async pin(messageId) {
       const res = await client.im.v1.pin.create({ data: { message_id: messageId } });
       check("pin", res);
+    },
+    async uploadImage(data) {
+      const res = await call("upload image", () =>
+        client.im.v1.image.create({ data: { image_type: "message", image: Buffer.from(data) } }),
+      );
+      const key = res?.image_key;
+      if (key === undefined || key === "")
+        throw new Error("feishu upload image returned no image_key");
+      return key;
     },
     downloadImage: (messageId, imageKey) => download(messageId, imageKey, "image"),
     downloadFile: (messageId, fileKey) => download(messageId, fileKey, "file"),

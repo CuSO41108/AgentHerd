@@ -118,7 +118,8 @@ Feishu "create agent app with one scan" flow (OAuth device grant). Tested in a p
 ID, App Secret and the owner's `open_id`, and no separate publish step is needed.
 
 - App name: `<user name>'s AgentHerd`, created with `createOnly: true`.
-- Scopes (tenant): `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`.
+- Scopes (tenant): `im:message`, `im:message:send_as_bot`, `im:message.p2p_msg:readonly`,
+  `im:resource` (uploading pictures the Herder shows, ADR 0075).
 - Event: `im.message.receive_v1`. Callback: `card.action.trigger`.
 - The desktop app shows the QR code and the state of the flow (waiting for scan, waiting for
   confirm, verifying, connected). The QR code is valid for one hour.
@@ -171,6 +172,13 @@ like the board's (at most 5 a card, the rest as Markdown tables), `stats` → a 
 `ui:` target, 「你选了：x」 once chosen; the rest as Markdown. If Feishu refuses such a card
 (230001, 230025, 230099) it is sent once more drawn from `herdUiPlain`, answers as ordinary
 buttons, and later updates of that message stay plain.
+
+A herd-ui `image` item ([ADR 0075](../adr/0075-the-herder-shows-pictures.md)) is read from disk
+(`readPicture`: full path, png/jpg/gif/webp by extension and first bytes, 1 byte to 10 MB),
+uploaded with `im/v1/images` (`image_type: message`, once per picture, kept by hash) and drawn as
+an `img` element (`fit_horizontal`, tap to enlarge) with its title and description under it. A
+picture that cannot be read or uploaded (no `im:resource`, too big) is named by its path and
+not tried again for 10 minutes; the reason goes to the host log.
 
 ## 4. Adding a channel
 

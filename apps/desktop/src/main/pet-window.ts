@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { app, BrowserWindow, type IpcMainEvent, ipcMain, screen, shell } from "electron";
-import { fileToOpen } from "./open-file";
+import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
 
 /** Size before the renderer measures itself: the figure alone. */
 const START = { width: 150, height: 150 };
@@ -98,6 +98,15 @@ export class PetWindow {
       if (file.how === "open") void shell.openPath(file.path);
       else shell.showItemInFolder(file.path);
     });
+    // A picture the Herder shows (ADR 0075): its bytes as a data URL, or undefined.
+    ipcMain.handle("pet:read-image", (e, path: unknown) => {
+      if (this.own(e) === undefined) return undefined;
+      try {
+        return pictureToShow(path, DISK);
+      } catch {
+        return undefined;
+      }
+    });
   }
 
   /** Shows or closes the pet. */
@@ -112,7 +121,7 @@ export class PetWindow {
     }
   }
 
-  private own(e: IpcMainEvent): BrowserWindow | undefined {
+  private own(e: Pick<IpcMainEvent, "sender">): BrowserWindow | undefined {
     const w = this.win;
     return w !== undefined && !w.isDestroyed() && e.sender === w.webContents ? w : undefined;
   }
@@ -209,6 +218,18 @@ export class PetWindow {
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
+
+const DISK: PictureDisk = {
+  fileSize(path) {
+    try {
+      const s = statSync(path);
+      return s.isFile() ? s.size : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  read: (path) => new Uint8Array(readFileSync(path)),
+};
 
 function isFile(path: string): boolean {
   try {

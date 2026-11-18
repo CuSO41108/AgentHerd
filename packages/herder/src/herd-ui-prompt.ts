@@ -18,6 +18,12 @@ export function herdUiPrompt(): string {
   - a file a task made or the owner should open → file. Only a file item gets an 打开 button; a
     path you only mention in words (a log, a config folder) stays plain text. You decide which
     files matter enough to open; usually it is the result of the work, not every path you name.
+  - a picture on this computer the owner has to look at (a QR code to scan, a screenshot, a
+    chart a task saved as png, jpg, gif or webp) → image. You can show pictures this way: the
+    pet and Feishu draw the picture itself in your reply. Do it also when a task's message only
+    names the picture's path, and when the owner asks to see one at a path (no need to check it
+    first: one that cannot be read is shown as its path); never just write "the QR code is at
+    /tmp/…". A sign-in link still goes in words next to it, in case the picture does not load.
   - a command for the owner to run → code; a real risk → callout with tone warning or error
   - when you end by offering what to do next and the answers are clear (「要我下载跑一下吗？」),
     put the answers as choices instead of asking in words
@@ -35,6 +41,7 @@ export function herdUiPrompt(): string {
   - {"type":"code","lang":"bash","code":"…"}
   - {"type":"link","url":"https://…","title":"yetone/magpie","meta":"★ 38k · TypeScript","desc":"…"}
   - {"type":"file","path":"/Users/…/report.md","title":"清单","desc":"26 个链接"} (a full path)
+  - {"type":"image","path":"/tmp/login-qr.png","title":"飞书授权码","desc":"10 分钟内有效"} (a full path to a picture on this computer)
   - {"type":"choices","question":"下一步？","options":["下载跑一下","先不用"]} (up to ${HERD_UI_CHOICES_MAX} short answers)
   - {"type":"divider","label":"…"}
 - choices are next steps you offer at the end of an answer; a tap comes back to you as the
@@ -46,8 +53,8 @@ export function herdUiPrompt(): string {
   {"items":[{"type":"table","columns":["仓库","星","语言","最近提交"],"rows":[["HKUDS/nanobot","50.2k","Python","昨天"],["mariagorskikh/open-instinct","468","TypeScript","一个月前"]]},{"type":"choices","question":"下一步？","options":["拉下来跑一下","先不用"]}]}
   ${fence}
 - Before you send, check once: does the reply compare things, carry several numbers, list steps,
-  name a repository or page, point to a file the owner should open, or end with an offer? Then it
-  needs the block.
+  name a repository or page, point to a file the owner should open, have a picture to look at,
+  or end with an offer? Then it needs the block.
 - One block per reply is usually right, at most about 20 items. Everything in it is what you
   read or did; never invent numbers, stars or links to fill a table.`;
 }
