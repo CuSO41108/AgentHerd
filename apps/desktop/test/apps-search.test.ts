@@ -40,8 +40,11 @@ it("keeps only matching apps while typing, after a late reply, and after an app 
         if (line.startsWith("SEARCH_STAGE ")) mark(line.slice("SEARCH_STAGE ".length));
       }
     });
+    run.child.on("exit", (code, signal) => mark(`electron process exit: ${code ?? signal}`));
+    run.child.stdout?.on("end", () => mark("electron stdout ended"));
+    run.child.stderr?.on("end", () => mark("electron stderr ended"));
     const { stdout } = await run;
-    mark("electron exited");
+    mark("electron execution settled");
     const line = stdout.split("\n").find((s) => s.startsWith("SEARCH_RESULT "));
     expect(line, stdout).toBeDefined();
     const result = JSON.parse((line as string).slice("SEARCH_RESULT ".length));

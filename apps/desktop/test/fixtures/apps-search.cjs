@@ -93,6 +93,8 @@ async function searchScenario() {
 
 const stage = (name) => process.stderr.write(`SEARCH_STAGE ${name}\n`);
 stage("electron entry loaded");
+app.on("will-quit", () => stage("electron will quit"));
+app.on("quit", () => stage("electron quit"));
 app.whenReady().then(async () => {
   stage("electron ready");
   const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
