@@ -42,6 +42,7 @@ import type {
   WestockTest,
   WestockView,
 } from "@agentherd/host/api";
+import { DEFAULT_PET } from "@agentherd/host/api";
 import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
 import {
@@ -101,7 +102,13 @@ function installFakeBridge(): void {
     locale: "zh-CN",
     keepAwake: true,
     profiles: sim === "no-agent" ? [] : ["pi"],
-    pet: { on: true, figure: "deepseek" },
+    // `?quiet=1`: the pet keeps quiet (ADR 0079).
+    pet: {
+      ...DEFAULT_PET,
+      ...(new URLSearchParams(location.search).get("quiet") === "1"
+        ? { quietUntil: new Date(Date.now() + 3_600_000).toISOString() }
+        : {}),
+    },
   };
 
   const petSim = new URLSearchParams(window.location.search).get("pet");

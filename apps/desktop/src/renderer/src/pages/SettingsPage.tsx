@@ -2,22 +2,36 @@
 // AgentHerd keeps its files. How the Herder talks is on the 主管 page; the owner's apps and
 // platforms are on the 应用连接 page.
 
-import type { PetFigure, SettingsPatch } from "@agentherd/host/api";
+import type { PetFigure, PetSettings, SettingsPatch } from "@agentherd/host/api";
 import {
+  Bell,
+  BellOff,
   Check,
   Eye,
   FolderOpen,
   Hand,
   Info,
+  Moon,
   MoonStar,
   Palette,
   PawPrint,
   Rocket,
   Type,
+  Volume2,
 } from "lucide-react";
 import { useState } from "react";
+import { isQuiet, quietLine, snoozeUntil } from "../../../shared/pet-notify";
 import { FeishuSection } from "../components/FeishuSection";
-import { Button, Group, IconTile, Row, Section, Segmented, Switch } from "../components/ui";
+import {
+  Button,
+  Group,
+  IconTile,
+  inputClass,
+  Row,
+  Section,
+  Segmented,
+  Switch,
+} from "../components/ui";
 import { FONT_SCALES, setFontScale, useFontScale } from "../font-scale";
 import { FIGURE_CREDIT, FIGURES } from "../pet/figures";
 import { isMac } from "../platform";
@@ -155,6 +169,7 @@ export function SettingsPage() {
             }
           />
         </Group>
+        <PetQuiet pet={status.pet} busy={busy} update={update} />
       </Section>
 
       <Section title="电源">
@@ -225,5 +240,148 @@ export function SettingsPage() {
         </Group>
       </Section>
     </div>
+  );
+}
+
+/** Default quiet hours when the owner turns them on (ADR 0079). */
+const QUIET_DEFAULT = "22:00-08:00";
+
+/** Notifications, sound, quiet hours and a snooze for the pet (ADR 0079). */
+function PetQuiet({
+  pet,
+  busy,
+  update,
+}: {
+  pet: PetSettings | undefined;
+  busy: boolean;
+  update: (patch: SettingsPatch) => Promise<void>;
+}) {
+  // An older host has no notification settings.
+  if (pet?.notify === undefined) return null;
+  const now = new Date();
+  const [from = "22:00", to = "08:00"] = (pet.quietHours || QUIET_DEFAULT).split("-");
+  const snoozed = pet.quietUntil !== "" && Date.parse(pet.quietUntil) > now.getTime();
+  const setHours = (a: string, b: string) => {
+    if (/^\d\d:\d\d$/.test(a) && /^\d\d:\d\d$/.test(b))
+      void update({ pet: { quietHours: `${a}-${b}` } });
+  };
+  return (
+    <Group className="mt-3">
+      <Row
+        icon={
+          <IconTile tone="blue">
+            <Bell size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="系统通知"
+        description="要你确认的事、主管问你的话和任务结果，桌宠和 App 不在眼前时也弹通知；点通知就打开桌宠"
+        trailing={
+          <Switch
+            label="系统通知"
+            checked={pet.notify}
+            disabled={busy}
+            onChange={(notify) => void update({ pet: { notify } })}
+          />
+        }
+      />
+      <Row
+        icon={
+          <IconTile>
+            <Volume2 size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="提示音"
+        description="要你确认、主管提问和没做成的任务会响；做完的任务只弹不响"
+        trailing={
+          <Switch
+            label="提示音"
+            checked={pet.sound}
+            disabled={busy || !pet.notify}
+            onChange={(sound) => void update({ pet: { sound } })}
+          />
+        }
+      />
+      <Row
+        icon={
+          <IconTile>
+            <Moon size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="免打扰时段"
+        description="这段时间不弹通知、不响，桌宠也不自己打开对话；事情照样记着，点开就能看"
+        trailing={
+          <>
+            {pet.quietHours !== "" && (
+              <span className="flex items-center gap-1 text-sm text-ink-muted">
+                <input
+                  type="time"
+                  aria-label="免打扰开始"
+                  className={`${inputClass} w-[92px]`}
+                  value={from}
+                  disabled={busy}
+                  onChange={(e) => setHours(e.target.value, to)}
+                />
+                到
+                <input
+                  type="time"
+                  aria-label="免打扰结束"
+                  className={`${inputClass} w-[92px]`}
+                  value={to}
+                  disabled={busy}
+                  onChange={(e) => setHours(from, e.target.value)}
+                />
+              </span>
+            )}
+            <Switch
+              label="免打扰时段"
+              checked={pet.quietHours !== ""}
+              disabled={busy}
+              onChange={(on) => void update({ pet: { quietHours: on ? QUIET_DEFAULT : "" } })}
+            />
+          </>
+        }
+      />
+      <Row
+        icon={
+          <IconTile>
+            <BellOff size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="暂停提醒"
+        description={
+          snoozed
+            ? `${quietLine(pet, now) ?? ""}，到点自动恢复`
+            : isQuiet(pet, now)
+              ? "现在在免打扰时段里"
+              : "临时安静一会儿；菜单栏的小羊图标里也能点"
+        }
+        trailing={
+          snoozed ? (
+            <Button disabled={busy} onClick={() => void update({ pet: { quietUntil: "" } })}>
+              恢复提醒
+            </Button>
+          ) : (
+            <>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void update({ pet: { quietUntil: snoozeUntil("hour", new Date()) } })
+                }
+              >
+                1 小时
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void update({ pet: { quietUntil: snoozeUntil("morning", new Date()) } })
+                }
+              >
+                到明早 8 点
+              </Button>
+            </>
+          )
+        }
+      />
+    </Group>
   );
 }

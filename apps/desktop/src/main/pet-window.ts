@@ -175,6 +175,22 @@ export class PetWindow {
     else this.close();
   }
 
+  /**
+   * Opens the pet's panel on a page and gives it the keyboard: a notification or the menu bar
+   * asked (ADR 0079). False when the pet is not shown.
+   */
+  show(tab: "chat" | "tasks" | "cards"): boolean {
+    const w = this.win;
+    if (w === undefined || w.isDestroyed()) return false;
+    const tell = () => w.webContents.send("pet:show", tab);
+    if (w.webContents.isLoading()) w.webContents.once("did-finish-load", tell);
+    else tell();
+    w.show();
+    w.focus();
+    if (process.platform === "darwin") app.focus({ steal: true });
+    return true;
+  }
+
   send(channel: string, payload: unknown): void {
     if (this.win !== undefined && !this.win.isDestroyed()) {
       this.win.webContents.send(channel, payload);

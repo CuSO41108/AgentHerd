@@ -296,9 +296,30 @@ export interface PetSettings {
   /** Shown on the desktop. */
   on: boolean;
   figure: PetFigure;
+  /**
+   * System notifications for what waits for the owner and for task results, even when the pet
+   * and the chat app are out of sight (ADR 0079).
+   */
+  notify: boolean;
+  /** Those notifications ring; a finished task never does, a failed one and a question do. */
+  sound: boolean;
+  /** `HH:MM-HH:MM` local hours with no notification, no sound and no panel popping open; "" none. */
+  quietHours: string;
+  /** Quiet until this ISO time (暂停打扰 from the menu bar or settings); "" when not snoozed. */
+  quietUntil: string;
 }
 
-export const DEFAULT_PET: PetSettings = { on: true, figure: "deepseek" };
+export const DEFAULT_PET: PetSettings = {
+  on: true,
+  figure: "deepseek",
+  notify: true,
+  sound: true,
+  quietHours: "",
+  quietUntil: "",
+};
+
+/** `HH:MM-HH:MM`, both in 00:00–23:59; the hours may cross midnight (ADR 0079). */
+export const QUIET_HOURS = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
 
 /** One thing AgentHerd sent to the owner, as the pet shows it. */
 export interface PetLine {

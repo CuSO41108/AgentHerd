@@ -6,7 +6,7 @@
 // Its top-left corner and edges resize it. Drag the figure anywhere; the small button folds it
 // into a dot, which counts what came meanwhile.
 
-import type { PetCard, PetFigure, PetView, TasksView } from "@agentherd/host/api";
+import type { PetCard, PetFigure, PetSettings, PetView, TasksView } from "@agentherd/host/api";
 import {
   Fragment,
   type KeyboardEvent,
@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import type { PetRegion } from "../../../shared/bridge";
+import { isQuiet, quietLine } from "../../../shared/pet-notify";
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
 import { CardView, TaskCard } from "./PetCards";
@@ -117,6 +118,10 @@ export function Pet() {
     cards: [],
   });
   const [figure, setFigure] = useState<PetFigure>("deepseek");
+  /** Quiet hours and snoozes (ADR 0079); undefined from an older host. */
+  const [settings, setSettings] = useState<PetSettings>();
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const [tasks, setTasks] = useState<Task[]>([]);
   const working = countWorking(tasks);
   const [online, setOnline] = useState(true);
@@ -184,9 +189,11 @@ export function Pet() {
       setLastActive(t);
       setNote(undefined);
       // Shown in full at once; a folded pet only counts it. A closed panel opens on the
-      // conversation; an open one on another page counts it on the 对话 tab (ADR 0078).
-      if (folded.current) setUnread((n) => n + 1);
-      else {
+      // conversation; an open one on another page counts it on the 对话 tab (ADR 0078). While
+      // the owner wants quiet, a closed panel stays closed and only counts it (ADR 0079).
+      if (folded.current || (!openRef.current && isQuiet(settingsRef.current, new Date()))) {
+        setUnread((n) => n + 1);
+      } else {
         if (!openRef.current) {
           setTabState("chat");
           localStorage.setItem(TAB_KEY, "chat");
@@ -197,28 +204,49 @@ export function Pet() {
     h.pet()
       .then((v) => apply(v, true))
       .catch(() => undefined);
+    const onStatus = (s: { pet?: PetSettings }) => {
+      setFigure(s.pet?.figure ?? "deepseek");
+      setSettings(s.pet);
+    };
     h.status()
-      .then((s) => setFigure(s.pet?.figure ?? "deepseek"))
+      .then(onStatus)
       .catch(() => undefined);
     h.tasks()
       .then((t) => setTasks(t.tasks))
       .catch(() => undefined);
     const offEvent = bridge.onEvent((e) => {
       if (e.topic === "pet") apply(e.data, false);
-      else if (e.topic === "status") setFigure(e.data.pet?.figure ?? "deepseek");
+      else if (e.topic === "status") onStatus(e.data);
       else if (e.topic === "tasks") {
         setTasks(e.data.tasks);
         setLastActive(Date.now());
       }
     });
     const offConnection = bridge.onConnection(setOnline);
+    // A notification or the menu bar was clicked: the panel opens on that page (ADR 0079).
+    const offShow = bridge.pet?.onShow?.((next) => {
+      setCollapsed(false);
+      folded.current = false;
+      localStorage.setItem(COLLAPSED_KEY, "0");
+      setTabState(next);
+      localStorage.setItem(TAB_KEY, next);
+      if (next === "chat") setChatUnread(0);
+      setOpen(true);
+      if (next === "chat") setTimeout(() => inputEl.current?.focus(), 60);
+    });
     const tick = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       offEvent();
       offConnection();
+      offShow?.();
       clearInterval(tick);
     };
   }, []);
+
+  // Whatever came while the panel was closed is seen once it opens.
+  useEffect(() => {
+    if (open) setUnread(0);
+  }, [open]);
 
   // Plays the clip's frames on the figure. Writes the style directly: no React render per frame.
   const clip: Clip = hello ? "hello" : mood;
@@ -504,6 +532,7 @@ export function Pet() {
   const atlas = FIGURES[figure].atlas;
   const offline = !online || !view.connected;
   const badge = badgeOf(view.pending.length, unread);
+  const quiet = quietLine(settings, new Date(now));
   const openFile = (path: string) => bridge.pet?.openFile(path);
   const actions = {
     busy,
@@ -520,7 +549,7 @@ export function Pet() {
           type="button"
           className="pet-dot"
           aria-label="展开桌宠"
-          title="展开"
+          title={quiet === undefined ? "展开" : `展开（${quiet}）`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={() => finishDrag(() => fold(false))}
@@ -782,7 +811,12 @@ export function Pet() {
             backgroundSize: `${W * ATLAS.columns}px ${H * ATLAS.rows}px`,
           }}
         />
-        {view.pending.length > 0 && <span className="pet-badge">{view.pending.length}</span>}
+        {badge > 0 && <span className="pet-badge">{badge}</span>}
+        {quiet !== undefined && (
+          <span className="pet-moon" title={quiet} role="img" aria-label={quiet}>
+            🌙
+          </span>
+        )}
         {mood === "sleeping" && (
           <span className="pet-zz" aria-hidden="true">
             <i>z</i>
