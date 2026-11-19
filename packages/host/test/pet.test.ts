@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeChannel, type SentMessage } from "@agentherd/channel-fake";
 import { Herd, type HerderTurn, type OwnerCard, Store } from "@agentherd/core";
@@ -731,7 +731,7 @@ describe("files dropped on the pet (ADR 0082)", () => {
     expect(dropped.lines).toEqual([
       `[主人拖来文件「plan.pdf」：${doc}]`,
       `[主人拖来文件「not-really.png」：${fake}]`,
-      `[主人拖来文件夹「${dir.split("/").at(-1)}」：${dir}]`,
+      `[主人拖来文件夹「${basename(dir)}」：${dir}]`,
     ]);
     expect(droppedFiles([doc], "en").lines).toEqual([
       `[The owner dropped the file "plan.pdf" on the pet: ${doc}]`,
