@@ -24,6 +24,7 @@ import type { Relay } from "./relay.ts";
 import { WORKSPACE_TARGET } from "./task-runner.ts";
 import type { Task } from "./tasks.ts";
 import { taskTitle } from "./tasks.ts";
+import { WAIT_TARGET } from "./waiting.ts";
 
 /** How many Herder replies keep their choices open at once; older ones expire (ADR 0074). */
 export const CHOICES_OPEN_MAX = 20;
@@ -68,6 +69,9 @@ export class OwnerCommands {
         }
         if (inbound.target.startsWith(INTAKE_TARGET)) {
           return await ctx.intake()?.answer(inbound.target, inbound.action);
+        }
+        if (inbound.target.startsWith(WAIT_TARGET)) {
+          return await ctx.waits().answer(inbound.target, inbound.action);
         }
         if (inbound.target.startsWith(WORKSPACE_TARGET)) {
           return await this.tasks.takeTaskVersion(inbound.target.slice(WORKSPACE_TARGET.length));
