@@ -140,6 +140,7 @@ export {
   noticeLevels,
   setNoticeLevel,
 } from "./notices.ts";
+export { OWNER_TEXT_MAX } from "./owner-commands.ts";
 export {
   ACK_WORDS_MAX,
   cutWords,
