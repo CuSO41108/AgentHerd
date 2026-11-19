@@ -43,6 +43,7 @@ export type {
   HerderFactory,
   HerderHost,
   HerderPort,
+  HerderSuggestion,
   HerderTurnRole,
   OwnerImage,
   VoiceRequest,

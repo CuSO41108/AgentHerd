@@ -370,6 +370,7 @@ export class Herd {
         this.store.addHerderTurn(role, text, taskId);
         this.opts.herderTurnAdded?.();
       },
+      ...(this.opts.suggestion === undefined ? {} : { suggestion: this.opts.suggestion }),
       memory: this.store.memory,
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(this.opts.memoryComplete === undefined

@@ -12,6 +12,7 @@ import {
   Hand,
   Info,
   Keyboard,
+  Lightbulb,
   Maximize2,
   Moon,
   MoonStar,
@@ -174,6 +175,25 @@ export function SettingsPage() {
               />
             }
           />
+          {status.pet?.suggest !== undefined && (
+            <Row
+              icon={
+                <IconTile>
+                  <Lightbulb size={15} strokeWidth={1.75} />
+                </IconTile>
+              }
+              title="猜你下一句"
+              description="主管回完话，在输入框里灰着显示你可能想说的下一句，按 Tab 填进去；每次回复多一次很小的模型调用"
+              trailing={
+                <Switch
+                  label="猜你下一句"
+                  checked={status.pet.suggest}
+                  disabled={busy}
+                  onChange={(suggest) => void update({ pet: { suggest } })}
+                />
+              }
+            />
+          )}
         </Group>
         <PetQuiet pet={status.pet} busy={busy} update={update} />
         <PetPlace pet={status.pet} busy={busy} update={update} />

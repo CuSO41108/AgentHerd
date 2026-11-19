@@ -480,3 +480,18 @@ export function addDrops(current: readonly Drop[], paths: readonly string[], max
   }
   return next;
 }
+
+/**
+ * The Herder's guess at the owner's next message, shown in the empty input (ADR 0084): only
+ * while nothing is typed or dropped and the chat is up.
+ */
+export function suggestionFor(
+  view: Pick<PetView, "suggestion">,
+  draft: string,
+  drops: number,
+  offline: boolean,
+): string | undefined {
+  if (offline || draft !== "" || drops > 0) return undefined;
+  const text = view.suggestion?.trim();
+  return text === undefined || text === "" ? undefined : text;
+}

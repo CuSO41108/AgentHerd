@@ -214,6 +214,8 @@ export class Host implements HostApi {
   private readonly westockCli: Westock;
   /** What the desktop pet sees of the chat (ADR 0070). */
   private readonly petFeed: PetFeed;
+  /** The Herder's guess at the owner's next message, and when it came (ADR 0084). */
+  private petSuggestion: { text: string; at: string } | undefined;
 
   constructor(opts: HostOptions) {
     this.opts = opts;
@@ -567,7 +569,21 @@ export class Host implements HostApi {
       },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
-      herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
+      herderTurnAdded: () => {
+        // Anything said makes the last guess stale (ADR 0084).
+        this.petSuggestion = undefined;
+        this.emit({ topic: "pet", data: this.pet() });
+      },
+      suggestion: {
+        on: () => {
+          const pet = petSettings(this.config());
+          return pet.on && pet.suggest;
+        },
+        show: (text) => {
+          this.petSuggestion = { text, at: new Date().toISOString() };
+          this.emit({ topic: "pet", data: this.pet() });
+        },
+      },
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -812,11 +828,19 @@ export class Host implements HostApi {
 
   pet(): PetView {
     const last = this.petFeed.last;
+    const conversation = this.petConversation();
+    const guess = this.petSuggestion;
+    // A card that came after it waits for the owner: answering it comes first.
+    const suggestion =
+      guess === undefined || conversation.cards.some((c) => c.open && c.at > guess.at)
+        ? undefined
+        : guess.text;
     return {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
-      ...this.petConversation(),
+      ...conversation,
+      ...(suggestion === undefined ? {} : { suggestion }),
     };
   }
 
@@ -1223,7 +1247,7 @@ export class Host implements HostApi {
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
     if (patch.pet !== undefined) {
       const pet: PetSettings = { ...petSettings(config), ...patch.pet };
-      for (const key of ["on", "notify", "sound", "overFullscreen"] as const) {
+      for (const key of ["on", "notify", "sound", "overFullscreen", "suggest"] as const) {
         if (typeof pet[key] !== "boolean") throw new Error(`pet.${key} must be true or false`);
       }
       if (!PET_FIGURES.includes(pet.figure)) {
@@ -1387,7 +1411,7 @@ function petSettings(config: CliConfig): PetSettings {
   const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
     ? (saved.figure as PetFigure)
     : DEFAULT_PET.figure;
-  const flag = (key: "on" | "notify" | "sound" | "overFullscreen") =>
+  const flag = (key: "on" | "notify" | "sound" | "overFullscreen" | "suggest") =>
     typeof saved[key] === "boolean" ? (saved[key] as boolean) : DEFAULT_PET[key];
   const quietHours =
     typeof saved.quietHours === "string" && QUIET_HOURS.test(saved.quietHours)
@@ -1416,5 +1440,6 @@ function petSettings(config: CliConfig): PetSettings {
       ? (saved.onTop as PetOnTop)
       : DEFAULT_PET.onTop,
     overFullscreen: flag("overFullscreen"),
+    suggest: flag("suggest"),
   };
 }
