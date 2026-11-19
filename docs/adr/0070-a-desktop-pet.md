@@ -97,6 +97,10 @@
    answer is read from its first line. The window has no frame and is transparent, so the
    system's own resizing (invisible edges, growing from the bottom-right with the figure in tow)
    was not used; 小/中/大 in the settings was less direct than dragging.
+   "What fits" is the room left of and above the figure's corner, which main tells the pet, not
+   the whole screen: measured against the whole screen, a pet standing low grew taller than the
+   room above it, main moved the window down to keep it on screen, and the figure jumped a few
+   pixels each time the conversation opened or closed (owner, 2026-11-19: 「pet一点就跳一下」).
 6. **Settings.** 设置 → 桌宠: 显示桌宠 (on by default) and 形象 (大肥鱼 default, Claude 娘), saved
    in `config.json` as `pet: {on, figure}`. The figure credit is shown under the choice.
 7. **License of the art.** The two strips are not under AgentHerd's MIT license:

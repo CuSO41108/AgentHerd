@@ -796,6 +796,27 @@ body {
   user-select: text;
 }
 
+/* The Herder's guess at the next message: Tab or a click puts it in the input (ADR 0084). */
+.pet-suggest {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--pet-line);
+  border-radius: 5px;
+  background: none;
+  color: var(--pet-muted);
+  font:
+    11px / 16px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  cursor: pointer;
+}
+
+.pet-suggest:hover {
+  color: var(--pet-ink);
+  border-color: var(--pet-muted);
+}
+
 .pet-send {
   flex: none;
   width: 26px;

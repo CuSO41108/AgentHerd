@@ -293,6 +293,13 @@ export class Herd {
             stockQuote: (query: string) =>
               (this.opts.westock as NonNullable<HerdOptions["westock"]>).quote(query),
           }),
+      ...(this.opts.danjuan === undefined
+        ? {}
+        : {
+            danjuan: () => (this.opts.danjuan as NonNullable<HerdOptions["danjuan"]>).state(),
+            fundHoldings: (query?: { days?: number; account?: string }) =>
+              (this.opts.danjuan as NonNullable<HerdOptions["danjuan"]>).holdings(query),
+          }),
       ...(this.mail === undefined
         ? {}
         : {
@@ -370,6 +377,7 @@ export class Herd {
         this.store.addHerderTurn(role, text, taskId);
         this.opts.herderTurnAdded?.();
       },
+      ...(this.opts.suggestion === undefined ? {} : { suggestion: this.opts.suggestion }),
       memory: this.store.memory,
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(this.opts.memoryComplete === undefined

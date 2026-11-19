@@ -325,6 +325,11 @@ export interface PetSettings {
   onTop: PetOnTop;
   /** macOS: also shown over apps in full screen (ADR 0080). Off by default. */
   overFullscreen: boolean;
+  /**
+   * After a reply the Herder guesses what the owner will say next; the pet shows it in the empty
+   * input and Tab takes it (ADR 0084). One small model call per reply.
+   */
+  suggest: boolean;
 }
 
 export const PET_ON_TOP = ["always", "busy"] as const;
@@ -344,6 +349,7 @@ export const DEFAULT_PET: PetSettings = {
   approveKey: "CommandOrControl+Shift+Y",
   onTop: "always",
   overFullscreen: false,
+  suggest: true,
 };
 
 /** `HH:MM-HH:MM`, both in 00:00–23:59; the hours may cross midnight (ADR 0079). */
@@ -427,6 +433,11 @@ export interface PetView {
   history: PetLine[];
   /** The cards sent to the owner over the same time, oldest first (ADR 0072). */
   cards: PetCard[];
+  /**
+   * What the owner might say next, guessed after the Herder's last reply (ADR 0084). Gone once
+   * anything new is said or a card waits for them.
+   */
+  suggestion?: string;
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */
@@ -480,6 +491,30 @@ export interface WestockTest {
   message: string;
   sample?: string;
   westock: WestockView;
+}
+
+/** 雪球基金 (Danjuan Funds) login & session state (ADR 0077). */
+export type DanjuanState = "off" | "signing-in" | "starting" | "ready" | "signed-out" | "failed";
+
+/** 雪球基金 connection state in 设置 › 应用连接 › 行情与投研 (ADR 0077). */
+export interface DanjuanView {
+  /** True when Chrome or Edge is available on this computer for isolated session calls. */
+  available: boolean;
+  /** True once the owner accepted the read-only local-session risk notice. */
+  accepted: boolean;
+  enabled: boolean;
+  state: DanjuanState;
+  account?: string;
+  problem?: string;
+  checkedAt?: string;
+}
+
+/** What 雪球基金 › 测试连接 found. */
+export interface DanjuanTest {
+  ok: boolean;
+  message: string;
+  sample?: string;
+  danjuan: DanjuanView;
 }
 
 /** Everything the host offers. Each method is one request on the socket. */
@@ -686,6 +721,11 @@ export interface HostApi {
   installWestock(): Promise<WestockView>;
   removeWestock(): Promise<WestockView>;
   testWestock(query?: string): Promise<WestockTest>;
+  danjuan(): Promise<DanjuanView>;
+  connectDanjuan(accepted: boolean): Promise<DanjuanView>;
+  cancelDanjuanLogin(): Promise<DanjuanView>;
+  testDanjuan(): Promise<DanjuanTest>;
+  logoutDanjuan(): Promise<DanjuanView>;
   /** What the desktop pet shows (ADR 0070). */
   pet(): PetView;
   /**
@@ -762,6 +802,11 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "installWestock",
   "removeWestock",
   "testWestock",
+  "danjuan",
+  "connectDanjuan",
+  "cancelDanjuanLogin",
+  "testDanjuan",
+  "logoutDanjuan",
   "pet",
   "petSay",
   "petPress",
@@ -779,6 +824,7 @@ export type HostEvent =
   | { topic: "watches"; data: WatchView[] }
   | { topic: "lark"; data: LarkView }
   | { topic: "westock"; data: WestockView }
+  | { topic: "danjuan"; data: DanjuanView }
   | { topic: "login"; data: LoginView }
   | { topic: "pet"; data: PetView };
 

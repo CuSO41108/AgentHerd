@@ -4,6 +4,7 @@ import {
   edgeOf,
   fitDrag,
   peekRight,
+  pushedEdge,
   TUCK_SHOW,
   tuckedX,
 } from "../src/shared/pet-edge.ts";
@@ -35,7 +36,7 @@ describe("tucking the pet at a screen edge (ADR 0080)", () => {
   });
 });
 
-it("keeps a Windows drag inside each corner", () => {
+it("keeps a drag inside each corner, on every system", () => {
   for (const width of [72, 150]) {
     const pet = { width, height: width };
     for (const x of [-2000, 3000]) {
@@ -47,4 +48,11 @@ it("keeps a Windows drag inside each corner", () => {
     const leftDisplay = { ...area, x: -area.width };
     expect(fitDrag({ ...pet, x: -1, y: 100 }, leftDisplay)).toEqual({ x: -width, y: 100 });
   }
+});
+
+it("tucks a drop at the edge the pointer kept pushing past by a third of the figure", () => {
+  expect(pushedEdge(40, 111)).toBe("right");
+  expect(pushedEdge(-40, 111)).toBe("left");
+  expect(pushedEdge(30, 111)).toBeUndefined();
+  expect(pushedEdge(0, 111)).toBeUndefined();
 });

@@ -57,6 +57,8 @@ import type {
   AgentCheck,
   AgentView,
   AppsView,
+  DanjuanTest,
+  DanjuanView,
   FeedSource,
   FeedView,
   HerderActivityView,
@@ -100,6 +102,7 @@ import type { AgentDef, Fetchers } from "./catalog.ts";
 import { withClaudeHome } from "./claude-home.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
+import { Danjuan, type DanjuanBrowser } from "./danjuan.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
@@ -162,6 +165,8 @@ export interface HostOptions {
   mcpSocket?: string;
   /** Command runner for checking the `westock` CLI binary (tests). */
   westockRun?: WestockRun;
+  /** Interactive/headless browser driver for 雪球基金 (tests). */
+  danjuanBrowser?: DanjuanBrowser;
 }
 
 /** Turns 主管 › 行动记录 shows by default. */
@@ -212,8 +217,12 @@ export class Host implements HostApi {
   private readonly feedList: Feeds;
   /** 腾讯自选股 live quotes + official westock CLI (ADR 0076). */
   private readonly westockCli: Westock;
+  /** 雪球基金 (Danjuan Funds) local browser session & holdings (ADR 0077). */
+  private readonly danjuanCli: Danjuan;
   /** What the desktop pet sees of the chat (ADR 0070). */
   private readonly petFeed: PetFeed;
+  /** The Herder's guess at the owner's next message, and when it came (ADR 0084). */
+  private petSuggestion: { text: string; at: string } | undefined;
 
   constructor(opts: HostOptions) {
     this.opts = opts;
@@ -280,6 +289,21 @@ export class Host implements HostApi {
       },
       log: (line) => this.log(line),
     });
+    this.danjuanCli = new Danjuan({
+      home: opts.home,
+      settings: () => this.config().danjuan ?? {},
+      save: (patch) => {
+        const cur = this.config();
+        writeConfig(this.opts.home, {
+          ...cur,
+          danjuan: { ...cur.danjuan, ...patch },
+        });
+      },
+      changed: () => this.emit({ topic: "danjuan", data: this.danjuanCli.current() }),
+      ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
+      ...(opts.danjuanBrowser === undefined ? {} : { browser: opts.danjuanBrowser }),
+      log: (line) => this.log(line),
+    });
   }
 
   lark(): Promise<LarkView> {
@@ -337,6 +361,26 @@ export class Host implements HostApi {
     return this.westockCli.test(query);
   }
 
+  danjuan(): Promise<DanjuanView> {
+    return this.danjuanCli.check();
+  }
+
+  connectDanjuan(accepted: boolean): Promise<DanjuanView> {
+    return this.danjuanCli.connect(accepted);
+  }
+
+  cancelDanjuanLogin(): Promise<DanjuanView> {
+    return this.danjuanCli.cancelLogin();
+  }
+
+  testDanjuan(): Promise<DanjuanTest> {
+    return this.danjuanCli.test();
+  }
+
+  logoutDanjuan(): Promise<DanjuanView> {
+    return this.danjuanCli.logout();
+  }
+
   /** What every new task is told about this Mac's tools (ADR 0059). */
   private toolNotes(): string[] {
     const notes: string[] = [];
@@ -344,6 +388,8 @@ export class Host implements HostApi {
     if (lark !== undefined) notes.push(lark);
     const westock = this.westockCli.note();
     if (westock !== undefined) notes.push(westock);
+    const danjuan = this.danjuanCli.note();
+    if (danjuan !== undefined) notes.push(danjuan);
     const vault = this.config().obsidianVault;
     if (vault !== undefined && vault !== "") {
       notes.push(
@@ -472,6 +518,7 @@ export class Host implements HostApi {
     void this.appList.load();
     this.socialList.start();
     void this.westockCli.check();
+    if (this.danjuanCli.enabled()) void this.danjuanCli.check();
     await this.restartHerd();
   }
 
@@ -514,6 +561,7 @@ export class Host implements HostApi {
     this.agentList.stop();
     this.socialList.stop();
     this.westockCli.stop();
+    this.danjuanCli.stop();
     this.setupRun++;
     await this.stopHerd();
   }
@@ -565,9 +613,31 @@ export class Host implements HostApi {
         }),
         quote: (query) => this.westockCli.quote(query),
       },
+      danjuan: {
+        state: () => ({
+          enabled: this.danjuanCli.enabled(),
+          ready: this.danjuanCli.ready(),
+          state: this.danjuanCli.current().state,
+        }),
+        holdings: (query) => this.danjuanCli.holdings(query),
+      },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
-      herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
+      herderTurnAdded: () => {
+        // Anything said makes the last guess stale (ADR 0084).
+        this.petSuggestion = undefined;
+        this.emit({ topic: "pet", data: this.pet() });
+      },
+      suggestion: {
+        on: () => {
+          const pet = petSettings(this.config());
+          return pet.on && pet.suggest;
+        },
+        show: (text) => {
+          this.petSuggestion = { text, at: new Date().toISOString() };
+          this.emit({ topic: "pet", data: this.pet() });
+        },
+      },
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -578,6 +648,7 @@ export class Host implements HostApi {
                 this.socialList.tools(this.appList.appTools()),
                 this.feedList.tools(),
                 this.westockCli.tools(),
+                this.danjuanCli.tools(),
               ]),
             appNames: () => this.appList.connectedNames(),
           }),
@@ -812,11 +883,19 @@ export class Host implements HostApi {
 
   pet(): PetView {
     const last = this.petFeed.last;
+    const conversation = this.petConversation();
+    const guess = this.petSuggestion;
+    // A card that came after it waits for the owner: answering it comes first.
+    const suggestion =
+      guess === undefined || conversation.cards.some((c) => c.open && c.at > guess.at)
+        ? undefined
+        : guess.text;
     return {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
-      ...this.petConversation(),
+      ...conversation,
+      ...(suggestion === undefined ? {} : { suggestion }),
     };
   }
 
@@ -1223,7 +1302,7 @@ export class Host implements HostApi {
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
     if (patch.pet !== undefined) {
       const pet: PetSettings = { ...petSettings(config), ...patch.pet };
-      for (const key of ["on", "notify", "sound", "overFullscreen"] as const) {
+      for (const key of ["on", "notify", "sound", "overFullscreen", "suggest"] as const) {
         if (typeof pet[key] !== "boolean") throw new Error(`pet.${key} must be true or false`);
       }
       if (!PET_FIGURES.includes(pet.figure)) {
@@ -1387,7 +1466,7 @@ function petSettings(config: CliConfig): PetSettings {
   const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
     ? (saved.figure as PetFigure)
     : DEFAULT_PET.figure;
-  const flag = (key: "on" | "notify" | "sound" | "overFullscreen") =>
+  const flag = (key: "on" | "notify" | "sound" | "overFullscreen" | "suggest") =>
     typeof saved[key] === "boolean" ? (saved[key] as boolean) : DEFAULT_PET[key];
   const quietHours =
     typeof saved.quietHours === "string" && QUIET_HOURS.test(saved.quietHours)
@@ -1416,5 +1495,6 @@ function petSettings(config: CliConfig): PetSettings {
       ? (saved.onTop as PetOnTop)
       : DEFAULT_PET.onTop,
     overFullscreen: flag("overFullscreen"),
+    suggest: flag("suggest"),
   };
 }

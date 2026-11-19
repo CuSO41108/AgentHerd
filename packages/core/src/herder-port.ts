@@ -95,6 +95,12 @@ export interface VoiceRequest {
 }
 
 /** Everything the Herder can do. There is deliberately nothing here that answers an item. */
+/** Where the Herder's guess at the owner's next message goes (ADR 0084). */
+export interface HerderSuggestion {
+  on(): boolean;
+  show(text: string): void;
+}
+
 export interface HerderHost {
   readonly locale: Locale;
   readonly texts: CoreTexts;
@@ -160,7 +166,11 @@ export interface HerderHost {
   westock?(): { enabled: boolean; cliReady: boolean };
   /** Reads live market quotes (indices, A-shares, HK, US) from Tencent Finance (ADR 0076). */
   stockQuote?(query: string): Promise<string>;
-  /** Lines every new task gets: tools on this computer the agent can use (ADR 0059, ADR 0076). */
+  /** Whether 雪球基金 (Danjuan Funds) is connected for reading personal fund holdings (ADR 0077). */
+  danjuan?(): { enabled: boolean; ready: boolean; state: string };
+  /** Reads the owner's 雪球基金 holdings and recent N-day NAV gains/losses (ADR 0077). */
+  fundHoldings?(query?: { days?: number; account?: string }): Promise<string>;
+  /** Lines every new task gets: tools on this computer the agent can use (ADR 0059, ADR 0076, ADR 0077). */
   toolNotes?(): string[];
   /** New-work watches (ADR 0052), when GitHub is set up. */
   intakeWatches?(): IntakeWatch[];
@@ -177,6 +187,11 @@ export interface HerderHost {
   noticeLevels?(): Record<NoticeKind, NoticeLevel>;
   /** Changes one when the owner asks (「合并了不用告诉我」); throws on an unknown kind or level. */
   setNoticeLevel?(kind: NoticeKind, level: NoticeLevel): void;
+  /**
+   * What the owner might say next, for the desktop pet's input (ADR 0084): whether to work one out
+   * now, and where to put it. Absent → none.
+   */
+  suggestion?: HerderSuggestion;
   audit(type: string, data: Record<string, unknown>): void;
   /** Keeps a line of the Herder's conversation with the owner (`herder_turns`). */
   recordTurn(role: HerderTurnRole, text: string, taskId?: string): void;

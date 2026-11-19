@@ -22,6 +22,7 @@ import type {
   FeedSource,
   HerderFactory,
   HerderPort,
+  HerderSuggestion,
   OwnerImage,
 } from "./herder-port.ts";
 import type { Inbox } from "./inbox.ts";
@@ -114,6 +115,11 @@ export interface HerdOptions {
     state(): { enabled: boolean; cliReady: boolean };
     quote(query: string): Promise<string>;
   };
+  /** 雪球基金 (Danjuan Funds) personal fund holdings and recent NAV gains (ADR 0077). */
+  danjuan?: {
+    state(): { enabled: boolean; ready: boolean; state: string };
+    holdings(query?: { days?: number; account?: string }): Promise<string>;
+  };
   /** Lines every new task gets about tools on this Mac (ADR 0059). Read on every task. */
   toolNotes?: () => string[];
   /** Minutes between two looks at those accounts (default 20, give or take 5). */
@@ -122,6 +128,8 @@ export interface HerdOptions {
   watchesChanged?: () => void;
   /** Called after a line of the Herder's conversation is kept in `herder_turns` (the desktop pet). */
   herderTurnAdded?: () => void;
+  /** Where the Herder's guess at the owner's next message goes (the desktop pet, ADR 0084). */
+  suggestion?: HerderSuggestion;
   /** A watched source failing this long is told to the owner (default 30, ADR 0050). */
   sourceDownMinutes?: number;
   /**
