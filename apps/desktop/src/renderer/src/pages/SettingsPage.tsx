@@ -11,16 +11,22 @@ import {
   FolderOpen,
   Hand,
   Info,
+  Keyboard,
+  Maximize2,
   Moon,
   MoonStar,
   Palette,
+  PanelRightClose,
   PawPrint,
+  Pin,
   Rocket,
   Type,
   Volume2,
+  Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { isQuiet, quietLine, snoozeUntil } from "../../../shared/pet-notify";
+import { type ShortcutState, shortcutLabel, shortcutOf } from "../../../shared/pet-shortcuts";
 import { FeishuSection } from "../components/FeishuSection";
 import {
   Button,
@@ -170,6 +176,8 @@ export function SettingsPage() {
           />
         </Group>
         <PetQuiet pet={status.pet} busy={busy} update={update} />
+        <PetPlace pet={status.pet} busy={busy} update={update} />
+        <PetKeys pet={status.pet} busy={busy} update={update} />
       </Section>
 
       <Section title="电源">
@@ -382,6 +390,178 @@ function PetQuiet({
           )
         }
       />
+    </Group>
+  );
+}
+
+const ON_TOP_OPTIONS = [
+  { value: "always", label: "一直" },
+  { value: "busy", label: "有事时" },
+] as const;
+
+/** Where the pet floats (ADR 0080): on top always or only when busy, over full screen, edges. */
+function PetPlace({
+  pet,
+  busy,
+  update,
+}: {
+  pet: PetSettings | undefined;
+  busy: boolean;
+  update: (patch: SettingsPatch) => Promise<void>;
+}) {
+  // An older host has no placement settings.
+  if (pet?.onTop === undefined) return null;
+  return (
+    <Group className="mt-3">
+      <Row
+        icon={
+          <IconTile>
+            <Pin size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="浮在最上面"
+        description="选「有事时」：要你确认、来了新消息或对话开着时才浮在最上面，平时和别的窗口一样会被盖住"
+        trailing={
+          <Segmented
+            label="浮在最上面"
+            options={ON_TOP_OPTIONS}
+            value={pet.onTop}
+            onChange={(onTop) => void update({ pet: { onTop } })}
+          />
+        }
+      />
+      {isMac() && (
+        <Row
+          icon={
+            <IconTile>
+              <Maximize2 size={15} strokeWidth={1.75} />
+            </IconTile>
+          }
+          title="全屏应用上也显示"
+          description="关着时，别的应用全屏（看视频、演示）就看不到桌宠，通知照常"
+          trailing={
+            <Switch
+              label="全屏应用上也显示"
+              checked={pet.overFullscreen}
+              disabled={busy}
+              onChange={(overFullscreen) => void update({ pet: { overFullscreen } })}
+            />
+          }
+        />
+      )}
+      <Row
+        icon={
+          <IconTile>
+            <PanelRightClose size={15} strokeWidth={1.75} />
+          </IconTile>
+        }
+        title="藏到屏幕边上"
+        description="把桌宠拖出屏幕左边或右边一截再松手，它就藏在边上只露一点；鼠标移过去就出来，有新消息也会出来"
+      />
+    </Group>
+  );
+}
+
+type KeyName = "talkKey" | "approveKey";
+
+/** The pet's two global shortcuts (ADR 0080): press 设置 and then the keys; 关闭 turns one off. */
+function PetKeys({
+  pet,
+  busy,
+  update,
+}: {
+  pet: PetSettings | undefined;
+  busy: boolean;
+  update: (patch: SettingsPatch) => Promise<void>;
+}) {
+  const [recording, setRecording] = useState<KeyName>();
+  const [state, setState] = useState<ShortcutState>();
+  const shortcuts = window.agentherd.shortcuts;
+  useEffect(() => {
+    if (shortcuts === undefined) return;
+    void shortcuts.state().then(setState);
+    return shortcuts.onState(setState);
+  }, [shortcuts]);
+  // While recording, the old shortcuts let go so their keys reach this page.
+  useEffect(() => {
+    if (shortcuts === undefined || recording === undefined) return;
+    shortcuts.pause(true);
+    return () => shortcuts.pause(false);
+  }, [shortcuts, recording]);
+  // An older host has no shortcuts; an older app cannot take them.
+  if (pet?.talkKey === undefined || shortcuts === undefined) return null;
+  const mac = isMac();
+
+  const onKey = (name: KeyName) => (e: KeyboardEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      setRecording(undefined);
+      return;
+    }
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+    if (plain && (e.key === "Backspace" || e.key === "Delete")) {
+      setRecording(undefined);
+      void update({ pet: { [name]: "" } });
+      return;
+    }
+    const accel = shortcutOf(e, mac);
+    if (accel === undefined) return;
+    setRecording(undefined);
+    void update({ pet: { [name]: accel } });
+  };
+
+  const row = (name: KeyName, title: string, description: string, icon: ReactNode) => {
+    const value = pet[name];
+    const which = name === "talkKey" ? "talk" : "approve";
+    const taken = value !== "" && state?.[which] === "taken";
+    const on = recording === name;
+    return (
+      <Row
+        icon={icon}
+        title={title}
+        description={taken ? "这个组合键被别的应用占用了，换一个吧" : description}
+        trailing={
+          <>
+            <Button
+              disabled={busy}
+              className={on ? "ring-2 ring-accent" : ""}
+              aria-label={`${title}的快捷键`}
+              onClick={() => setRecording(on ? undefined : name)}
+              onKeyDown={on ? onKey(name) : undefined}
+              onBlur={() => on && setRecording(undefined)}
+            >
+              {on ? "按下组合键…" : value === "" ? "未设置" : shortcutLabel(value, mac)}
+            </Button>
+            {value !== "" && !on && (
+              <Button disabled={busy} onClick={() => void update({ pet: { [name]: "" } })}>
+                关闭
+              </Button>
+            )}
+          </>
+        }
+      />
+    );
+  };
+
+  return (
+    <Group className="mt-3">
+      {row(
+        "talkKey",
+        "和主管说话",
+        "在哪个应用里按都行：桌宠打开对话，光标直接在输入框里",
+        <IconTile>
+          <Keyboard size={15} strokeWidth={1.75} />
+        </IconTile>,
+      )}
+      {row(
+        "approveKey",
+        "同意最早的那件事",
+        "按一下，桌宠指出最早等你同意的那件；5 秒内再按一下就同意它，Esc 取消",
+        <IconTile>
+          <Zap size={15} strokeWidth={1.75} />
+        </IconTile>,
+      )}
     </Group>
   );
 }

@@ -18,6 +18,7 @@ import {
 } from "react";
 import type { PetRegion } from "../../../shared/bridge";
 import { isQuiet, quietLine } from "../../../shared/pet-notify";
+import type { PetArm } from "../../../shared/pet-shortcuts";
 import { devOpen } from "../dev-bridge";
 import { FIGURES } from "./figures";
 import { CardView, TaskCard } from "./PetCards";
@@ -139,6 +140,8 @@ export function Pet() {
   const [pendingSays, setPendingSays] = useState<PendingSay[]>([]);
   const nextSayId = useRef(-1);
   const [note, setNote] = useState<string>();
+  /** What the approve shortcut did, shown above the input (ADR 0080). */
+  const [arm, setArm] = useState<PetArm>();
   const [hello, setHello] = useState(false);
   const [chat, setChat] = useState<ChatSize>(() => readChatSize(localStorage.getItem(CHAT_KEY)));
   const [tab, setTabState] = useState<PetTab>(() => readTab(localStorage.getItem(TAB_KEY)));
@@ -242,6 +245,31 @@ export function Pet() {
       clearInterval(tick);
     };
   }, []);
+
+  // The approve shortcut (ADR 0080): main tells what it armed or did; the line goes away when
+  // the second press can no longer allow, or after a moment for the rest.
+  useEffect(() => bridge.pet?.onArm?.(setArm), []);
+  useEffect(() => {
+    if (arm === undefined) return;
+    const ms = arm.kind === "arm" ? Math.max(0, arm.until - Date.now()) : 3500;
+    const timer = setTimeout(() => setArm(undefined), ms);
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape" || arm.kind !== "arm") return;
+      e.stopPropagation();
+      bridge.pet?.disarm?.();
+      setArm(undefined);
+    };
+    window.addEventListener("keydown", onKey, true);
+    if (arm.kind === "arm") {
+      requestAnimationFrame(() =>
+        document.querySelector(".pet-cardwrap.armed")?.scrollIntoView({ block: "nearest" }),
+      );
+    }
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [arm]);
 
   // Whatever came while the panel was closed is seen once it opens.
   useEffect(() => {
@@ -533,6 +561,16 @@ export function Pet() {
   const offline = !online || !view.connected;
   const badge = badgeOf(view.pending.length, unread);
   const quiet = quietLine(settings, new Date(now));
+  // A figure tucked at a screen edge comes out while the cursor is on it or its panel is open,
+  // and the pet floats above other windows while it has something for the owner (ADR 0080).
+  const peek = hover || shown;
+  const busyForOwner = shown || badge > 0 || arm?.kind === "arm";
+  useEffect(() => {
+    bridge.pet?.peek?.(peek);
+  }, [peek]);
+  useEffect(() => {
+    bridge.pet?.float?.(busyForOwner);
+  }, [busyForOwner]);
   const openFile = (path: string) => bridge.pet?.openFile(path);
   const actions = {
     busy,
@@ -549,6 +587,8 @@ export function Pet() {
           type="button"
           className="pet-dot"
           aria-label="展开桌宠"
+          onMouseEnter={() => setHover(true)}
+          onMouseLeave={() => setHover(false)}
           title={quiet === undefined ? "展开" : `展开（${quiet}）`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -630,8 +670,13 @@ export function Pet() {
         {taskPage.ended.map(taskView)}
       </>
     );
+  const armedRef = arm?.kind === "arm" ? arm.approval.ref : undefined;
   const cardView = (card: PetCard) => (
-    <div key={card.ref} className="pet-cardwrap" data-open={card.open ? "1" : "0"}>
+    <div
+      key={card.ref}
+      className={card.ref === armedRef ? "pet-cardwrap armed" : "pet-cardwrap"}
+      data-open={card.open ? "1" : "0"}
+    >
       <CardView card={card} actions={actions} />
     </div>
   );
@@ -658,9 +703,24 @@ export function Pet() {
       </button>
     );
 
+  const armLine =
+    arm === undefined ? undefined : arm.kind === "arm" ? (
+      <div className="pet-arm">
+        再按一次 <kbd>{arm.key}</kbd> 同意：{arm.approval.title}
+        <span className="pet-arm-hint">Esc 取消</span>
+      </div>
+    ) : arm.kind === "none" ? (
+      <div className="pet-arm quiet">现在没有等你同意的事</div>
+    ) : arm.kind === "done" ? (
+      <div className="pet-arm done">已同意：{arm.approval.title}</div>
+    ) : (
+      <div className="pet-arm bad">没能同意：{arm.message}</div>
+    );
+
   const talk = (
     <div className="pet-talk">
-      {waiting}
+      {armLine}
+      {arm?.kind !== "arm" && waiting}
       {offline && <div className="pet-note">AgentHerd 还没连上飞书，先在 App 里设置好。</div>}
       {note !== undefined && <div className="pet-note">{note}</div>}
       <div className="pet-input-row">

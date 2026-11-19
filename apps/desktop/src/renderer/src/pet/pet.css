@@ -725,6 +725,51 @@ body {
   background: var(--pet-amber);
 }
 
+/* The approve shortcut's line above the input (ADR 0080). */
+.pet-arm {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 2px 6px;
+  color: #c93400;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pet-arm kbd {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--pet-control);
+  color: var(--pet-ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+.pet-arm-hint {
+  margin-left: auto;
+  color: var(--pet-muted);
+}
+
+.pet-arm.quiet {
+  color: var(--pet-muted);
+}
+
+.pet-arm.done {
+  color: #248a3d;
+}
+
+.pet-arm.bad {
+  color: #d70015;
+}
+
+/* The approval the next press allows. */
+.pet-cardwrap.armed {
+  border-radius: 12px;
+  outline: 2px solid var(--pet-amber);
+  outline-offset: 2px;
+}
+
 .pet-input-row {
   display: flex;
   align-items: center;

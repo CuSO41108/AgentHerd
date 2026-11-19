@@ -84,10 +84,17 @@ export class MenuBar {
     const items: MenuItemConstructorOptions[] = [
       { label: m.status, enabled: false },
       ...(m.quiet === undefined ? [] : [{ label: m.quiet, enabled: false }]),
-      ...(m.waiting > 0 ? [{ label: `${m.waiting} 件等你处理…`, click: show("cards") }] : []),
+      ...(m.waiting > 0
+        ? [{ label: `${m.waiting} 件等你处理…`, click: show("cards"), ...keyOf(pet?.approveKey) }]
+        : []),
       ...(m.running > 0 ? [{ label: "看在跑的任务…", click: show("tasks") }] : []),
       { type: "separator" },
-      { label: "和主管说话…", enabled: pet?.on === true, click: show("chat") },
+      {
+        label: "和主管说话…",
+        enabled: pet?.on === true,
+        click: show("chat"),
+        ...keyOf(pet?.talkKey),
+      },
       {
         label: "显示桌宠",
         type: "checkbox",
@@ -135,4 +142,10 @@ export class MenuBar {
     ];
     this.tray.setContextMenu(Menu.buildFromTemplate(items));
   }
+}
+
+/** Shows a global shortcut next to its menu item; the item does not take the key (ADR 0080). */
+function keyOf(accel: string | undefined): { accelerator?: string; registerAccelerator?: boolean } {
+  if (accel === undefined || accel === "") return {};
+  return { accelerator: accel, registerAccelerator: false };
 }

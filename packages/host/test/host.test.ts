@@ -197,6 +197,35 @@ describe("Host", () => {
     expect(() => t.host.updateSettings({ pet: { quietUntil: "soon" } })).toThrow(/quietUntil/);
     expect(() => t.host.updateSettings({ pet: { notify: "yes" as never } })).toThrow(/pet.notify/);
     t.host.updateSettings({ pet: { sound: true, quietHours: "", quietUntil: "" } });
+    // Global shortcuts (ADR 0080).
+    expect(t.host.status().pet).toMatchObject({
+      talkKey: "CommandOrControl+Shift+Space",
+      approveKey: "CommandOrControl+Shift+Y",
+    });
+    expect(
+      t.host.updateSettings({ pet: { talkKey: "Control+Alt+Space", approveKey: "" } }).pet,
+    ).toMatchObject({
+      talkKey: "Control+Alt+Space",
+      approveKey: "",
+    });
+    expect(() => t.host.updateSettings({ pet: { talkKey: "Y" } })).toThrow(
+      /pet.talkKey must be a shortcut/,
+    );
+    expect(() => t.host.updateSettings({ pet: { approveKey: "Control+Alt+Space" } })).toThrow(
+      /different shortcuts/,
+    );
+    t.host.updateSettings({
+      pet: { talkKey: "CommandOrControl+Shift+Space", approveKey: "CommandOrControl+Shift+Y" },
+    });
+    // Where it floats (ADR 0080).
+    expect(t.host.status().pet).toMatchObject({ onTop: "always", overFullscreen: false });
+    expect(
+      t.host.updateSettings({ pet: { onTop: "busy", overFullscreen: true } }).pet,
+    ).toMatchObject({ onTop: "busy", overFullscreen: true });
+    expect(() => t.host.updateSettings({ pet: { onTop: "never" as never } })).toThrow(
+      /pet.onTop must be one of always, busy/,
+    );
+    t.host.updateSettings({ pet: { onTop: "always", overFullscreen: false } });
 
     await t.host.petSay("在吗");
     const chat = t.channels[0];

@@ -19,6 +19,7 @@
 // The pet window (/pet.html, ADR 0070) uses the same bridge; `?pet=` picks what it shows:
 //   waiting          an approval waits for the owner
 //   done             a task just finished
+// `&arm=1` with `?pet=waiting` shows the approve shortcut's first press (ADR 0080).
 
 import type {
   AgentView,
@@ -1092,6 +1093,33 @@ function installFakeBridge(): void {
       openApp: () => {},
       openFile: (path) => console.info("[AgentHerd] open", path),
       readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),
+      onArm: (listener) => {
+        if (new URLSearchParams(location.search).get("arm") !== "1") return () => {};
+        const timer = setTimeout(
+          () =>
+            listener({
+              kind: "arm",
+              approval: {
+                target: "item-1",
+                title: "运行 rm -rf ./logs/*",
+                task: "清理旧日志",
+                ref: "fake:m9",
+              },
+              until: Date.now() + 600_000,
+              key: "⌘⇧Y",
+            }),
+          800,
+        );
+        return () => clearTimeout(timer);
+      },
+      disarm: () => {},
+      peek: () => {},
+      float: () => {},
+    },
+    shortcuts: {
+      state: async () => ({ talk: "ok", approve: "ok" }),
+      onState: () => () => {},
+      pause: () => {},
     },
     onEvent: (listener) => {
       eventListeners.add(listener);
