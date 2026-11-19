@@ -34,6 +34,7 @@ import {
   separatorOf,
   statusOf,
   stepOf,
+  suggestionFor,
   TASK_DOTS_MAX,
   TASKS_ENDED_MS,
   taskDots,
@@ -489,5 +490,17 @@ describe("task dots and dropped files (ADR 0082)", () => {
     ]);
     const next = addDrops(first, ["/Users/me/Desktop/screen.PNG", "/a/b/", "/c"], 3);
     expect(next.map((d) => d.name)).toEqual(["screen.PNG", "plan.pdf", "b"]);
+  });
+});
+
+describe("guessing the owner's next message (ADR 0084)", () => {
+  it("shows the guess only in an empty input while the chat is up", () => {
+    const view = { suggestion: " 把 b 下载下来 " };
+    expect(suggestionFor(view, "", 0, false)).toBe("把 b 下载下来");
+    expect(suggestionFor(view, "把", 0, false)).toBeUndefined();
+    expect(suggestionFor(view, "", 1, false)).toBeUndefined();
+    expect(suggestionFor(view, "", 0, true)).toBeUndefined();
+    expect(suggestionFor({}, "", 0, false)).toBeUndefined();
+    expect(suggestionFor({ suggestion: "  " }, "", 0, false)).toBeUndefined();
   });
 });

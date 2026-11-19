@@ -339,6 +339,8 @@ function installFakeBridge(): void {
     last: petHistory.at(-1),
     history: petHistory,
     cards: petCards,
+    // The Herder's guess at the next message (ADR 0084).
+    suggestion: "把第二家的地址也发我",
     pending:
       petSim === "waiting"
         ? [
@@ -637,8 +639,14 @@ function installFakeBridge(): void {
       const files = paths.map((p) => `[主人拖来文件「${p.split("/").at(-1)}」：${p}]`);
       const said = [text, ...files].filter((x) => x !== "").join("\n");
       petLine({ kind: "owner", text: said });
+      const { suggestion: _gone, ...rest } = pet;
+      pet = rest;
       emit({ topic: "pet", data: structuredClone(pet) });
       setTimeout(() => petSays({ kind: "say", text: `收到：「${said}」。我这就去办。` }), 1200);
+      setTimeout(() => {
+        pet = { ...pet, suggestion: "好，做完告诉我" };
+        emit({ topic: "pet", data: structuredClone(pet) });
+      }, 2400);
       return delay(pet);
     },
     petPress: (target, action) => {

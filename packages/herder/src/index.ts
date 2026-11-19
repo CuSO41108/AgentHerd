@@ -135,6 +135,15 @@ export {
 } from "./prompt.ts";
 export { STYLE_SOURCE, stylePrompt } from "./style.ts";
 export {
+  filterSuggestion,
+  SUGGEST_MAX_CHARS,
+  SUGGEST_MAX_TOKENS,
+  SUGGEST_TIMEOUT_MS,
+  type SuggestRequest,
+  sampleSuggestion,
+  suggestInstruction,
+} from "./suggest.ts";
+export {
   fallbackOrder,
   findTasks,
   herderTools,

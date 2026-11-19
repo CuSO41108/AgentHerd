@@ -22,6 +22,7 @@ import type {
   FeedSource,
   HerderFactory,
   HerderPort,
+  HerderSuggestion,
   OwnerImage,
 } from "./herder-port.ts";
 import type { Inbox } from "./inbox.ts";
@@ -122,6 +123,8 @@ export interface HerdOptions {
   watchesChanged?: () => void;
   /** Called after a line of the Herder's conversation is kept in `herder_turns` (the desktop pet). */
   herderTurnAdded?: () => void;
+  /** Where the Herder's guess at the owner's next message goes (the desktop pet, ADR 0084). */
+  suggestion?: HerderSuggestion;
   /** A watched source failing this long is told to the owner (default 30, ADR 0050). */
   sourceDownMinutes?: number;
   /**

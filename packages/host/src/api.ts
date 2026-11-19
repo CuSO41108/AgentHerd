@@ -325,6 +325,11 @@ export interface PetSettings {
   onTop: PetOnTop;
   /** macOS: also shown over apps in full screen (ADR 0080). Off by default. */
   overFullscreen: boolean;
+  /**
+   * After a reply the Herder guesses what the owner will say next; the pet shows it in the empty
+   * input and Tab takes it (ADR 0084). One small model call per reply.
+   */
+  suggest: boolean;
 }
 
 export const PET_ON_TOP = ["always", "busy"] as const;
@@ -344,6 +349,7 @@ export const DEFAULT_PET: PetSettings = {
   approveKey: "CommandOrControl+Shift+Y",
   onTop: "always",
   overFullscreen: false,
+  suggest: true,
 };
 
 /** `HH:MM-HH:MM`, both in 00:00–23:59; the hours may cross midnight (ADR 0079). */
@@ -427,6 +433,11 @@ export interface PetView {
   history: PetLine[];
   /** The cards sent to the owner over the same time, oldest first (ADR 0072). */
   cards: PetCard[];
+  /**
+   * What the owner might say next, guessed after the Herder's last reply (ADR 0084). Gone once
+   * anything new is said or a card waits for them.
+   */
+  suggestion?: string;
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */

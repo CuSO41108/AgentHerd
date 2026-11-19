@@ -56,6 +56,7 @@ import {
   remainingSays,
   separatorOf,
   statusOf,
+  suggestionFor,
   taskDots,
   taskGroups,
 } from "./pet-state";
@@ -575,6 +576,12 @@ export function Pet() {
   };
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    // Tab takes the Herder's guess at what the owner says next; it is never sent by itself (ADR 0084).
+    if (e.key === "Tab" && suggestion !== undefined && !e.shiftKey) {
+      e.preventDefault();
+      setDraft(suggestion);
+      return;
+    }
     if (e.key === "Enter" && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
       e.preventDefault();
       void send();
@@ -584,6 +591,7 @@ export function Pet() {
 
   const atlas = FIGURES[figure].atlas;
   const offline = !online || !view.connected;
+  const suggestion = suggestionFor(view, draft, drops.length, offline);
   const badge = badgeOf(view.pending.length, unread);
   const quiet = quietLine(settings, new Date(now));
   // A figure tucked at a screen edge comes out while the cursor is on it or its panel is open,
@@ -810,13 +818,25 @@ export function Pet() {
           placeholder={
             offline
               ? "连上飞书后才能说话"
-              : drops.length > 0
-                ? "说点什么，或直接发送"
-                : "跟主管说…（可以把文件拖到我身上）"
+              : (suggestion ??
+                (drops.length > 0 ? "说点什么，或直接发送" : "跟主管说…（可以把文件拖到我身上）"))
           }
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKey}
         />
+        {suggestion !== undefined && (
+          <button
+            type="button"
+            className="pet-suggest"
+            title="主管猜你接下来想说这句：按 Tab 或点这里填进去，不会直接发送"
+            onClick={() => {
+              setDraft(suggestion);
+              inputEl.current?.focus();
+            }}
+          >
+            Tab
+          </button>
+        )}
         <button
           type="button"
           className="pet-send"
