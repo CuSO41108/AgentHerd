@@ -24,7 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { PetRegion } from "../../../shared/bridge";
+import type { PetRegion, PetRoom } from "../../../shared/bridge";
 import { isQuiet, quietLine } from "../../../shared/pet-notify";
 import type { PetArm } from "../../../shared/pet-shortcuts";
 import { devOpen } from "../dev-bridge";
@@ -79,10 +79,16 @@ const TAB_KEY = "agentherd.pet.tab";
 /** Room on the screen before the pet has measured itself: the figure, input and margins. */
 const CHAT_CHROME = { width: 60, height: 280 };
 
+/** The whole screen: what the pet may use until main says how much room its corner leaves. */
+function screenSpace(): PetRoom {
+  return { width: window.screen.availWidth, height: window.screen.availHeight };
+}
+
 function screenRoom(): ChatSize {
+  const space = screenSpace();
   return {
-    width: window.screen.availWidth - CHAT_CHROME.width,
-    list: window.screen.availHeight - CHAT_CHROME.height,
+    width: space.width - CHAT_CHROME.width,
+    list: space.height - CHAT_CHROME.height,
   };
 }
 
@@ -168,6 +174,8 @@ export function Pet() {
   openRef.current = open;
   /** The largest conversation that fits on this screen next to the rest of the pet. */
   const [room, setRoom] = useState<ChatSize>(screenRoom);
+  /** Room left of and above the figure's corner, from main; the pet never grows past it. */
+  const [space, setSpace] = useState<PetRoom>(screenSpace);
   const lastId = useRef<number | undefined>(undefined);
   const folded = useRef(collapsed);
   const root = useRef<HTMLDivElement>(null);
@@ -241,6 +249,7 @@ export function Pet() {
       }
     });
     const offConnection = bridge.onConnection(setOnline);
+    const offRoom = bridge.pet?.onRoom?.(setSpace);
     // A notification or the menu bar was clicked: the panel opens on that page (ADR 0079).
     const offShow = bridge.pet?.onShow?.((next) => {
       setCollapsed(false);
@@ -257,6 +266,7 @@ export function Pet() {
       offEvent();
       offConnection();
       offShow?.();
+      offRoom?.();
       clearInterval(tick);
     };
   }, []);
@@ -361,8 +371,8 @@ export function Pet() {
     const l = listEl.current;
     if (!shown || r === null || p === null || l === null) return;
     const next = {
-      width: window.screen.availWidth - (r.offsetWidth - p.offsetWidth),
-      list: window.screen.availHeight - (r.offsetHeight - l.offsetHeight),
+      width: space.width - (r.offsetWidth - p.offsetWidth),
+      list: space.height - (r.offsetHeight - l.offsetHeight),
     };
     setRoom((current) =>
       current.width === next.width && current.list === next.list ? current : next,
