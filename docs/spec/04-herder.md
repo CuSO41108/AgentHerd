@@ -110,7 +110,7 @@ The Herder may add, never rewrite.
 | Read | `task_get`, `task_list`, `session_transcript`, `decisions_list`, `read`, `grep`, `list`, `git_log`, `git_diff` (read tools only inside known project directories) |
 | Schedules | `schedule_add(about, prompt, kind, at?, days?, hours?)`, `schedule_change(schedule, …, paused?)`, `schedule_remove(schedule)`: what the Herder does at set times, only when the owner asks ([ADR 0055](../adr/0055-schedules-the-herder-makes.md)) |
 | Context | `compress`, `decompress`, `search_context`, `acp_status`: fold finished parts of its own conversation, find and show them again ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)) |
-| Web | `web_search(query, source?, limit?)` (web results from DuckDuckGo, then Bing; `source: github` lists repositories), `web_read(url, maxChars?)` (a public page as text; a GitHub repository's facts from the API): read-only, public hosts only, for quick answers without a task ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)) |
+| Web | `web_search(query, source?, limit?)` (web results from DuckDuckGo, then Bing; `source: github` lists repositories, trying fewer words when all of them find nothing, [ADR 0085](../adr/0085-asked-for-projects-the-herder-names-real-ones.md); `source: research` asks the web, GitHub and Hacker News at once, at most 8 s, merged by link, [ADR 0086](../adr/0086-research-searches-several-sources-at-once.md)), `web_read(url, maxChars?)` (a public page as text; a GitHub repository's facts from the API): read-only, public hosts only, for quick answers without a task ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)) |
 | Market | `stock_quote(query)` (live A-share, HK, US, ETF and broad index quotes from Tencent Finance when 腾讯自选股 is on; read-only, zero login, objective reference only; [ADR 0076](../adr/0076-westock-market-quotes-and-research-cli.md)), `fund_holdings(days?, account?)` (personal 雪球基金 holdings and recent N-day NAV gains when signed in; read-only, [ADR 0077](../adr/0077-xueqiu-danjuan-fund-holdings.md)) |
 
 There is no tool to approve an item, write files or run shell commands. Every Herder tool call
@@ -150,6 +150,10 @@ later task gets and which counts as the owner allowing that step.
   whole turns itself (never the current one); a "context too long" error folds about half and
   retries once
   ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)).
+- No single input fills it: the owner's message goes in up to 8,000 characters (the whole is saved
+  under `attachments` and the message says where), a task's reply up to 12,000, a report, event or
+  new-work item up to 4,000; each cut says how much was left out. Files dropped on the pet come as
+  paths, read by tasks, not by the Herder ([ADR 0083](../adr/0083-the-herder-reads-bounded-input.md)).
 - Tasks are saved in `herd.db` and come back after a restart as ended tasks. `session_prompt` to an
   ended task starts its agent again in the same folder with the same model; Pi reopens its own
   session, other agents get the earlier conversation as text ([ADR 0039](../adr/0039-tasks-kept-and-continued.md)).
@@ -206,6 +210,11 @@ board.
 | `stuck` | Watchdog alarm, or last report `blocked` |
 | `done` | Last report `ready`, or `dropped` |
 | `failed` | Last report `failed`, or the session ended with an error |
+
+A task that is `needs-owner` because of its own `waiting` report (not an open approval) and has
+not changed for 30 minutes is asked about once: 「还要做 / 不做了」. 还要做 sends it back to redo what
+went stale and tell the owner what to do; 不做了, or no answer for a day, stops it as `failed`.
+停止 on a task that ended while it waited does the same ([ADR 0081](../adr/0081-a-waiting-task-asks-whether-it-still-matters.md)).
 
 ### Watchdog
 
@@ -422,8 +431,9 @@ New GitHub work is offered only when the owner asks for it ([ADR 0052](../adr/00
   mark them `[told before]`, which the Herder leaves out. `stock_quote` reads live stock and index
   quotes when 腾讯自选股 is enabled. `fund_holdings` reads personal 雪球基金 holdings and recent N-day
   returns when connected. `session_start` adds what the host says the computer offers
-  (lark-cli signed in as the owner, the Obsidian vault, Tencent WeStock availability, and 雪球基金
-  read-only status when connected) to every new task's context.
+  (lark-cli signed in as the owner, the Obsidian vault, whether Tencent WeStock live quotes or the
+  `westock` research CLI are available, and 雪球基金 read-only status when connected) to every new
+  task's context.
 - **Watches list.** 定时任务 → 在盯的 lists pull requests, mail watches, new-work watches and
   platform kinds; pausing keeps a watch without looking (`paused` in its row), removing deletes it.
 

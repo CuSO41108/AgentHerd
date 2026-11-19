@@ -328,6 +328,18 @@ export function modelName(model: string | undefined): string | undefined {
   return model.slice(model.lastIndexOf("/") + 1);
 }
 
+/**
+ * Who runs a task, short: the agent label already names the model on new hosts
+ * ("Pi · deepseek/deepseek-flash"), so the model is not said twice.
+ */
+export function runnerOf(agent: string, model: string | undefined): string {
+  const short = modelName(model);
+  if (model === undefined || short === undefined) return agent;
+  if (agent.includes(model)) return agent.replace(model, short);
+  if (agent.includes(short)) return agent;
+  return agent === "" ? short : `${agent} · ${short}`;
+}
+
 /** A message the owner just sent in the pet, before herd.db records its turn. */
 export interface PendingSay {
   /** Negative id so React keys never collide with herd.db turn ids. */
@@ -356,4 +368,130 @@ export function remainingSays(
     else kept.push(item);
   }
   return kept;
+}
+
+/** The pages of the expanded pet (ADR 0078): the conversation, the tasks, the cards. */
+export const PET_TABS = ["chat", "tasks", "cards"] as const;
+export type PetTab = (typeof PET_TABS)[number];
+
+/** A saved page, or the conversation when there is none or it is unknown. */
+export function readTab(saved: string | null): PetTab {
+  return PET_TABS.find((t) => t === saved) ?? "chat";
+}
+
+/** Ended tasks the 任务 page still shows: those of the last day, as on the board. */
+export const TASKS_ENDED_MS = 24 * 60 * 60_000;
+
+/** Running tasks that need the owner come first. */
+const RUNNING_ORDER: Record<Stage, number> = {
+  "needs-owner": 0,
+  stuck: 1,
+  working: 2,
+  queued: 3,
+  done: 4,
+  failed: 4,
+};
+
+/**
+ * The 任务 page: tasks still running (waiting for the owner or stuck first, then the newest), and
+ * those that ended in the last day, newest first.
+ */
+export function taskGroups(
+  tasks: readonly Task[],
+  now = Date.now(),
+): { running: Task[]; ended: Task[] } {
+  const newest = (a: Task, b: Task) =>
+    (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0);
+  const running = tasks
+    .filter(canStop)
+    .sort((a, b) => RUNNING_ORDER[a.stage] - RUNNING_ORDER[b.stage] || newest(a, b));
+  const ended = tasks
+    .filter((t) => !canStop(t) && now - (Date.parse(t.updatedAt) || 0) <= TASKS_ENDED_MS)
+    .sort(newest);
+  return { running, ended };
+}
+
+/**
+ * The 卡片 page: cards whose buttons still work (waiting for the owner), in the order they came,
+ * then the others, newest first.
+ */
+export function cardGroups(cards: readonly PetCard[]): { waiting: PetCard[]; recent: PetCard[] } {
+  const waiting = cards.filter((c) => c.open);
+  const recent = cards
+    .map((c, i) => ({ c, i, t: Date.parse(c.at) || 0 }))
+    .filter(({ c }) => !c.open)
+    .sort((a, b) => b.t - a.t || b.i - a.i)
+    .map(({ c }) => c);
+  return { waiting, recent };
+}
+
+/** Dots over the pet's head, one per running task (ADR 0082). */
+export const TASK_DOTS_MAX = 5;
+
+export interface TaskDot {
+  id: string;
+  title: string;
+  tone: "blue" | "amber" | "red" | "gray";
+  /** What a dot's tooltip says: 「修登录 401 · 在做」. */
+  label: string;
+}
+
+/**
+ * The running tasks as dots, those waiting on the owner first; `more` counts the rest. A stuck
+ * task is red here: on the pet's body it is what needs a look.
+ */
+export function taskDots(
+  tasks: readonly Task[],
+  now = Date.now(),
+): { dots: TaskDot[]; more: number } {
+  const running = taskGroups(tasks, now).running;
+  const dots = running.slice(0, TASK_DOTS_MAX).map((task) => {
+    const stage = TASK_STAGE[task.stage];
+    const tone =
+      task.stage === "stuck"
+        ? "red"
+        : stage.tone === "green"
+          ? "blue"
+          : (stage.tone as TaskDot["tone"]);
+    return { id: task.id, title: task.title, tone, label: `${task.title} · ${stage.text}` };
+  });
+  return { dots, more: running.length - dots.length };
+}
+
+/** A file dropped on the pet, waiting to be sent with the next message (ADR 0082). */
+export interface Drop {
+  path: string;
+  name: string;
+  picture: boolean;
+}
+
+/** Adds dropped paths to those already waiting: no repeats, at most `max`, empty paths left out. */
+export function addDrops(current: readonly Drop[], paths: readonly string[], max: number): Drop[] {
+  const next = [...current];
+  for (const path of paths) {
+    if (path === "" || next.some((d) => d.path === path)) continue;
+    if (next.length >= max) break;
+    const name =
+      path
+        .split(/[\\/]/)
+        .filter((x) => x !== "")
+        .at(-1) ?? path;
+    next.push({ path, name, picture: /\.(png|jpe?g|gif|webp)$/i.test(path) });
+  }
+  return next;
+}
+
+/**
+ * The Herder's guess at the owner's next message, shown in the empty input (ADR 0084): only
+ * while nothing is typed or dropped and the chat is up.
+ */
+export function suggestionFor(
+  view: Pick<PetView, "suggestion">,
+  draft: string,
+  drops: number,
+  offline: boolean,
+): string | undefined {
+  if (offline || draft !== "" || drops > 0) return undefined;
+  const text = view.suggestion?.trim();
+  return text === undefined || text === "" ? undefined : text;
 }

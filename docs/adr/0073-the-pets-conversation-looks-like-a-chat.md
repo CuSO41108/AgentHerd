@@ -1,6 +1,7 @@
 # ADR 0073: The pet's conversation looks like a chat: Markdown, files to open, quiet task rows
 
-- Status: Accepted; replies can also hold herd-ui blocks (ADR 0074)
+- Status: Accepted; replies can also hold herd-ui blocks (ADR 0074); replies in bubbles and every
+  long reply folds (changed 2026-11-19, decisions 1 and 3)
 - Date: 2026-11-18
 - Changes: [0070](0070-a-desktop-pet.md) and [0072](0072-cards-in-the-pet.md) (how the conversation
   is drawn), [0045](0045-herder-context-folded-by-the-model.md) (the Herder's own replies carry no
@@ -27,12 +28,23 @@
    跑」, ↗ opens the app, ✕ closes), the owner's words in blue bubbles on the right, the Herder's
    replies without a bubble, and a time line at the start of a day and after ten quiet minutes. The
    input is a rounded field with a send button; 「N 件等你确认 ↑」 sits above it.
+   - *Changed 2026-11-19:* without a bubble, one reply ran into the next and its paragraphs into
+     each other: 「现在回答都粘在一起了」 (m23527), 「主管的回复也应该是一条一条的，而不是粘在一起的」
+     (m23570). Each reply is now a grey bubble on the left (light and dark colours), as the owner's
+     are blue on the right; tables, stats and code inside it sit on the panel's own colour. More
+     room between messages (14 px), paragraphs (10 px, a blank line the Herder writes) and list
+     items (4 px).
 2. **Markdown.** The Herder's replies, report bodies and questions are drawn as Markdown by the app's
    own parser (`apps/desktop/src/renderer/src/markdown.ts`, the one the main window uses): it returns
    data, never HTML, so nothing in a message becomes markup. Links (http, https, mailto only) open
    in the browser; the pet window itself never navigates or opens windows.
 3. **Long replies fold.** More than 12 lines or 600 characters show their start behind
    「展开全文 · 还有 N 行」.
+   - *Changed 2026-11-19:* at first a reply with herd-ui blocks never folded. The owner:
+     「每个回复的块都应该可以折叠」 (m24084). Now every long reply folds, blocks or not: long words (the
+     blocks left out) or a drawn height over 280 px (a table, a picture), measured as it is drawn
+     and again when it grows. 「展开全文」 opens it and 收起 folds it again. A reply whose answers
+     are still open stays unfolded, so its buttons are in sight.
 4. **Files to open.** A file the Herder wants the owner to open gets a row: name, folder, 打开.
    Main decides what 打开 does: documents, text, data and pictures open in their app; anything
    else (a script, an app, HTML) is only shown in Finder, so a message can never run code. A path
@@ -69,5 +81,7 @@
 ## Tests
 
 - `apps/desktop/test/pet-state.test.ts` (folding, time lines, task events, status line), `apps/desktop/test/open-file.test.ts` (what 打开 opens or only shows),
+  `apps/desktop/test/herd-ui-state.test.ts` (every long reply folds, by words or drawn height, not
+  while its answers wait),
   `packages/herder/test/context.test.ts` (no tags on the Herder's own words, broken tag lines
   removed), `packages/host/test/pet.test.ts` (history without tags).
