@@ -17,10 +17,12 @@ import { HOST_METHODS } from "@agentherd/host/api";
 import { connectHost, type HostClient, socketPath } from "@agentherd/host/server";
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, powerSaveBlocker, shell } from "electron";
 import type { Notice, NoticeTab } from "../shared/pet-notify.ts";
+import { ApproveKey, type PetArm, shortcutLabel } from "../shared/pet-shortcuts.ts";
 import { ensureHost, ownsHost, stopOwnedHost } from "./host-process.ts";
 import { MenuBar } from "./menu-bar.ts";
 import { Notifier } from "./notifier.ts";
 import { PetWindow } from "./pet-window.ts";
+import { Shortcuts } from "./shortcuts.ts";
 
 app.setName("AgentHerd");
 app.setAppUserModelId("com.agentherd.desktop");
@@ -42,6 +44,9 @@ let quitting = false;
 /** Made once the app is ready (it needs the screen). */
 let pet: PetWindow | undefined;
 let petSettings: PetSettings | undefined;
+/** The pet's view as the host last sent it: what the approve shortcut answers (ADR 0080). */
+let petView: PetView | undefined;
+const approveKey = new ApproveKey();
 
 /** System notifications for what waits for the owner and what tasks finished (ADR 0079). */
 const notifier = new Notifier({
@@ -55,6 +60,14 @@ const notifier = new Notifier({
   looking: () => BrowserWindow.getFocusedWindow() !== null,
   log: (message) => console.log(`[desktop] ${message}`),
   icon: APP_ICON,
+});
+
+/** The pet's global shortcuts (ADR 0080). */
+const shortcuts = new Shortcuts({
+  talk: () => onTalkKey(),
+  approve: () => onApproveKey(),
+  changed: (state) => send("app:shortcuts", state),
+  log: (message) => console.log(`[desktop] ${message}`),
 });
 
 function send(channel: string, payload: unknown): void {
@@ -83,10 +96,18 @@ function onStatus(status: HostStatus): void {
   notifier.setSettings(status.pet);
   menuBar?.update({ status });
   // An older host has no pet settings: no pet.
-  if (process.env.AGENTHERD_CAPTURE === undefined) pet?.set(status.pet?.on === true);
+  if (process.env.AGENTHERD_CAPTURE === undefined) {
+    pet?.setPlacement({
+      onTop: status.pet?.onTop ?? "always",
+      overFullscreen: status.pet?.overFullscreen ?? false,
+    });
+    pet?.set(status.pet?.on === true);
+    shortcuts.set({ talk: status.pet?.talkKey ?? "", approve: status.pet?.approveKey ?? "" });
+  }
 }
 
 function onPetView(view: PetView): void {
+  petView = view;
   notifier.view(view);
   menuBar?.update({ view });
 }
@@ -185,6 +206,51 @@ function showNotice(notice: Notice): void {
   openApp(notice.taskId);
 }
 
+/** The talk shortcut: the pet's conversation with the cursor in its input, or the app. */
+function onTalkKey(): void {
+  if (!showPet("chat")) openApp();
+}
+
+/** The approve shortcut: picks the oldest approval, allows it on a second press (ADR 0080). */
+function onApproveKey(): void {
+  const settings = petSettings;
+  if (settings?.on !== true || pet === undefined) {
+    openApp();
+    return;
+  }
+  const press = approveKey.press(petView, Date.now());
+  if (press.kind === "allow") {
+    const { approval } = press;
+    const c = client;
+    if (c === undefined) {
+      tellArm({ kind: "failed", message: "AgentHerd 服务未连接" });
+      return;
+    }
+    void c.host
+      .petPress(approval.target, "allow")
+      .then(() => tellArm({ kind: "done", approval }))
+      .catch((error: Error) => tellArm({ kind: "failed", message: error.message }));
+    return;
+  }
+  showPet("cards");
+  tellArm(
+    press.kind === "arm"
+      ? { ...press, key: shortcutLabel(settings.approveKey, process.platform === "darwin") }
+      : { kind: "none" },
+  );
+}
+
+function tellArm(arm: PetArm): void {
+  pet?.send("pet:arm", arm);
+}
+
+ipcMain.on("pet:disarm", () => approveKey.clear());
+ipcMain.handle("app:shortcuts", () => shortcuts.state());
+// The settings page records a new shortcut: the old ones must not swallow the keys meanwhile.
+ipcMain.on("app:pause-shortcuts", (_e, paused: unknown) => {
+  if (typeof paused === "boolean") shortcuts.pause(paused);
+});
+
 function setPet(patch: Partial<PetSettings>): void {
   void client?.host.updateSettings({ pet: patch }).catch((error: Error) => {
     console.error(`[desktop] pet settings: ${error.message}`);
@@ -266,6 +332,8 @@ function createWindow(): void {
   });
   created.on("closed", () => {
     if (win === created) win = undefined;
+    // It may have been recording a shortcut.
+    shortcuts.pause(false);
     // The pet window would keep the app running with no way back in; outside macOS (and without
     // the Windows tray) closing the main window quits, as before.
     if (process.platform !== "darwin" && menuBar === undefined && !quitting) app.quit();
@@ -332,6 +400,8 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+app.on("will-quit", () => shortcuts.dispose());
 
 app.on("before-quit", (event) => {
   quitting = true;

@@ -60,6 +60,8 @@ English · [简体中文](README.zh-CN.md)
   and the cards waiting for you on pages of their own. Fold her into a dot when she is in the way.
   When she is out of sight she sends a system notification (only approvals and failures ring),
   a sheep in the menu bar shows what runs and waits, and quiet hours or a snooze keep her silent.
+  ⇧⌘Space opens her to type from any app, ⇧⌘Y twice allows the oldest approval, and she can
+  tuck at a screen edge or float on top only when she has something for you.
 - **Local only.** No AgentHerd server. Keys stay in `~/.agentherd/secrets.json`, readable only by
   you. Agents can keep running with the lid closed.
 

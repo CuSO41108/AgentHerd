@@ -307,7 +307,28 @@ export interface PetSettings {
   quietHours: string;
   /** Quiet until this ISO time (暂停打扰 from the menu bar or settings); "" when not snoozed. */
   quietUntil: string;
+  /**
+   * A global shortcut (an Electron accelerator such as `CommandOrControl+Shift+Space`) that opens
+   * the pet's conversation with the cursor in the input; "" for none (ADR 0080).
+   */
+  talkKey: string;
+  /**
+   * A global shortcut that picks the oldest approval waiting; pressed again within a few seconds
+   * it allows that one (ADR 0080). "" for none.
+   */
+  approveKey: string;
+  /**
+   * "always": the pet floats above other windows; "busy": only while it has something for the
+   * owner (an approval or a question waits, a new line, its panel open), else it sits among the
+   * other windows (ADR 0080).
+   */
+  onTop: PetOnTop;
+  /** macOS: also shown over apps in full screen (ADR 0080). Off by default. */
+  overFullscreen: boolean;
 }
+
+export const PET_ON_TOP = ["always", "busy"] as const;
+export type PetOnTop = (typeof PET_ON_TOP)[number];
 
 export const DEFAULT_PET: PetSettings = {
   on: true,
@@ -316,10 +337,32 @@ export const DEFAULT_PET: PetSettings = {
   sound: true,
   quietHours: "",
   quietUntil: "",
+  talkKey: "CommandOrControl+Shift+Space",
+  approveKey: "CommandOrControl+Shift+Y",
+  onTop: "always",
+  overFullscreen: false,
 };
 
 /** `HH:MM-HH:MM`, both in 00:00–23:59; the hours may cross midnight (ADR 0079). */
 export const QUIET_HOURS = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Modifiers a pet shortcut may use (Electron accelerator words, ADR 0080). */
+export const PET_SHORTCUT_MODIFIERS = ["CommandOrControl", "Control", "Alt", "Super", "Shift"];
+
+/**
+ * A global shortcut the pet takes (ADR 0080): up to three different modifiers, one of them not
+ * Shift, then a letter, digit, Space, an arrow or a punctuation key; a function key needs none.
+ */
+export function isPetShortcut(value: string): boolean {
+  const parts = value.split("+");
+  // "+" itself is not offered, so the key is never empty.
+  const key = parts.pop() ?? "";
+  if (parts.length > 3 || new Set(parts).size !== parts.length) return false;
+  if (!parts.every((m) => PET_SHORTCUT_MODIFIERS.includes(m))) return false;
+  if (/^F([1-9]|1\d|2[0-4])$/.test(key)) return true;
+  const ok = /^([A-Z0-9]|Space|Up|Down|Left|Right|[/.,;'[\]\\`=-])$/.test(key);
+  return ok && parts.some((m) => m !== "Shift");
+}
 
 /** One thing AgentHerd sent to the owner, as the pet shows it. */
 export interface PetLine {
