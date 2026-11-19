@@ -11,6 +11,8 @@ import {
   LOOKUP_TOOL_NAMES,
   Lookup,
   lookupTools,
+  mergeHits,
+  sameLink,
 } from "../src/lookup.ts";
 import { systemPrompt } from "../src/prompt.ts";
 
@@ -353,7 +355,7 @@ describe("lookup tools (ADR 0071)", () => {
 describe("asked for projects or about a file (ADR 0085)", () => {
   it("names real projects first, and sends a task to read a file without asking", () => {
     const system = systemPrompt("zh-CN");
-    expect(system).toContain("Search GitHub with two or three English key words");
+    expect(system).toContain("Search with source research (or github and web)");
     expect(system).toContain("Put the projects first, each with its link, stars, last push");
     expect(system).toContain(
       "start a small task\n  for it at once with the path in it; do not ask first",
@@ -361,6 +363,157 @@ describe("asked for projects or about a file (ADR 0085)", () => {
     const tools = lookupTools({});
     expect(JSON.stringify(tools[0]?.parameters)).toContain(
       "give two or three key words in English",
+    );
+  });
+});
+
+const REPO = {
+  full_name: "yetone/magpie",
+  description: "Every agent's model",
+  html_url: "https://github.com/yetone/magpie",
+  stargazers_count: 1200,
+  forks_count: 40,
+  language: "TypeScript",
+  pushed_at: "2026-11-01T00:00:00Z",
+};
+
+const HN = {
+  hits: [
+    {
+      title: "Show HN: Magpie, one switch for every agent's model",
+      url: "https://www.github.com/yetone/magpie/",
+      points: 210,
+      num_comments: 64,
+      objectID: "42",
+      created_at: "2026-10-30T00:00:00Z",
+    },
+    {
+      title: "Ask HN: How do you route models?",
+      url: null,
+      points: 12,
+      num_comments: 9,
+      objectID: "7",
+    },
+  ],
+};
+
+describe("research search (ADR 0086)", () => {
+  it("treats the same page written differently as one link", () => {
+    expect(sameLink("https://www.github.com/Yetone/Magpie/")).toBe(
+      sameLink("https://github.com/yetone/magpie"),
+    );
+    expect(sameLink("https://example.org/a?utm_source=x#top")).toBe(
+      sameLink("http://example.org/a"),
+    );
+    expect(sameLink("https://example.org/a?id=1")).not.toBe(sameLink("https://example.org/a?id=2"));
+  });
+
+  it("puts results several sources found first, each listed once with all its sources", () => {
+    const hit = (title: string, url: string) => ({ title, url, lines: [title] });
+    const merged = mergeHits([
+      {
+        name: "web",
+        hits: [hit("a", "https://a.example/"), hit("m", "https://github.com/yetone/magpie")],
+      },
+      { name: "GitHub", hits: [hit("yetone/magpie", "https://github.com/yetone/magpie")] },
+      { name: "Hacker News", hits: [hit("b", "https://b.example/")] },
+    ]);
+    expect(merged.map((h) => [h.url, h.sources])).toEqual([
+      ["https://github.com/yetone/magpie", ["web", "GitHub"]],
+      ["https://a.example/", ["web"]],
+      ["https://b.example/", ["Hacker News"]],
+    ]);
+    expect(merged[0]?.lines).toEqual(["m", "yetone/magpie"]);
+  });
+
+  it("searches the web, GitHub and Hacker News at once and merges them", async () => {
+    const { fetch, calls } = web({
+      "https://html.duckduckgo.com/": { body: DUCK },
+      "https://api.github.com/search/repositories": {
+        type: "application/json",
+        body: JSON.stringify({ items: [REPO] }),
+      },
+      "https://hn.algolia.com/api/v1/search": {
+        type: "application/json",
+        body: JSON.stringify(HN),
+      },
+    });
+    const text = await new Lookup({ fetch, resolve: PUBLIC }).search(
+      "magpie agent model",
+      "research",
+      12,
+    );
+    expect(new Set(calls.map((c) => new URL(c.url).hostname))).toEqual(
+      new Set(["html.duckduckgo.com", "www.bing.com", "api.github.com", "hn.algolia.com"]),
+    );
+    const lines = text.split("\n");
+    expect(lines[0]).toMatch(
+      /^Searched the web, GitHub and Hacker News for "magpie agent model" in \d+\.\d s \(web 2, GitHub 1, Hacker News 2\)\.$/,
+    );
+    expect(lines[1]).toBe(
+      "1. [web, GitHub, Hacker News] GitHub - yetone/magpie: Every agent's model",
+    );
+    expect(text).toContain("★ 1200 · 40 forks · TypeScript · last push 2026-11-01");
+    expect(text).toContain("210 points · 64 comments · 2026-10-30");
+    expect(text).toContain("discussion: https://news.ycombinator.com/item?id=42");
+    expect(text).toContain(
+      "[Hacker News] Ask HN: How do you route models?\n   https://news.ycombinator.com/item?id=7",
+    );
+  });
+
+  it("does not wait for a slow source once the web and another have results", async () => {
+    const fast = web({
+      "https://html.duckduckgo.com/": { body: DUCK },
+      "https://hn.algolia.com/api/v1/search": {
+        type: "application/json",
+        body: JSON.stringify(HN),
+      },
+    });
+    const fetch = (async (input: string | URL, init?: RequestInit) => {
+      if (input.toString().startsWith("https://api.github.com/")) {
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
+      return fast.fetch(input, init);
+    }) as Fetch;
+    const started = Date.now();
+    const text = await new Lookup({ fetch, resolve: PUBLIC, researchWaitMs: 4_000 }).search(
+      "magpie",
+      "research",
+      12,
+    );
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(text).toContain("GitHub too slow, left out");
+  });
+
+  it("stops at its time limit, and says when no source worked", async () => {
+    const fetch = (async (input: string | URL) => {
+      if (input.toString().startsWith("https://html.duckduckgo.com/")) {
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
+      return new Response("", { status: 503 });
+    }) as Fetch;
+    const started = Date.now();
+    const text = await new Lookup({ fetch, resolve: PUBLIC, researchWaitMs: 300 }).search(
+      "x",
+      "research",
+      12,
+    );
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(text).toContain("web too slow, left out, GitHub failed, Hacker News failed");
+    expect(text).toContain("nothing found");
+    const down = web({ "https://": { status: 503 } });
+    await expect(
+      new Lookup({ fetch: down.fetch, resolve: PUBLIC }).search("x", "research", 12),
+    ).rejects.toThrow(/^the search did not work \(web: the web search did not work/);
+  });
+
+  it("lets the Herder pick research for projects and comparisons", () => {
+    const system = systemPrompt("zh-CN");
+    expect(system).toContain("one plain web_search is enough");
+    expect(system).toContain("web_search with source research");
+    const tools = lookupTools({});
+    expect(JSON.stringify(tools[0]?.parameters)).toContain(
+      "research: web, GitHub and Hacker News at once",
     );
   });
 });
