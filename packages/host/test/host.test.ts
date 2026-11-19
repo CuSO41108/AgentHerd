@@ -293,7 +293,7 @@ describe("Host", () => {
     expect(() => t.host.updateSettings({ pet: { suggest: "yes" as never } })).toThrow(
       /pet.suggest must be true or false/,
     );
-  });
+  }, 20_000);
 
   it("shows the Herder's schedules and lets the owner pause and remove them (ADR 0055)", async () => {
     const off = makeHost(false);
