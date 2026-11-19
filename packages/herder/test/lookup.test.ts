@@ -4,6 +4,7 @@ import {
   checkPublic,
   duckResults,
   type Fetch,
+  githubQueries,
   githubRepoOf,
   htmlToText,
   isPrivateAddress,
@@ -11,6 +12,7 @@ import {
   Lookup,
   lookupTools,
 } from "../src/lookup.ts";
+import { systemPrompt } from "../src/prompt.ts";
 
 interface Call {
   url: string;
@@ -192,6 +194,49 @@ describe("web_search (ADR 0071)", () => {
   });
 });
 
+describe("GitHub search with fewer words (ADR 0085)", () => {
+  it("tries the words as given, without Chinese words, then the first three and two", () => {
+    expect(githubQueries("脉脉 maimai mcp")).toEqual(["脉脉 maimai mcp", "maimai mcp"]);
+    expect(githubQueries("maimai mcp server model context protocol")).toEqual([
+      "maimai mcp server model context protocol",
+      "maimai mcp server",
+      "maimai mcp",
+    ]);
+    expect(githubQueries(" agent  sandbox ")).toEqual(["agent sandbox"]);
+    expect(githubQueries("脉脉")).toEqual(["脉脉"]);
+  });
+
+  it("says when it found repositories only with fewer words", async () => {
+    const repo = {
+      full_name: "a/maimai-mcp",
+      description: "MCP for maimai",
+      html_url: "https://github.com/a/maimai-mcp",
+      stargazers_count: 12,
+      forks_count: 1,
+      language: "TypeScript",
+      pushed_at: "2026-10-01T00:00:00Z",
+    };
+    const { fetch, calls } = web({
+      "https://api.github.com/search/repositories": {
+        type: "application/json",
+        body: JSON.stringify({ items: [] }),
+      },
+      "https://api.github.com/search/repositories?q=maimai%20mcp&": {
+        type: "application/json",
+        body: JSON.stringify({ items: [repo] }),
+      },
+    });
+    const lookup = new Lookup({ fetch, resolve: PUBLIC });
+    expect(await lookup.search("maimai mcp server model context protocol", "github", 3)).toBe(
+      'No repository matched every word of "maimai mcp server model context protocol"; these match "maimai mcp":\na/maimai-mcp — MCP for maimai\n  ★ 12 · 1 forks · TypeScript · last push 2026-10-01\n  https://github.com/a/maimai-mcp',
+    );
+    expect(calls).toHaveLength(3);
+    calls.length = 0;
+    expect(await lookup.search("zzz qqq", "github", 3)).toBe("nothing found");
+    expect(calls.map((c) => new URL(c.url).searchParams.get("q"))).toEqual(["zzz qqq"]);
+  });
+});
+
 describe("web_read (ADR 0071)", () => {
   it("turns a page into its title and readable text, without scripts and menus", () => {
     const html = `<html><head><title>Hi &amp; bye</title><style>p{}</style></head><body>
@@ -302,5 +347,20 @@ describe("lookup tools (ADR 0071)", () => {
         text: "1. GitHub - yetone/magpie: Every agent's model\n   https://github.com/yetone/magpie\n   One place & one switch.",
       },
     ]);
+  });
+});
+
+describe("asked for projects or about a file (ADR 0085)", () => {
+  it("names real projects first, and sends a task to read a file without asking", () => {
+    const system = systemPrompt("zh-CN");
+    expect(system).toContain("Search GitHub with two or three English key words");
+    expect(system).toContain("Put the projects first, each with its link, stars, last push");
+    expect(system).toContain(
+      "start a small task\n  for it at once with the path in it; do not ask first",
+    );
+    const tools = lookupTools({});
+    expect(JSON.stringify(tools[0]?.parameters)).toContain(
+      "give two or three key words in English",
+    );
   });
 });

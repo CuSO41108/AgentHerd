@@ -331,6 +331,22 @@ function day(iso: string | undefined | null): string {
   return iso === undefined || iso === null ? "?" : iso.slice(0, 10);
 }
 
+/** Narrower first, then wider: the words as given, without CJK words, the first three, two. */
+export function githubQueries(query: string): string[] {
+  const words = query
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w !== "");
+  const latin = words.filter((w) => !/[\u3000-\u9fff\uac00-\ud7af]/.test(w));
+  const tries = [words, latin, latin.slice(0, 3), latin.slice(0, 2)];
+  const out: string[] = [];
+  for (const t of tries) {
+    const q = t.join(" ");
+    if (q !== "" && !out.includes(q)) out.push(q);
+  }
+  return out;
+}
+
 function repoLine(r: GithubRepo): string {
   const facts = [
     `★ ${r.stargazers_count}`,
@@ -379,15 +395,22 @@ export class Lookup {
     const n = Math.max(1, Math.min(SEARCH_RESULTS_MAX, Math.round(limit)));
     const opts = await this.opts();
     if (source === "github") {
-      const got = await get(
-        `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&per_page=${n}`,
-        opts,
-        { Accept: "application/vnd.github+json" },
-      );
-      if (got.status !== 200) throw new Error(`GitHub search answered ${got.status}`);
-      const items = (JSON.parse(got.text) as { items?: GithubRepo[] }).items ?? [];
-      if (items.length === 0) return "nothing found";
-      return items.slice(0, n).map(repoLine).join("\n");
+      // GitHub matches every word, so a sentence finds nothing; fewer words are tried in turn.
+      for (const words of githubQueries(query)) {
+        const got = await get(
+          `https://api.github.com/search/repositories?q=${encodeURIComponent(words)}&per_page=${n}`,
+          opts,
+          { Accept: "application/vnd.github+json" },
+        );
+        if (got.status !== 200) throw new Error(`GitHub search answered ${got.status}`);
+        const items = (JSON.parse(got.text) as { items?: GithubRepo[] }).items ?? [];
+        if (items.length === 0) continue;
+        const lines = items.slice(0, n).map(repoLine).join("\n");
+        return words === query.trim()
+          ? lines
+          : `No repository matched every word of "${query.trim()}"; these match "${words}":\n${lines}`;
+      }
+      return "nothing found";
     }
     const problems: string[] = [];
     for (const engine of ENGINES) {
@@ -486,7 +509,8 @@ const searchSchema = obj({
   query: str({ description: "what to search for, in the words a page would use" }),
   source: opt(
     oneOf(["web", "github"] as const, {
-      description: "web (default) or github: repositories by name and description",
+      description:
+        "web (default) or github: repositories by name, description and topics. GitHub needs every word to match: give two or three key words in English (maimai mcp), not a sentence",
     }),
   ),
   limit: opt(
