@@ -2,7 +2,7 @@
 
 import type { HostEvent, HostMethod, RemoteHost } from "@agentherd/host/api";
 import { HOST_METHODS } from "@agentherd/host/api";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { Bridge } from "../shared/bridge.ts";
 import type { PetArm, ShortcutState } from "../shared/pet-shortcuts.ts";
 
@@ -34,6 +34,7 @@ const bridge: Bridge = {
     openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
     openFile: (path) => ipcRenderer.send("pet:open-file", path),
     readImage: (path) => ipcRenderer.invoke("pet:read-image", path),
+    pathOf: (file) => webUtils.getPathForFile(file),
     onShow(listener) {
       const handler = (_e: unknown, tab: "chat" | "tasks" | "cards") => listener(tab);
       ipcRenderer.on("pet:show", handler);

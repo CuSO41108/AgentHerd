@@ -45,6 +45,8 @@ export interface PetBridge {
    * (ADR 0075). Missing in older builds.
    */
   readImage?(path: string): Promise<string | undefined>;
+  /** Where a file dropped on the pet is on disk; "" when it has no path (ADR 0082). */
+  pathOf?(file: File): string;
   /**
    * Main asks the pet to open its panel on a page: a notification or the menu bar was clicked
    * (ADR 0079). Returns an unsubscribe function. Missing in older builds.

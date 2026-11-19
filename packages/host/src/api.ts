@@ -330,6 +330,9 @@ export interface PetSettings {
 export const PET_ON_TOP = ["always", "busy"] as const;
 export type PetOnTop = (typeof PET_ON_TOP)[number];
 
+/** Files the owner can drop on the pet at once (ADR 0082). */
+export const PET_DROP_MAX = 6;
+
 export const DEFAULT_PET: PetSettings = {
   on: true,
   figure: "deepseek",
@@ -685,8 +688,11 @@ export interface HostApi {
   testWestock(query?: string): Promise<WestockTest>;
   /** What the desktop pet shows (ADR 0070). */
   pet(): PetView;
-  /** The owner typed this to the pet: it reaches AgentHerd as a chat message. */
-  petSay(text: string): Promise<PetView>;
+  /**
+   * The owner typed this to the pet: it reaches AgentHerd as a chat message. `paths` are files
+   * dropped on the pet (ADR 0082): pictures go in as images, the rest as lines with their paths.
+   */
+  petSay(text: string, paths?: string[]): Promise<PetView>;
   /** The owner pressed a button on a card in the pet's bubble. */
   petPress(target: string, action: string): Promise<PetView>;
   /** The owner stopped a task (the pet's task card): its agent stops, the task stays (ADR 0072). */

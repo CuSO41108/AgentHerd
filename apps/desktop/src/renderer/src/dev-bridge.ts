@@ -631,12 +631,14 @@ function installFakeBridge(): void {
       return delay(lark);
     },
     pet: () => delay(pet),
-    petSay: (text) => {
+    petSay: (text, paths = []) => {
       if (!pet.connected)
         return Promise.reject(new Error("AgentHerd 还没连上飞书，先在 App 里设置好"));
-      petLine({ kind: "owner", text });
+      const files = paths.map((p) => `[主人拖来文件「${p.split("/").at(-1)}」：${p}]`);
+      const said = [text, ...files].filter((x) => x !== "").join("\n");
+      petLine({ kind: "owner", text: said });
       emit({ topic: "pet", data: structuredClone(pet) });
-      setTimeout(() => petSays({ kind: "say", text: `收到：「${text}」。我这就去办。` }), 1200);
+      setTimeout(() => petSays({ kind: "say", text: `收到：「${said}」。我这就去办。` }), 1200);
       return delay(pet);
     },
     petPress: (target, action) => {
@@ -1093,6 +1095,7 @@ function installFakeBridge(): void {
       openApp: () => {},
       openFile: (path) => console.info("[AgentHerd] open", path),
       readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),
+      pathOf: (file) => `/Users/me/Desktop/${file.name}`,
       onArm: (listener) => {
         if (new URLSearchParams(location.search).get("arm") !== "1") return () => {};
         const timer = setTimeout(
