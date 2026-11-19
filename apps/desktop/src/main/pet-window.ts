@@ -14,7 +14,7 @@ import {
   screen,
   shell,
 } from "electron";
-import { hitPetRegion, type PetRegion } from "../shared/bridge.ts";
+import { hitPetRegion, type PetRegion, type PetRoom } from "../shared/bridge.ts";
 import { type Edge, edgeOf, peekRight, tuckedX } from "../shared/pet-edge.ts";
 import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
 import { petMenuItems } from "./pet-menu";
@@ -90,6 +90,8 @@ export class PetWindow {
   private ignoringMouse: boolean | undefined;
   private size = { ...START };
   private lastPlaced: { x: number; y: number } | undefined;
+  /** The room last told to the pet, so it is sent only when it changes. */
+  private lastRoom: PetRoom | undefined;
   /** Where the figure stands: the window grows up and left from here and shrinks back to it. */
   private anchor: Corner | undefined;
   /** The screen edge the figure is tucked at; it peeks out while the cursor is on it. */
@@ -288,11 +290,30 @@ export class PetWindow {
 
   /** Puts the window where its corner, size and tuck say. */
   private place(w: BrowserWindow): void {
+    this.tellRoom(w);
     const b = this.boundsFor(w, this.size);
     if (this.lastPlaced?.x === b.x && this.lastPlaced?.y === b.y) return;
     this.lastPlaced = { x: b.x, y: b.y };
     w.setBounds(b);
     this.updateHitTest();
+  }
+
+  /**
+   * Tells the pet how much room it has left of and above its corner. Without this it measured the
+   * whole screen, grew taller than the room above the corner, and main had to move the window down
+   * to keep it on screen: the figure jumped each time the conversation opened or closed.
+   */
+  private tellRoom(w: BrowserWindow): void {
+    const anchor = this.anchor;
+    if (anchor === undefined || w.isDestroyed()) return;
+    const area = screen.getDisplayNearestPoint({
+      x: anchor.right - 1,
+      y: anchor.bottom - 1,
+    }).workArea;
+    const room = { width: anchor.right - area.x, height: anchor.bottom - area.y };
+    if (this.lastRoom?.width === room.width && this.lastRoom.height === room.height) return;
+    this.lastRoom = room;
+    w.webContents.send("pet:room", room);
   }
 
   private boundsFor(
@@ -505,6 +526,10 @@ export class PetWindow {
       Menu.buildFromTemplate(
         items.map((item) => ({ label: item.label, click: run[item.action] })),
       ).popup({ window: created });
+    });
+    created.webContents.on("did-finish-load", () => {
+      this.lastRoom = undefined;
+      this.tellRoom(created);
     });
     if (this.opts.devUrl !== undefined)
       void created.loadURL(new URL("pet.html", this.opts.devUrl).href);
