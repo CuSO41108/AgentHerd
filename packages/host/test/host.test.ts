@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { FakeChannel } from "@agentherd/channel-fake";
 import { type Herd, type SecretStore, Store } from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostEvent } from "../src/api.ts";
+import { DEFAULT_PET, type HostEvent } from "../src/api.ts";
 import { readConfig, writeConfig } from "../src/config.ts";
 import { Host } from "../src/host.ts";
 import { connectHost, isHostRunning, serveApi, socketPath } from "../src/server.ts";
@@ -166,24 +166,37 @@ describe("Host", () => {
 
   it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
     const t = makeHost(true);
-    expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
+    expect(t.host.status().pet).toEqual(DEFAULT_PET);
     expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [], cards: [] });
     await expect(t.host.stopTask("t1")).rejects.toThrow("not running");
     await t.host.start();
     expect(t.host.pet().connected).toBe(true);
 
     expect(t.host.updateSettings({ pet: { figure: "claude" } }).pet).toEqual({
-      on: true,
+      ...DEFAULT_PET,
       figure: "claude",
     });
     expect(t.host.updateSettings({ pet: { on: false } }).pet).toEqual({
+      ...DEFAULT_PET,
       on: false,
       figure: "claude",
     });
-    expect(readConfig(t.home).pet).toEqual({ on: false, figure: "claude" });
+    expect(readConfig(t.home).pet).toMatchObject({ on: false, figure: "claude" });
     expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
       /claude, deepseek/,
     );
+    // Notifications and quiet hours (ADR 0079).
+    expect(
+      t.host.updateSettings({
+        pet: { sound: false, quietHours: "22:30-07:45", quietUntil: "2026-11-19T12:00:00.000Z" },
+      }).pet,
+    ).toMatchObject({ notify: true, sound: false, quietHours: "22:30-07:45" });
+    expect(() => t.host.updateSettings({ pet: { quietHours: "25:00-07:00" } })).toThrow(
+      /HH:MM-HH:MM/,
+    );
+    expect(() => t.host.updateSettings({ pet: { quietUntil: "soon" } })).toThrow(/quietUntil/);
+    expect(() => t.host.updateSettings({ pet: { notify: "yes" as never } })).toThrow(/pet.notify/);
+    t.host.updateSettings({ pet: { sound: true, quietHours: "", quietUntil: "" } });
 
     await t.host.petSay("在吗");
     const chat = t.channels[0];

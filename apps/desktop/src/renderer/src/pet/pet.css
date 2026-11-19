@@ -1214,3 +1214,14 @@ body {
     animation: none;
   }
 }
+
+/* Quiet hours or a snooze (ADR 0079): a small moon by the figure. */
+.pet-moon {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: auto;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}

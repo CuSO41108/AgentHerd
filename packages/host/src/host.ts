@@ -93,7 +93,7 @@ import type {
   WestockTest,
   WestockView,
 } from "./api.ts";
-import { DEFAULT_PET, PET_FIGURES } from "./api.ts";
+import { DEFAULT_PET, PET_FIGURES, QUIET_HOURS } from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
 import { withClaudeHome } from "./claude-home.ts";
@@ -1220,9 +1220,23 @@ export class Host implements HostApi {
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
     if (patch.pet !== undefined) {
       const pet: PetSettings = { ...petSettings(config), ...patch.pet };
-      if (typeof pet.on !== "boolean") throw new Error("pet.on must be true or false");
+      for (const key of ["on", "notify", "sound"] as const) {
+        if (typeof pet[key] !== "boolean") throw new Error(`pet.${key} must be true or false`);
+      }
       if (!PET_FIGURES.includes(pet.figure)) {
         throw new Error(`pet.figure must be one of ${PET_FIGURES.join(", ")}`);
+      }
+      if (
+        typeof pet.quietHours !== "string" ||
+        !(pet.quietHours === "" || QUIET_HOURS.test(pet.quietHours))
+      ) {
+        throw new Error('pet.quietHours must be "HH:MM-HH:MM" or ""');
+      }
+      if (
+        typeof pet.quietUntil !== "string" ||
+        !(pet.quietUntil === "" || !Number.isNaN(Date.parse(pet.quietUntil)))
+      ) {
+        throw new Error('pet.quietUntil must be a time or ""');
       }
       next.pet = pet;
     }
@@ -1358,5 +1372,22 @@ function petSettings(config: CliConfig): PetSettings {
   const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
     ? (saved.figure as PetFigure)
     : DEFAULT_PET.figure;
-  return { on: typeof saved.on === "boolean" ? saved.on : DEFAULT_PET.on, figure };
+  const flag = (key: "on" | "notify" | "sound") =>
+    typeof saved[key] === "boolean" ? (saved[key] as boolean) : DEFAULT_PET[key];
+  const quietHours =
+    typeof saved.quietHours === "string" && QUIET_HOURS.test(saved.quietHours)
+      ? saved.quietHours
+      : DEFAULT_PET.quietHours;
+  const quietUntil =
+    typeof saved.quietUntil === "string" && !Number.isNaN(Date.parse(saved.quietUntil))
+      ? saved.quietUntil
+      : DEFAULT_PET.quietUntil;
+  return {
+    on: flag("on"),
+    figure,
+    notify: flag("notify"),
+    sound: flag("sound"),
+    quietHours,
+    quietUntil,
+  };
 }
