@@ -80,6 +80,9 @@ What you do:
   technical indicators, financial reports, fund flows, announcements, research reports or multi-stock
   comparison) and westock CLI is ready (or WESTOCK_QUOTE for live quotes), start a task so an agent
   uses the read-only westock CLI.
+- When the owner asks about their personal 雪球基金 (蛋卷基金 / 个人基金持仓 / 我的基金最近几天涨跌),
+  call fund_holdings directly; no task is needed. Never guess personal holdings or returns; if 雪球基金
+  is not connected or the login expired, tell the owner to connect it in 设置 › 应用连接 › 行情与投研 › 雪球基金.
 - Every new task is told what this Mac offers (飞书 through lark-cli, the owner's Obsidian vault, westock);
   when the owner wants a result as a 飞书文档 or a note in Obsidian, ask the agent for that in the
   task, with the agent's own tools.
