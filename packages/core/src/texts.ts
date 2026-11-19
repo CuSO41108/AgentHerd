@@ -31,6 +31,8 @@ export interface CoreTexts {
   /** A line for an image the owner sent, for whoever cannot see images. */
   imageAttached(path: string): string;
   fileAttached(name: string, path: string): string;
+  /** A message longer than OWNER_TEXT_MAX: how much was left out and where the whole is (ADR 0083). */
+  longMessage(more: number, path: string): string;
   runAccepted: (title: string) => string;
   herderFailed: (message: string) => string;
   /** The Herder now runs on another model (ADR 0037). */
@@ -274,6 +276,7 @@ const zh: CoreTexts = {
   noRelay: "现在没有在转接。",
   imageAttached: (path) => `[主人发来一张图片，已保存在 ${path}]`,
   fileAttached: (name, path) => `[主人发来一个文件「${name}」，已保存在 ${path}]`,
+  longMessage: (more, path) => `[消息太长，后面 ${more} 个字没有放进来；整段存在 ${path}]`,
   noProject: "无项目",
   workspaceConflict: (f) =>
     `这些文件你和任务都改了，保留了你的版本，任务的改动没有放进去：\n${f.map((x) => `· ${x}`).join("\n")}`,
@@ -472,6 +475,8 @@ const en: CoreTexts = {
   noRelay: "No relay is active.",
   imageAttached: (path) => `[The owner sent an image, saved at ${path}]`,
   fileAttached: (name, path) => `[The owner sent a file "${name}", saved at ${path}]`,
+  longMessage: (more, path) =>
+    `[The message is too long: ${more} more characters were left out; the whole of it is saved at ${path}]`,
   noProject: "no project",
   workspaceConflict: (f) =>
     `You and the task both changed these files. Your version was kept; the task's changes were not put in:\n${f.map((x) => `- ${x}`).join("\n")}`,
