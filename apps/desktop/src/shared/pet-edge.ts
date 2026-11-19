@@ -38,3 +38,11 @@ export function tuckedX(edge: Edge, stage: Rect, area: Rect): number {
   if (edge === "right") return area.x + area.width - TUCK_SHOW - stage.x;
   return area.x + TUCK_SHOW - stage.x - stage.width;
 }
+
+/** Keep a Windows drag inside the work area that contains the pointer. */
+export function fitDrag(window: Rect, area: Rect) {
+  return {
+    x: Math.max(area.x, Math.min(window.x, area.x + area.width - window.width)),
+    y: Math.max(area.y, Math.min(window.y, area.y + area.height - window.height)),
+  };
+}

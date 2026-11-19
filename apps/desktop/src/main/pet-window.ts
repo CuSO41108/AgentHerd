@@ -15,7 +15,7 @@ import {
   shell,
 } from "electron";
 import { hitPetRegion, type PetRegion } from "../shared/bridge.ts";
-import { type Edge, edgeOf, peekRight, tuckedX } from "../shared/pet-edge.ts";
+import { type Edge, edgeOf, fitDrag, peekRight, tuckedX } from "../shared/pet-edge.ts";
 import { fileToOpen, type PictureDisk, pictureToShow } from "./open-file";
 import { petMenuItems } from "./pet-menu";
 
@@ -385,8 +385,19 @@ export class PetWindow {
     const dy = cursor.y - d.cursorY;
     if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
     d.moved = true;
-    const x = Math.round(d.x + dx);
-    const y = Math.round(d.y + dy);
+    let x = Math.round(d.x + dx);
+    let y = Math.round(d.y + dy);
+    if (process.platform === "win32") {
+      ({ x, y } = fitDrag(
+        { x, y, width: d.width, height: d.height },
+        screen.getDisplayNearestPoint(cursor).workArea,
+      ));
+      // Consume even the blocked part of the motion so reversing moves inward immediately.
+      d.x = x;
+      d.y = y;
+      d.cursorX = cursor.x;
+      d.cursorY = cursor.y;
+    }
     this.anchor = { right: x + d.width, bottom: y + d.height };
     if (this.lastPlaced?.x === x && this.lastPlaced?.y === y) return;
     this.lastPlaced = { x, y };
