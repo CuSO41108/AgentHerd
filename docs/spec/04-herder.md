@@ -206,6 +206,11 @@ board.
 | `done` | Last report `ready`, or `dropped` |
 | `failed` | Last report `failed`, or the session ended with an error |
 
+A task that is `needs-owner` because of its own `waiting` report (not an open approval) and has
+not changed for 30 minutes is asked about once: 「还要做 / 不做了」. 还要做 sends it back to redo what
+went stale and tell the owner what to do; 不做了, or no answer for a day, stops it as `failed`.
+停止 on a task that ended while it waited does the same ([ADR 0081](../adr/0081-a-waiting-task-asks-whether-it-still-matters.md)).
+
 ### Watchdog
 
 A session raises an alarm when:

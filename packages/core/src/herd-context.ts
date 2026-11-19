@@ -35,6 +35,7 @@ import type { SourceHealth } from "./source-health.ts";
 import type { Store } from "./store.ts";
 import type { Task } from "./tasks.ts";
 import type { CoreTexts } from "./texts.ts";
+import type { WaitWatch } from "./waiting.ts";
 import type { Watchdog } from "./watchdog.ts";
 import type { TaskWorkspace, Workspaces } from "./workspace.ts";
 
@@ -97,6 +98,8 @@ export interface HerdOptions {
   appNames?: () => string[];
   /** Minutes between two looks for new work (ADR 0052). */
   intakePollMinutes?: number;
+  /** Minutes a task waits on the owner before they are asked whether it still matters (ADR 0081). */
+  waitAskMinutes?: number;
   /** Minutes between two looks at the owner's mail watches (ADR 0048). */
   mailPollMinutes?: number;
   /** The owner's 小红书 and 知乎 accounts the host has turned on (ADR 0058). Read on every look. */
@@ -302,6 +305,8 @@ export interface HerdContext {
   github(): GitHubWatch | undefined;
   /** New work the owner asked to be offered, when `github` is set (ADR 0052). */
   intake(): Intake | undefined;
+  /** Tasks that wait on the owner for long (ADR 0081). */
+  waits(): WaitWatch;
   /** The current Herder, if any. It can change at runtime. */
   herder(): HerderPort | undefined;
   /** The current mode. It can change at runtime. */
