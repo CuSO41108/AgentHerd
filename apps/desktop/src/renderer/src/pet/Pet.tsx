@@ -6,8 +6,16 @@
 // Its top-left corner and edges resize it. Drag the figure anywhere; the small button folds it
 // into a dot, which counts what came meanwhile.
 
-import type { PetCard, PetFigure, PetSettings, PetView, TasksView } from "@agentherd/host/api";
 import {
+  PET_DROP_MAX,
+  type PetCard,
+  type PetFigure,
+  type PetSettings,
+  type PetView,
+  type TasksView,
+} from "@agentherd/host/api";
+import {
+  type DragEvent,
   Fragment,
   type KeyboardEvent,
   type PointerEvent,
@@ -24,11 +32,13 @@ import { FIGURES } from "./figures";
 import { CardView, TaskCard } from "./PetCards";
 import { LineView, Separator } from "./PetConversation";
 import {
+  addDrops,
   badgeOf,
   CHAT_DEFAULT,
   type ChatSize,
   cardGroups,
   conversationOf,
+  type Drop,
   dragChat,
   type Entry,
   FLASH_MS,
@@ -46,6 +56,7 @@ import {
   remainingSays,
   separatorOf,
   statusOf,
+  taskDots,
   taskGroups,
 } from "./pet-state";
 import { ANIMATIONS, ATLAS, CELL, type Clip, frameAt, HELLO_MS } from "./sprite";
@@ -136,6 +147,9 @@ export function Pet() {
   /** Lines that came while the pet was folded. */
   const [unread, setUnread] = useState(0);
   const [draft, setDraft] = useState("");
+  // Files dropped on the pet, sent with the next message (ADR 0082).
+  const [drops, setDrops] = useState<Drop[]>([]);
+  const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pendingSays, setPendingSays] = useState<PendingSay[]>([]);
   const nextSayId = useRef(-1);
@@ -489,28 +503,39 @@ export function Pet() {
 
   const send = async () => {
     const text = draft.trim();
-    if (text === "" || offline) return;
+    const sending = drops;
+    if ((text === "" && sending.length === 0) || offline) return;
     // What the owner says shows in the conversation.
     setTab("chat");
     const id = nextSayId.current--;
     const afterId = view.history.at(-1)?.id ?? 0;
     const prevLastId = view.last?.id;
-    const entry: PendingSay = { id, at: new Date().toISOString(), text, afterId };
+    const shown = [text, ...sending.map((d) => `${d.picture ? "🖼️" : "📎"} ${d.name}`)]
+      .filter((x) => x !== "")
+      .join("\n");
+    const entry: PendingSay = { id, at: new Date().toISOString(), text: shown, afterId };
     setDraft("");
+    setDrops([]);
     setPendingSays((prev) => [...prev, entry]);
     setNote("已发给主管，等它回复…");
     inputEl.current?.focus();
     try {
-      const next = await bridge.host.petSay(text);
+      const next = await bridge.host.petSay(
+        text,
+        sending.map((d) => d.path),
+      );
       setView(next);
       setPendingSays((prev) => {
-        const directReply = text.startsWith("/") || next.last?.id !== prevLastId;
+        // With files the stored line reads differently, so it is not waited for.
+        const directReply =
+          sending.length > 0 || text.startsWith("/") || next.last?.id !== prevLastId;
         const filtered = directReply ? prev.filter((p) => p.id !== id) : prev;
         return remainingSays(filtered, next.history);
       });
     } catch (error) {
       setPendingSays((prev) => prev.filter((p) => p.id !== id));
       setDraft((cur) => (cur === "" ? text : cur));
+      setDrops((cur) => (cur.length === 0 ? sending : cur));
       setNote(errorText(error));
     }
   };
@@ -580,9 +605,45 @@ export function Pet() {
     openFile,
   };
 
+  // Files dragged onto the pet wait above the input until sent (ADR 0082).
+  const hasFiles = (e: DragEvent<HTMLElement>) => [...e.dataTransfer.types].includes("Files");
+  const dropZone = {
+    onDragEnter: (e: DragEvent<HTMLElement>) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    onDragLeave: (e: DragEvent<HTMLElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      setDragging(false);
+    },
+    onDrop: (e: DragEvent<HTMLElement>) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDragging(false);
+      const paths = [...e.dataTransfer.files].map((f) => bridge.pet?.pathOf?.(f) ?? "");
+      const next = addDrops(drops, paths, PET_DROP_MAX);
+      if (paths.some((p) => p === "")) setNote("有的东西没有文件路径，拖不进来");
+      else if (next.length - drops.length < new Set(paths).size)
+        setNote(`一次最多带 ${PET_DROP_MAX} 个文件`);
+      else setNote(undefined);
+      setDrops(next);
+      if (folded.current) fold(false);
+      setTab("chat");
+      setOpen(true);
+      inputEl.current?.focus();
+    },
+  };
+  const rootClass = dragging ? "pet-root pet-dragging" : "pet-root";
+
   if (collapsed) {
     return (
-      <div ref={root} className="pet-root">
+      <div ref={root} className={rootClass} {...dropZone}>
         <button
           type="button"
           className="pet-dot"
@@ -723,6 +784,22 @@ export function Pet() {
       {arm?.kind !== "arm" && waiting}
       {offline && <div className="pet-note">AgentHerd 还没连上飞书，先在 App 里设置好。</div>}
       {note !== undefined && <div className="pet-note">{note}</div>}
+      {drops.length > 0 && (
+        <div className="pet-drops">
+          {drops.map((d) => (
+            <span key={d.path} className="pet-drop" title={d.path}>
+              {d.picture ? "🖼️" : "📎"} {d.name}
+              <button
+                type="button"
+                aria-label={`去掉 ${d.name}`}
+                onClick={() => setDrops((cur) => cur.filter((x) => x.path !== d.path))}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="pet-input-row">
         <input
           ref={inputEl}
@@ -730,7 +807,13 @@ export function Pet() {
           autoFocus
           value={draft}
           disabled={offline}
-          placeholder={offline ? "连上飞书后才能说话" : "跟主管说…"}
+          placeholder={
+            offline
+              ? "连上飞书后才能说话"
+              : drops.length > 0
+                ? "说点什么，或直接发送"
+                : "跟主管说…（可以把文件拖到我身上）"
+          }
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKey}
         />
@@ -739,7 +822,7 @@ export function Pet() {
           className="pet-send"
           aria-label="发送"
           title="发送（回车）"
-          disabled={offline || draft.trim() === ""}
+          disabled={offline || (draft.trim() === "" && drops.length === 0)}
           onClick={() => void send()}
         >
           ↑
@@ -748,8 +831,29 @@ export function Pet() {
     </div>
   );
 
+  const dotView = taskDots(tasks, now);
+  const dots =
+    dotView.dots.length === 0 ? undefined : (
+      <div className="pet-dots">
+        {dotView.dots.map((dot) => (
+          <button
+            key={dot.id}
+            type="button"
+            className={`pet-dot-task ${dot.tone}`}
+            title={dot.label}
+            aria-label={dot.label}
+            onClick={() => {
+              setTab("tasks");
+              setOpen(true);
+            }}
+          />
+        ))}
+        {dotView.more > 0 && <span className="pet-dot-more">+{dotView.more}</span>}
+      </div>
+    );
+
   return (
-    <div ref={root} className="pet-root">
+    <div ref={root} className={rootClass} {...dropZone}>
       {open && (
         <div className="pet-bubble pet-chat" ref={panelEl} style={{ width: size.width }}>
           {grip("top")}
@@ -872,6 +976,7 @@ export function Pet() {
           }}
         />
         {badge > 0 && <span className="pet-badge">{badge}</span>}
+        {dots}
         {quiet !== undefined && (
           <span className="pet-moon" title={quiet} role="img" aria-label={quiet}>
             🌙

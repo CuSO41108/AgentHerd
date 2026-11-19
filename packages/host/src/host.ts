@@ -106,6 +106,7 @@ import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
 import { PET_CARDS_MAX, PET_HISTORY_MAX, PetFeed, petConversation } from "./pet.ts";
+import { droppedFiles } from "./pet-drop.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -834,8 +835,9 @@ export class Host implements HostApi {
     );
   }
 
-  async petSay(text: string): Promise<PetView> {
-    await this.petFeed.say(text);
+  async petSay(text: string, paths: string[] = []): Promise<PetView> {
+    const locale = this.config().locale ?? DEFAULT_LOCALE;
+    await this.petFeed.say(text, droppedFiles(paths, locale));
     return this.pet();
   }
 
