@@ -9,8 +9,13 @@ import { build } from "vite";
 import { expect, it } from "vitest";
 
 it("keeps only matching apps while typing, after a late reply, and after an app event", async () => {
+  const start = performance.now();
+  const mark = (stage: string) => {
+    process.stderr.write(`[apps-search +${Math.round(performance.now() - start)}ms] ${stage}\n`);
+  };
   const out = mkdtempSync(join(tmpdir(), "agentherd-search-"));
   try {
+    mark("vite build started");
     await build({
       configFile: false,
       root: join(import.meta.dirname, "fixtures"),
@@ -19,15 +24,24 @@ it("keeps only matching apps while typing, after a late reply, and after an app 
       build: { outDir: out, emptyOutDir: true },
       base: "./",
     });
+    mark("vite build finished");
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     const electron: string =
       process.env.AGENTHERD_TEST_ELECTRON ?? createRequire(import.meta.url)("electron");
-    const { stdout } = await promisify(execFile)(
+    mark("electron launch started");
+    const run = promisify(execFile)(
       electron,
       [join(import.meta.dirname, "fixtures/apps-search.cjs"), join(out, "index.html")],
       { env, timeout: 20_000 },
     );
+    run.child.stderr?.on("data", (chunk: Buffer) => {
+      for (const line of chunk.toString().split("\n")) {
+        if (line.startsWith("SEARCH_STAGE ")) mark(line.slice("SEARCH_STAGE ".length));
+      }
+    });
+    const { stdout } = await run;
+    mark("electron exited");
     const line = stdout.split("\n").find((s) => s.startsWith("SEARCH_RESULT "));
     expect(line, stdout).toBeDefined();
     const result = JSON.parse((line as string).slice("SEARCH_RESULT ".length));

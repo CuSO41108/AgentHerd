@@ -91,11 +91,16 @@ async function searchScenario() {
   };
 }
 
+const stage = (name) => process.stderr.write(`SEARCH_STAGE ${name}\n`);
+stage("electron entry loaded");
 app.whenReady().then(async () => {
+  stage("electron ready");
   const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
   try {
     await win.loadFile(process.argv[2]);
+    stage("page loaded; scenario started");
     const result = await win.webContents.executeJavaScript(`(${searchScenario.toString()})()`);
+    stage("scenario finished");
     console.log(`SEARCH_RESULT ${JSON.stringify(result)}`);
     app.exit(0);
   } catch (e) {
