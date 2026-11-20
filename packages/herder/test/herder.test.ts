@@ -640,6 +640,9 @@ describe("Herder voice (ADR 0053)", () => {
     // One voice, a capable friend; the owner no longer picks a style (ADR 0065).
     expect(seen[1]).toContain("You text like a capable friend.");
     expect(seen[1]).not.toContain("style_set");
+    // A line of care when there is a reason, and Chinese that reads like a person (ADR 0088).
+    expect(seen[1]).toContain("挺晚了，早点睡");
+    expect(seen[1]).toContain("No 「不是……而是……」");
     // The task sends it as its report; the Herder does not say it a second time.
     expect(rec.said).toEqual([]);
   });

@@ -18,7 +18,7 @@ import {
   ownerPrefsText,
   recallBlock,
 } from "../src/memory.ts";
-import { eventsPrompt, nowLine } from "../src/prompt.ts";
+import { eventsPrompt, LATE_NIGHT_HINT, nowLine } from "../src/prompt.ts";
 import type { TurnContext } from "../src/tools.ts";
 import { fakeHost } from "./helpers.ts";
 
@@ -261,6 +261,14 @@ describe("dates (ADR 0038)", () => {
   it("the time line names the local day, hour and weekday", () => {
     const ms = new Date(2026, 10, 6, 18, 5).getTime();
     expect(nowLine(ms)).toBe("[Now: 2026-11-06 18:05, Friday]");
+  });
+
+  it("the time line says when it is late at night (ADR 0088)", () => {
+    expect(nowLine(new Date(2026, 10, 20, 1, 55).getTime())).toBe(
+      `[Now: 2026-11-20 01:55, Friday, late at night: ${LATE_NIGHT_HINT}]`,
+    );
+    expect(nowLine(new Date(2026, 10, 20, 5, 0).getTime())).not.toContain("late at night");
+    expect(nowLine(new Date(2026, 10, 19, 23, 50).getTime())).not.toContain("late at night");
   });
 });
 
