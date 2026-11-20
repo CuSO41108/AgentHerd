@@ -1,11 +1,6 @@
 // The bodies of the first-run steps. `FirstRun.tsx` owns the order, the titles and the buttons.
 
-import {
-  type ModelTest,
-  PET_FIGURES,
-  type PetFigure,
-  PROFILE_VALUE_MAX,
-} from "@agentherd/host/api";
+import { type ModelTest, type PetFigure, PROFILE_VALUE_MAX } from "@agentherd/host/api";
 import {
   Boxes,
   Check,
@@ -20,9 +15,8 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { type FeishuFlow, FeishuQr, Mark } from "../components/FeishuSetup";
+import { FigurePicker } from "../components/FigurePicker";
 import { Badge, Button, Group, IconTile, Row } from "../components/ui";
-import { FIGURE_CREDIT, FIGURES } from "../pet/figures";
-import { ATLAS, CELL } from "../pet/sprite";
 import { applyModels, call, type ModelRef, useApp } from "../store";
 
 /** The column every step body sits in. */
@@ -318,7 +312,7 @@ export function NameBody({ name, setName }: { name: string; setName: (name: stri
   );
 }
 
-/** The two figures of the desktop pet, side by side, each showing its first frame (ADR 0070). */
+/** The figures of the desktop pet, each showing its first frame (ADR 0070, ADR 0092). */
 export function FigureBody({
   figure,
   pick,
@@ -326,43 +320,9 @@ export function FigureBody({
   figure: PetFigure;
   pick: (figure: PetFigure) => void;
 }) {
-  const scale = 0.62;
-  const width = Math.round(CELL.width * scale);
-  const height = Math.round(CELL.height * scale);
   return (
-    <div className={`${BODY} flex flex-col items-center gap-4`}>
-      <div className="flex gap-4">
-        {PET_FIGURES.map((id) => {
-          const on = id === figure;
-          return (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={on}
-              onClick={() => pick(id)}
-              className={`flex flex-col items-center gap-2 rounded-xl border-2 px-5 pt-4 pb-3 transition-colors ${
-                on ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong"
-              }`}
-            >
-              <span
-                aria-hidden
-                className="ah-fr-figure block"
-                style={{
-                  width,
-                  height,
-                  backgroundImage: `url(${FIGURES[id].atlas})`,
-                  backgroundSize: `${width * ATLAS.columns}px ${height * ATLAS.rows}px`,
-                  backgroundPosition: "0 0",
-                }}
-              />
-              <span className={`text-base ${on ? "font-medium text-ink" : "text-ink-2"}`}>
-                {FIGURES[id].name}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-center text-ink-dim text-xs">{FIGURE_CREDIT}</p>
+    <div className="w-full max-w-[560px]">
+      <FigurePicker figure={figure} pick={pick} scale={0.4} />
     </div>
   );
 }
