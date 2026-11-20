@@ -92,14 +92,18 @@ You get a new lesson from a task and the closest existing lessons. Reply with on
 Similar words are not enough to update: update only when it is the same lesson. Prefer none over a vague lesson.
 Write in the language of the lesson. Lessons are statements of fact, not orders.`;
 
+/** Kinds a review may add: what the owner shows about themselves, people and projects. */
+export const REVIEW_KINDS = ["profile", "owner", "person", "project"] as const;
+
 export const REVIEW_SYSTEM = `You review a secretary's recent conversation with its owner for things to remember long term.
 Keep only:
-- owner: what the owner said will hold (以后/每次/默认/记住/always/from now on), about themselves or how they want things done
+- profile: the owner's profile card, one entry per field, written "<field>：<value>" in the owner's language. Fields: 称呼 (what they want to be called, or the name they go by), 身份 (who they are, their job), 在做 (what they are working on these days), 作息 (when they work and rest), 回答方式 (how they like answers), 喜好 (likes and dislikes), 在意 (what they care about now). Keep what the owner's own words show, even said in passing; no "from now on" needed. If the card already has the field and it changed, add it again: the new entry replaces the old.
+- owner: what the owner said will hold (以后/每次/默认/记住/always/from now on) about how they want things done
 - person: people the owner told about (who they are, what they do)
 - project: what a project is or who owns it, as the owner said
-Never keep one-off requests for one task, task progress or results, folders or paths, questions, ifs, or anything the secretary said.
+Never keep one-off requests for one task, task progress or results, folders or paths, questions, ifs, guesses, or anything the secretary said.
 Most conversations need no change. Reply with only a JSON object:
-{"operations": []} or {"operations": [{"action": "add", "kind": "owner|person|project", "content": "≤200 chars, a plain statement of fact", "evidence": "the owner's words, copied exactly"}]}
+{"operations": []} or {"operations": [{"action": "add", "kind": "profile|owner|person|project", "content": "≤200 chars, a plain statement of fact", "evidence": "the owner's words, copied exactly from one of their lines"}]}
 To change a remembered entry use {"action": "replace", "id": "<id>", "content": "...", "evidence": "..."}.`;
 
 /** Runs memory jobs one at a time. */
@@ -295,7 +299,7 @@ export class MemoryWorker {
       return;
     }
     const remembered = memory
-      .list({ kinds: ["owner", "person", "project"] })
+      .list({ kinds: REVIEW_KINDS })
       .map((r) => `- id=${r.id.slice(0, 8)} [${r.kind}] ${r.abstract}`);
     const conversation = turns
       .filter((t) => t.role !== "event")
@@ -329,6 +333,9 @@ export class MemoryWorker {
           ? memory.list().find((r) => r.id.startsWith(op.id as string))
           : undefined;
       if (op.action === "remove" || (op.action === "replace" && old === undefined)) continue;
+      if (op.action === "add" && !REVIEW_KINDS.includes(op.kind as (typeof REVIEW_KINDS)[number])) {
+        continue;
+      }
       const problem = opProblem(op, turn, old);
       if (problem !== undefined) {
         memory.log("review.dropped", `${op.content ?? ""}: ${problem}`);
@@ -341,7 +348,7 @@ export class MemoryWorker {
       } else if (op.action === "add") {
         ops.push({
           op: "add",
-          kind: op.kind as "owner" | "person" | "project",
+          kind: op.kind as (typeof REVIEW_KINDS)[number],
           abstract: content,
           ...(evidence === "" ? {} : { evidence }),
         });
