@@ -426,6 +426,9 @@ New GitHub work is offered only when the owner asks for it ([ADR 0052](../adr/00
   likes, saves and new followers are never told. `social_watch` turns this off or on when the
   owner asks; `session_list` shows platforms. Agents use the account through `XIAOHONGSHU_` and
   `ZHIHU_` tools; writes ask (ADR 0056).
+  The Herder's system prompt ends with the connected accounts (signed in or not) and apps, rebuilt
+  on the next turn after one changes; a 小红书 or 知乎 link starts a read-only task at once when
+  that account is signed in (ADR 0089).
 - **News and this Mac's tools** (ADR 0059, ADR 0076, ADR 0077). `feed_read` reads GitHub Trending, Hacker News or
   arXiv; with `told: true` (a digest, often a schedule) the items are recorded and later reads
   mark them `[told before]`, which the Herder leaves out. `stock_quote` reads live stock and index

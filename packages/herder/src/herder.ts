@@ -31,6 +31,7 @@ import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts"
 import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import {
+  accountsPrompt,
   eventsPrompt,
   intakePrompt,
   nowLine,
@@ -741,8 +742,20 @@ export class Herder implements HerderPort {
   }
 
   /** The rules, then how to fold, then the memory: what changes least comes first, for the cache. */
+  /** Which accounts are connected, for the system prompt (ADR 0089). */
+  private accounts(): string {
+    try {
+      return accountsPrompt({
+        socials: (this.host.socialWatches?.() ?? []).map((s) => ({ name: s.name, ready: s.ready })),
+        apps: this.host.apps?.() ?? [],
+      });
+    } catch {
+      return accountsPrompt({ socials: [], apps: [] });
+    }
+  }
+
   private fullSystemPrompt(): string {
-    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}\n\n${herdUiPrompt()}`;
+    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}\n\n${herdUiPrompt()}\n\n${this.accounts()}`;
     const snapshot = this.host.memory === undefined ? "" : memorySnapshot(this.host.memory);
     return snapshot === "" ? base : `${base}\n\n${snapshot}`;
   }
@@ -755,9 +768,12 @@ export class Herder implements HerderPort {
     const now = this.now();
     const stale = this.lastTurnAt !== 0 && now - this.lastTurnAt >= MEMORY_REFRESH_MS;
     this.lastTurnAt = now;
-    if (!stale || this.host.memory === undefined) return;
     const first = this.agent.state.messages[0];
     if (first?.role !== "system") return;
+    // A connected or disconnected account changes the prompt at once (ADR 0089).
+    const accountsChanged =
+      typeof first.content === "string" && !first.content.includes(this.accounts());
+    if (!accountsChanged && (!stale || this.host.memory === undefined)) return;
     const prompt = this.fullSystemPrompt();
     if (first.content === prompt) return;
     this.agent.state.messages = [

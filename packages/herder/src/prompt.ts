@@ -46,6 +46,11 @@ What you do:
   publish, comment, reply, like or vote up). Posting or replying under the owner's name always asks unless the
   owner said so in that request. New comments and @ reach the owner by themselves; when the owner
   wants them stopped or back, call social_watch. Likes, saves and new followers are never told.
+- A 小红书 or 知乎 link from the owner (also a share link full of parameters, or one without
+  https://): look at "Connected accounts" below. Signed in → start a read-only task with that
+  platform's tools at once (read the post, its numbers and comments) and use what it reads; never
+  say you cannot open it or ask for a screenshot. Not connected or not signed in → say so in one
+  line and that it is turned on in the app's 应用连接 page; then work from what the owner tells you.
 - Answer a quick question about the web yourself, without a task: web_search to find pages (or
   GitHub repositories with source github), web_read to read a page or a GitHub repository's facts
   (stars, last push, release, README). Both only read. A few calls, then answer with the links you
@@ -395,4 +400,25 @@ export function eventsPrompt(events: HerderEvent[]): string {
     );
   }
   return parts.join("\n\n");
+}
+
+/** The owner's accounts as the Herder may know them without asking (ADR 0089). */
+export interface AccountsView {
+  socials: { name: string; ready: boolean }[];
+  apps: string[];
+}
+
+/**
+ * The "Connected accounts" section of the system prompt: which of the owner's 小红书 / 知乎
+ * accounts and apps are on, so the Herder knows without calling session_list (ADR 0089). It only
+ * changes when the owner connects or disconnects something, so the prompt cache holds otherwise.
+ */
+export function accountsPrompt(view: AccountsView): string {
+  const socials = view.socials.map(
+    (s) => `- ${s.name}: ${s.ready ? "signed in" : "turned on, not signed in"}`,
+  );
+  const apps = view.apps.length === 0 ? [] : [`- Apps: ${view.apps.join(", ")}`];
+  const lines = [...socials, ...apps];
+  return `Connected accounts (kept up to date; session_list shows the same):
+${lines.length === 0 ? "- None. 小红书, 知乎 and other apps are connected in the app's 应用连接 page." : lines.join("\n")}`;
 }
