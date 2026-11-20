@@ -133,7 +133,7 @@ export {
   VOICE_REPLY_MAX,
   voicePrompt,
 } from "./prompt.ts";
-export { STYLE_SOURCE, stylePrompt } from "./style.ts";
+export { STYLE_SOURCE, stylePrompt, withoutEndPeriods } from "./style.ts";
 export {
   filterSuggestion,
   SUGGEST_MAX_CHARS,

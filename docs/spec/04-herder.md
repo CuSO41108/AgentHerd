@@ -516,6 +516,8 @@ like a person wrote it: no 「不是……而是……」 when nothing is compar
 summary, no jargon (落地、对齐、钉死), full two-character words, no plan in front of the answer,
 nothing about what was ruled out, no trace of a corrected mistake, no remarks on how much work
 something is.
+Like a text message, no line of a reply ends with 「。」: AgentHerd drops it before the reply is
+said or kept (code and herd-ui blocks untouched); the owner: 「不要加句号」 (2026-11-20).
 
 It is written for a phone: several things with details of their own (repositories, options,
 files, findings) go one per line starting with "- ", never run together in one paragraph; a
