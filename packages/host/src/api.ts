@@ -307,8 +307,30 @@ export interface SettingsPatch {
   pet?: Partial<PetSettings>;
 }
 
-/** The two figures that come with the app (ADR 0070). */
-export const PET_FIGURES = ["claude", "deepseek"] as const;
+/**
+ * The figures that come with the app: two from llm-pet (ADR 0070) and sixteen anime figures from
+ * awesome-codex-pet (ADR 0092). Where each comes from is in the desktop's pet/figures.ts.
+ */
+export const PET_FIGURES = [
+  "deepseek",
+  "claude",
+  "frieren",
+  "bocchi",
+  "nijika",
+  "kita",
+  "ryo",
+  "emilia",
+  "reze",
+  "mikoto",
+  "miku",
+  "chiikawa",
+  "hachiware",
+  "toothless",
+  "luoxiaohei",
+  "tushansusu",
+  "hanli",
+  "wukong",
+] as const;
 export type PetFigure = (typeof PET_FIGURES)[number];
 
 export interface PetSettings {

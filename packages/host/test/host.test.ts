@@ -189,8 +189,11 @@ describe("Host", () => {
     });
     expect(readConfig(t.home).pet).toMatchObject({ on: false, figure: "claude" });
     expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
-      /claude, deepseek/,
+      /deepseek, claude, frieren/,
     );
+    // The anime figures of ADR 0092 are kept like the others.
+    expect(t.host.updateSettings({ pet: { figure: "frieren" } }).pet.figure).toBe("frieren");
+    t.host.updateSettings({ pet: { figure: "claude" } });
     // Notifications and quiet hours (ADR 0079).
     expect(
       t.host.updateSettings({
