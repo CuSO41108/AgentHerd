@@ -50,7 +50,10 @@ English · [简体中文](README.zh-CN.md)
 - **Schedules in plain words.** "Every weekday at 9, check for new issues" — the Herder makes the
   schedule, and missed runs happen once when your machine wakes.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
-  itself. It learns a lesson only when a task went wrong, and finds past results in task records.
+  itself. It keeps a profile card of you (what to call you, what you work on, your hours and
+  likes), from things you say in passing; you see and edit it on the Memory page, and the first
+  run asks what to call you. It learns a lesson only when a task went wrong, and finds past results
+  in task records.
 - **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop (she reads while the Herder thinks, jumps when it answers and walks when you drag her), says what AgentHerd just told you
   in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
   her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
@@ -86,7 +89,8 @@ pnpm install
 pnpm --filter @agentherd/desktop start
 ```
 
-The first run walks you through it: scan a QR code to connect Feishu, add a model service and
+The first run walks you through it: say what the Herder should call you and pick its figure
+(both can be skipped), scan a QR code to connect Feishu, add a model service and
 its key (or sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi and Codex come with the app; on the **Agent**
 page, press 验证 to check that one starts. In development, run
 `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks.

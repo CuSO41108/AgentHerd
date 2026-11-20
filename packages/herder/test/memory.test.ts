@@ -18,7 +18,7 @@ import {
   ownerPrefsText,
   recallBlock,
 } from "../src/memory.ts";
-import { eventsPrompt, LATE_NIGHT_HINT, nowLine } from "../src/prompt.ts";
+import { eventsPrompt, LATE_NIGHT_HINT, nowLine, systemPrompt } from "../src/prompt.ts";
 import type { TurnContext } from "../src/tools.ts";
 import { fakeHost } from "./helpers.ts";
 
@@ -520,5 +520,59 @@ describe("decisions (ADR 0057)", () => {
     expect(eventsPrompt([{ kind: "github", title: "x", text: "y", shown: "none" }])).toMatch(
       /^\[Not pushed to the owner/,
     );
+  });
+});
+
+describe("the owner's profile card (ADR 0091)", () => {
+  it("keeps what the owner shows about themselves without 「以后」, one entry per field", async () => {
+    const { store, call } = setupTools("我叫我借此火，叫我火哥就行，最近在做 AgentHerd");
+    expect(
+      await call("memory", {
+        operations: [
+          { action: "add", kind: "profile", content: "称呼：火哥", evidence: "叫我火哥就行" },
+          {
+            action: "add",
+            kind: "profile",
+            content: "在做：AgentHerd",
+            evidence: "最近在做 AgentHerd",
+          },
+        ],
+      }),
+    ).toContain("saved");
+    const rows = store.memory.list({ kinds: ["profile"] });
+    expect(rows.map((r) => r.abstract).sort()).toEqual(["在做：AgentHerd", "称呼：火哥"]);
+  });
+
+  it("a profile entry names one of its fields and rests on the owner's words", () => {
+    const t = turn("叫我火哥就行");
+    expect(
+      opProblem({ action: "add", kind: "profile", content: "火哥", evidence: "叫我火哥就行" }, t),
+    ).toMatch(/starts with one of its fields/);
+    expect(opProblem({ action: "add", kind: "profile", content: "称呼：火哥" }, t)).toMatch(
+      /need evidence/,
+    );
+    expect(
+      opProblem(
+        { action: "add", kind: "profile", content: "称呼：火哥", evidence: "叫我火哥就行" },
+        t,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("the snapshot puts the card first", () => {
+    const store = Store.open(":memory:");
+    const meta = { actor: "owner", source: "owner_edit" } as const;
+    store.memory.write([{ op: "add", kind: "owner", abstract: "报告用中文" }], meta);
+    store.memory.write([{ op: "add", kind: "profile", abstract: "称呼：火哥" }], meta);
+    const snap = memorySnapshot(store.memory);
+    expect(snap.indexOf("[记忆 · 主人画像")).toBe(0);
+    expect(snap).toContain("用量 5/600 字");
+    expect(snap.indexOf("称呼：火哥")).toBeLessThan(snap.indexOf("报告用中文"));
+  });
+
+  it("the prompt tells the Herder to call the owner by the card's 称呼 and keep the card", () => {
+    const system = systemPrompt("zh-CN");
+    expect(system).toContain("[记忆 · 主人画像] is the owner's profile card");
+    expect(system).toContain("no 「以后」");
   });
 });

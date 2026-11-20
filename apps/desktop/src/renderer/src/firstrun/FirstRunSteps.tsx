@@ -1,6 +1,11 @@
 // The bodies of the first-run steps. `FirstRun.tsx` owns the order, the titles and the buttons.
 
-import type { ModelTest } from "@agentherd/host/api";
+import {
+  type ModelTest,
+  PET_FIGURES,
+  type PetFigure,
+  PROFILE_VALUE_MAX,
+} from "@agentherd/host/api";
 import {
   Boxes,
   Check,
@@ -16,6 +21,8 @@ import {
 import { useState } from "react";
 import { type FeishuFlow, FeishuQr, Mark } from "../components/FeishuSetup";
 import { Badge, Button, Group, IconTile, Row } from "../components/ui";
+import { FIGURE_CREDIT, FIGURES } from "../pet/figures";
+import { ATLAS, CELL } from "../pet/sprite";
 import { applyModels, call, type ModelRef, useApp } from "../store";
 
 /** The column every step body sits in. */
@@ -290,5 +297,72 @@ export function DoneBody() {
         }
       />
     </Group>
+  );
+}
+
+/** What the owner wants the Herder to call them (ADR 0091); empty means no name. */
+export function NameBody({ name, setName }: { name: string; setName: (name: string) => void }) {
+  return (
+    <div className={`${BODY} flex flex-col items-center gap-2`}>
+      <input
+        className="ah-input h-11 w-full max-w-[320px] text-center text-lg"
+        value={name}
+        maxLength={PROFILE_VALUE_MAX}
+        placeholder="比如：火哥"
+        aria-label="主管怎么叫你"
+        autoFocus
+        onChange={(e) => setName(e.target.value)}
+      />
+      <p className="text-ink-dim text-sm">不填也行，主管会直接跟你说话</p>
+    </div>
+  );
+}
+
+/** The two figures of the desktop pet, side by side, each showing its first frame (ADR 0070). */
+export function FigureBody({
+  figure,
+  pick,
+}: {
+  figure: PetFigure;
+  pick: (figure: PetFigure) => void;
+}) {
+  const scale = 0.62;
+  const width = Math.round(CELL.width * scale);
+  const height = Math.round(CELL.height * scale);
+  return (
+    <div className={`${BODY} flex flex-col items-center gap-4`}>
+      <div className="flex gap-4">
+        {PET_FIGURES.map((id) => {
+          const on = id === figure;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => pick(id)}
+              className={`flex flex-col items-center gap-2 rounded-xl border-2 px-5 pt-4 pb-3 transition-colors ${
+                on ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong"
+              }`}
+            >
+              <span
+                aria-hidden
+                className="ah-fr-figure block"
+                style={{
+                  width,
+                  height,
+                  backgroundImage: `url(${FIGURES[id].atlas})`,
+                  backgroundSize: `${width * ATLAS.columns}px ${height * ATLAS.rows}px`,
+                  backgroundPosition: "0 0",
+                }}
+              />
+              <span className={`text-base ${on ? "font-medium text-ink" : "text-ink-2"}`}>
+                {FIGURES[id].name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-center text-ink-dim text-xs">{FIGURE_CREDIT}</p>
+    </div>
   );
 }

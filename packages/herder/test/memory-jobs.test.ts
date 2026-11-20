@@ -259,3 +259,43 @@ describe("reviews catch up (ADR 0090)", () => {
     expect(store.memory.jobs().filter((j) => j.state === "pending")).toHaveLength(1);
   });
 });
+
+describe("reviews keep the owner's profile card (ADR 0091)", () => {
+  it("keeps facts said in passing on the card and replaces a field that changed", async () => {
+    const add = (content: string, evidence: string) => ({
+      action: "add",
+      kind: "profile",
+      content,
+      evidence,
+    });
+    const { store, worker, asked } = setup({
+      [REVIEW_SYSTEM]: [
+        JSON.stringify({
+          operations: [
+            add("称呼：火哥", "叫我火哥"),
+            add("作息：常写代码到半夜", "我一般半夜还在写代码"),
+            { action: "add", kind: "decision", content: "不做 Windows 版", evidence: "叫我火哥" },
+          ],
+        }),
+        JSON.stringify({ operations: [add("作息：最近早睡", "这周开始早睡了")] }),
+      ],
+    });
+    store.addHerderTurn("owner", "叫我火哥，我一般半夜还在写代码");
+    store.memory.enqueueJob(REVIEW_JOB, { afterId: 0 });
+    await worker.drain();
+    expect(asked[0]?.system).toContain("profile: the owner's profile card");
+    const card = () =>
+      store.memory
+        .list({ kinds: ["profile"] })
+        .map((r) => r.abstract)
+        .sort();
+    expect(card()).toEqual(["作息：常写代码到半夜", "称呼：火哥"]);
+    expect(store.memory.list({ kinds: ["decision"] })).toHaveLength(0);
+
+    store.addHerderTurn("owner", "这周开始早睡了");
+    store.memory.enqueueJob(REVIEW_JOB, { afterId: 0 });
+    await worker.drain();
+    expect(asked[1]?.user).toContain("[profile] 称呼：火哥");
+    expect(card()).toEqual(["作息：最近早睡", "称呼：火哥"]);
+  });
+});
