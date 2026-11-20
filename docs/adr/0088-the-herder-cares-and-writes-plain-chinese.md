@@ -53,6 +53,12 @@ The model follows the rule for a short chat question but still answers a technic
 night without the line. Tried and dropped: the rule without examples (at best 1 of 3 for the time
 question), and the reminder as a note after the owner's message (0 of 3).
 
+4. **No 「。」 at the end of a line** (changed 2026-11-20). The owner, on the reply
+   「现在 11 点 33 分；感冒了就别熬太晚，把药吃了、早点歇。」: 「不要加句号」. People do not end a
+   chat line with a period. The voice says so, and `withoutEndPeriods()` drops a 「。」 that ends a
+   line before the reply is said or stored, so it holds even when the model forgets. Periods
+   between sentences in a line stay; code and herd-ui blocks are left as they are.
+
 ## Alternatives
 
 - **AgentHerd adds 「早点睡」 itself after the reply.** Always there, but it reads like a machine
@@ -69,5 +75,5 @@ question), and the reminder as a note after the owner's message (0 of 3).
 
 ## Tests
 
-`packages/herder/test/memory.test.ts` ("the time line says when it is late at night"),
+`packages/herder/test/style.test.ts` (no 「。」 at a line end), `packages/herder/test/memory.test.ts` ("the time line says when it is late at night"),
 `packages/herder/test/herder.test.ts` (the voice holds the care and writing rules).

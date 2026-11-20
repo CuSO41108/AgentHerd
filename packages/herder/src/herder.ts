@@ -42,7 +42,7 @@ import {
   systemPrompt,
   voicePrompt,
 } from "./prompt.ts";
-import { stylePrompt } from "./style.ts";
+import { stylePrompt, withoutEndPeriods } from "./style.ts";
 import { sampleSuggestion } from "./suggest.ts";
 import {
   herderTools,
@@ -509,7 +509,8 @@ export class Herder implements HerderPort {
     // A model that writes its tool calls as text (DeepSeek's DSML) must not reach the owner.
     const said = beforeToolMarkup(raw);
     if (said !== raw) this.host.audit("herder.reply.markup", { kind: job.kind });
-    const text = said === raw ? await this.readableBlocks(job, said) : said;
+    // Chat style: no 「。」 at the end of a line (ADR 0088).
+    const text = withoutEndPeriods(said === raw ? await this.readableBlocks(job, said) : said);
     // Tool calls written as text (not a repaired block) mean the voice cannot be trusted.
     if (job.kind === "voice" && said !== raw) {
       this.save();

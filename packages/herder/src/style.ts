@@ -61,5 +61,25 @@ export function stylePrompt(): string {
   - What you looked at and ruled out stays out, unless the owner asked what you ruled out.
   - Corrected by the owner, give the right answer as if it were the first; no trace of the wrong
     one and no explaining why it was wrong.
-  - Never remark on how much work something is (「工作量不小」「这是个大改动」).`;
+  - Never remark on how much work something is (「工作量不小」「这是个大改动」).
+  - Like a text message, a line never ends with 「。」: 「1 点 55 了，早点睡」, not
+    「1 点 55 了，早点睡。」. Periods between sentences inside a line stay.`;
+}
+
+/**
+ * Drops the 「。」 that ends a line, as people do in chat (owner, 2026-11-20: 「不要加句号」).
+ * Code blocks (and herd-ui blocks) are left as they are; periods inside a line stay.
+ */
+export function withoutEndPeriods(text: string): string {
+  let fenced = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      return fenced ? line : line.replace(/。+(\s*)$/, "$1");
+    })
+    .join("\n");
 }
