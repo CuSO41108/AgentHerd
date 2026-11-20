@@ -325,10 +325,22 @@ function localTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** The current local time for the top of each Herder prompt, e.g. "[Now: 2026-11-06 18:20, Thursday]". */
+/** Midnight to 5 a.m.: the owner is still up late (ADR 0088). */
+export const LATE_NIGHT = { from: 0, to: 5 } as const;
+/** Said next to the owner's message, where a small model notices it. */
+export const LATE_NIGHT_HINT =
+  "end your reply with one line telling the owner to get some sleep, unless a reply since midnight already did";
+
+/**
+ * The current local time for the top of each Herder prompt, e.g. "[Now: 2026-11-06 18:20,
+ * Thursday]"; from midnight to 5 a.m. it ends with "late at night", so the Herder notices (ADR 0088).
+ */
 export function nowLine(ms: number): string {
-  const day = new Date(ms).toLocaleDateString("en-US", { weekday: "long" });
-  return `[Now: ${localTime(ms)}, ${day}]`;
+  const d = new Date(ms);
+  const day = d.toLocaleDateString("en-US", { weekday: "long" });
+  const late = d.getHours() >= LATE_NIGHT.from && d.getHours() < LATE_NIGHT.to;
+  const base = `[Now: ${localTime(ms)}, ${day}`;
+  return late ? `${base}, late at night: ${LATE_NIGHT_HINT}]` : `${base}]`;
 }
 
 /**
