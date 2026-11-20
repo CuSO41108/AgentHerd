@@ -33,8 +33,9 @@ import {
   herderFromSettings,
   LOGIN_FIELD,
   loginsFor,
+  MemoryModelChain,
   MemoryWorker,
-  memoryModel,
+  memoryModels,
   modelChoices,
   modelLaunchFor,
   PI_MODEL_ENV,
@@ -710,10 +711,14 @@ export class Host implements HostApi {
     return this.embedder;
   }
 
-  private async memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
-    const model = memoryModel(this.settings(), this.opts.secrets, this.placement(), this.opts.env);
-    if (model === undefined) throw new Error("no model for memory");
-    return model.complete(system, user, signal);
+  /** Memory jobs try the cheap models in turn, then the Herder's (ADR 0090). */
+  private readonly memoryChain = new MemoryModelChain(
+    () => memoryModels(this.settings(), this.opts.secrets, this.placement(), this.opts.env),
+    (line) => this.log(line),
+  );
+
+  private memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
+    return this.memoryChain.complete(system, user, signal);
   }
 
   private startMemoryWorker(herd: Herd): void {
@@ -721,7 +726,7 @@ export class Host implements HostApi {
     const worker = new MemoryWorker({
       memory: herd.store.memory,
       transcript: (taskId) => herd.store.transcript(taskId),
-      herderTurns: (limit) => herd.store.herderTurns(limit),
+      herderTurnsAfter: (afterId, limit) => herd.store.herderTurnsAfter(afterId, limit),
       complete: (system, user, signal) => this.memoryComplete(system, user, signal),
       embedder: this.memoryEmbedder(),
       log: (line) => this.log(line),

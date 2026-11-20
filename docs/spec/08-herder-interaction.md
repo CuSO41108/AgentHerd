@@ -96,7 +96,15 @@ Three ways in, all through the same code checks:
    a follow-up request is not one. The owner can always say 「记住」 in chat. Earlier tasks are
    found with `task_search`, not memory.
 3. After 6 owner turns or 2 idle minutes, a review job reads the new `herder_turns` and proposes
-   writes (fast model). "Most conversations need no change."
+   writes (fast model). "Most conversations need no change." A review reads at most 40 lines,
+   oldest first, from where the last finished review stopped; when 40 more wait it queues the
+   next one, and at start AgentHerd queues one when the owner said things no review has read, so
+   lines missed while reviews failed are read later
+   ([ADR 0090](../adr/0090-memory-jobs-use-a-model-that-answers.md)).
+
+Background jobs run on the first model that answers: the fast tier's models a service with a key
+offers, in order, then the Herder's own model. A model that fails or takes over 60 s is passed
+over for 10 minutes; one job may take 180 s over all its tries (ADR 0090).
 
 Code checks (a rejected write is logged to `memory_log` with the reason):
 

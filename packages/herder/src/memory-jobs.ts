@@ -22,15 +22,16 @@ import type { TurnContext } from "./tools.ts";
 export const CASE_INPUT_CHARS = 12_000;
 /** Lines of the Herder's conversation a review reads. */
 export const REVIEW_TURNS = 40;
-/** One job may take this long. */
-export const JOB_TIMEOUT_MS = 90_000;
+/** One job may take this long, over every model it tries (ADR 0090). */
+export const JOB_TIMEOUT_MS = 180_000;
 /** How often the worker looks for due jobs. */
 export const WORKER_POLL_MS = 15_000;
 
 export interface MemoryWorkerDeps {
   memory: MemoryStore;
   transcript(taskId: string): TranscriptEntry[];
-  herderTurns(limit: number): HerderTurn[];
+  /** Up to `limit` lines of the Herder's conversation after line `afterId`, oldest first. */
+  herderTurnsAfter(afterId: number, limit: number): HerderTurn[];
   /** One request to the memory model; returns its text. Undefined when no model is set up. */
   complete?: (system: string, user: string, signal: AbortSignal) => Promise<string>;
   /** Fills vectors for entries that have none, after the jobs. */
@@ -114,6 +115,7 @@ export class MemoryWorker {
 
   start(pollMs = WORKER_POLL_MS): void {
     this.deps.memory.resetRunningJobs();
+    this.catchUp();
     this.timer = setInterval(() => this.kick(), pollMs);
     this.timer.unref?.();
     this.kick();
@@ -123,6 +125,21 @@ export class MemoryWorker {
     this.stopped = true;
     if (this.timer !== undefined) clearInterval(this.timer);
     await this.running;
+  }
+
+  /**
+   * Queues a review when the owner said things no review has read and none is waiting, e.g.
+   * after reviews failed (ADR 0090).
+   */
+  catchUp(): void {
+    const { memory } = this.deps;
+    const waiting = memory
+      .jobs(20)
+      .some((j) => j.kind === REVIEW_JOB && (j.state === "pending" || j.state === "running"));
+    if (waiting) return;
+    const afterId = Number(memory.lastLog("review.done")?.ref ?? 0);
+    const unread = this.deps.herderTurnsAfter(afterId, REVIEW_TURNS);
+    if (unread.some((t) => t.role === "owner")) memory.enqueueJob(REVIEW_JOB, { afterId });
   }
 
   /** Looks for due jobs now. */
@@ -263,11 +280,20 @@ export class MemoryWorker {
   }
 
   private async reviewJob(p: Record<string, unknown>): Promise<void> {
-    const afterId = typeof p.afterId === "number" ? p.afterId : 0;
-    const turns = this.deps.herderTurns(REVIEW_TURNS).filter((t) => t.id > afterId);
-    const owner = turns.filter((t) => t.role === "owner");
-    if (owner.length === 0) return;
     const { memory } = this.deps;
+    // Reviews read the conversation in order from where the last one stopped, so lines missed
+    // while jobs failed are read later (ADR 0090); the payload's start is only a lower bound.
+    const reviewed = Number(memory.lastLog("review.done")?.ref ?? 0);
+    const afterId = Math.max(typeof p.afterId === "number" ? p.afterId : 0, reviewed);
+    const turns = this.deps.herderTurnsAfter(afterId, REVIEW_TURNS);
+    const last = turns.at(-1)?.id;
+    const more = turns.length === REVIEW_TURNS;
+    const owner = turns.filter((t) => t.role === "owner");
+    if (owner.length === 0) {
+      if (last !== undefined) memory.log("review.done", `through turn ${last}`, String(last));
+      if (more && last !== undefined) memory.enqueueJob(REVIEW_JOB, { afterId: last });
+      return;
+    }
     const remembered = memory
       .list({ kinds: ["owner", "person", "project"] })
       .map((r) => `- id=${r.id.slice(0, 8)} [${r.kind}] ${r.abstract}`);
@@ -321,7 +347,6 @@ export class MemoryWorker {
         });
       }
     }
-    const last = turns.at(-1)?.id;
     if (ops.length > 0) {
       try {
         memory.write(ops, { actor: "review", source: "review" });
@@ -334,6 +359,8 @@ export class MemoryWorker {
       }
     }
     if (last !== undefined) memory.log("review.done", `through turn ${last}`, String(last));
+    // A full chunk means more lines wait: read them next.
+    if (more && last !== undefined) memory.enqueueJob(REVIEW_JOB, { afterId: last });
   }
 }
 
