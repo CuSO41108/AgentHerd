@@ -143,6 +143,10 @@ Electron main never see a key after it is saved (plan 011). They are never writt
 Display preferences of one screen stay in the desktop app's `localStorage`, not in the home:
 the font size (设置 → 字体大小, `agentherd.fontScale`, 90%–130%; it scales every text size and
 line height, not spacing or icons) and whether the first run ran.
+The colours (设置 → 外观 → 颜色: 跟随系统, 浅色 or 深色) are kept by Electron main in its
+`theme.json` next to the pet's position and applied with `nativeTheme.themeSource`, so the main
+window, its frame and the pet switch together and the first frame after a restart is already
+right; dark is the base palette in `tokens.css`, light replaces values only.
 
 All TypeScript is erasable syntax only (`erasableSyntaxOnly`), so Node runs the sources
 directly with type stripping; there is no build step for packages.
