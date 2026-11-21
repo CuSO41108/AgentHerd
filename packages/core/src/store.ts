@@ -1,11 +1,17 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { StatementSync } from "node:sqlite";
 import { DatabaseSync } from "node:sqlite";
 import type { Decision, Item, MessageRef, Rule, View } from "@agentherd/protocol";
 import { redact } from "@agentherd/rules";
 import { headTail } from "./cut-text.ts";
-import type { HerderContextParts, HerderRequestRecord, HerderTurnRole } from "./herder-port.ts";
+import type {
+  HerderEventRecord,
+  HerderFoldRecord,
+  HerderRequestRecord,
+  HerderTurnRole,
+} from "./herder-port.ts";
+import { HERDER_REQUESTS_READ_MAX, HerderStore } from "./herder-store.ts";
 import { ftsQuery, MEMORY_TABLES_SQL, MemoryStore } from "./memory-store.ts";
 import type { Schedule } from "./schedules.ts";
 import {
@@ -21,7 +27,8 @@ import {
 } from "./store-rows.ts";
 import {
   HERDER_LOG_TABLE_SQL,
-  HERDER_REQUESTS_TABLE_SQL,
+  HERDER_REQUESTS_V16_SQL,
+  HERDER_TABLES_SQL,
   HERDER_TURNS_TABLE_SQL,
   INTAKE_WATCHES_TABLE_SQL,
   LATEST_SCHEMA_VERSION,
@@ -69,6 +76,8 @@ export class Store {
   private readonly secrets: Record<string, string> | undefined;
   /** The Herder's long-term memory (ADR 0038). */
   readonly memory: MemoryStore;
+  /** The Herder's conversation and context (ADR 0095). */
+  readonly herder: HerderStore;
 
   private readonly stmtUpsertSession: StatementSync;
   private readonly stmtGetSession: StatementSync;
@@ -99,6 +108,7 @@ export class Store {
       this.db.exec("PRAGMA journal_mode = WAL");
     }
     this.secrets = options?.secrets;
+    if (path !== ":memory:") this.backUpBeforeUpgrade(path);
 
     this.db.exec("BEGIN");
     try {
@@ -110,6 +120,7 @@ export class Store {
       throw error;
     }
     this.memory = new MemoryStore(this.db, this.secrets);
+    this.herder = new HerderStore(this.db);
     this.stmtUpsertSession = this.db.prepare(
       "INSERT OR REPLACE INTO sessions(id, profile_id, cwd, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     );
@@ -411,45 +422,39 @@ export class Store {
     }));
   }
 
-  /** Keeps one request to the Herder's model; only the newest {@link HERDER_REQUESTS_KEEP} stay. */
+  /** Keeps one request to the Herder's model (ADR 0093, 0095); all are kept. */
   addHerderRequest(r: HerderRequestRecord): void {
-    const info = this.db
-      .prepare(
-        "INSERT INTO herder_requests(at, model, input, output, cache_read, cache_write, tokens, parts_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      )
-      .run(
-        r.at,
-        r.model,
-        r.input,
-        r.output,
-        r.cacheRead,
-        r.cacheWrite,
-        r.tokens,
-        JSON.stringify(r.parts),
-      );
-    const id = Number(info.lastInsertRowid);
-    if (id % 100 === 0) {
-      this.db.prepare("DELETE FROM herder_requests WHERE id <= ?").run(id - HERDER_REQUESTS_KEEP);
-    }
+    this.herder.addRequest(r);
   }
 
   /** Requests since `since` (an ISO time), oldest first, at most `limit` of the newest. */
-  herderRequests(since: string, limit = HERDER_REQUESTS_KEEP): HerderRequestRecord[] {
-    const rows = this.db
-      .prepare(
-        "SELECT at, model, input, output, cache_read, cache_write, tokens, parts_json FROM herder_requests WHERE at >= ? ORDER BY id DESC LIMIT ?",
-      )
-      .all(since, limit);
-    return rows.reverse().map((r) => ({
-      at: String(r.at),
-      model: String(r.model),
-      input: Number(r.input),
-      output: Number(r.output),
-      cacheRead: Number(r.cache_read),
-      cacheWrite: Number(r.cache_write),
-      tokens: Number(r.tokens),
-      parts: JSON.parse(String(r.parts_json)) as HerderContextParts,
-    }));
+  herderRequests(since: string, limit = HERDER_REQUESTS_READ_MAX): HerderRequestRecord[] {
+    return this.herder.requests(since, limit);
+  }
+
+  /** Every fold of the Herder's conversation ever kept, in the order they were made (ADR 0095). */
+  herderFolds(): HerderFoldRecord[] {
+    return this.herder.folds();
+  }
+
+  /** Saves the context engine's bookkeeping under `key` and the folds that changed, together. */
+  saveHerderContext(key: string, state: unknown, folds: readonly HerderFoldRecord[]): void {
+    this.transaction(() => {
+      this.setState(key, state);
+      this.herder.putFolds(folds);
+    });
+  }
+
+  addHerderEvent(kind: string, data: Record<string, unknown>, round?: number): void {
+    this.herder.addEvent(kind, data, round);
+  }
+
+  herderEvents(since: string, limit?: number): HerderEventRecord[] {
+    return this.herder.events(since, limit);
+  }
+
+  putHerderPrompt(hash: string, text: string, tokens: number): void {
+    this.herder.putPrompt(hash, text, tokens);
   }
 
   /** The last `limit` lines of the Herder's conversation, oldest first. */
@@ -669,12 +674,9 @@ export class Store {
     this.stmtDeleteState.run(key);
   }
 
-  /** The Herder's whole conversation, oldest first (ADR 0045). */
+  /** The Herder's whole conversation, oldest first (ADR 0045, 0095). */
   herderLog(): unknown[] {
-    return this.db
-      .prepare("SELECT message_json FROM herder_log ORDER BY seq")
-      .all()
-      .map((row) => JSON.parse(row.message_json as string) as unknown);
+    return this.herder.log();
   }
 
   /**
@@ -682,11 +684,27 @@ export class Store {
    * turn that was rolled back or rewritten replaces what was saved of it.
    */
   writeHerderLog(from: number, messages: unknown[]): void {
-    this.transaction(() => {
-      this.db.prepare("DELETE FROM herder_log WHERE seq >= ?").run(from);
-      const insert = this.db.prepare("INSERT INTO herder_log(seq, message_json) VALUES (?, ?)");
-      for (const [i, message] of messages.entries()) insert.run(from + i, JSON.stringify(message));
-    });
+    this.transaction(() => this.herder.writeLog(from, messages));
+  }
+
+  /**
+   * Copies herd.db before its schema is brought up to date (ADR 0095): an upgrade can rewrite
+   * whole tables, and the copy is the way back.
+   */
+  private backUpBeforeUpgrade(path: string): void {
+    if (!existsSync(path)) return;
+    let version: number;
+    try {
+      const row = this.db.prepare("SELECT version FROM schema_version LIMIT 1").get();
+      if (row === undefined) return;
+      version = Number(row.version);
+    } catch {
+      return; // A new database: nothing to keep.
+    }
+    if (version >= LATEST_SCHEMA_VERSION) return;
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+    const copy = `${path}.v${version}-${stamp}.bak`;
+    if (!existsSync(copy)) this.db.prepare("VACUUM INTO ?").run(copy);
   }
 
   /** Before schema version 8 the Herder kept the tail of its conversation in `state`. */
@@ -778,8 +796,12 @@ export class Store {
         this.db.prepare("UPDATE schema_version SET version = ?").run(15);
       }
       if (version < 16) {
-        this.db.exec(HERDER_REQUESTS_TABLE_SQL);
+        this.db.exec(HERDER_REQUESTS_V16_SQL);
         this.db.prepare("UPDATE schema_version SET version = ?").run(16);
+      }
+      if (version < 17) {
+        new HerderStore(this.db).migrate(HERDER_TABLES_SQL);
+        this.db.prepare("UPDATE schema_version SET version = ?").run(17);
       }
     }
   }
@@ -942,9 +964,6 @@ function toStoredTask(r: Record<string, unknown>): StoredTask {
 
 /** Cards kept for the desktop pet (ADR 0072); older ones are deleted. */
 export const OWNER_CARDS_KEEP = 500;
-
-/** Requests to the Herder's model kept for the 上下文 tab (ADR 0093). */
-export const HERDER_REQUESTS_KEEP = 5000;
 
 /** A card sent to the owner, in its latest form (ADR 0072). */
 export interface OwnerCard {

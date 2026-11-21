@@ -394,6 +394,10 @@ export class Herd {
       setState: (key, value) => this.store.setState(key, value),
       herderLog: () => this.store.herderLog(),
       writeHerderLog: (from, messages) => this.store.writeHerderLog(from, messages),
+      herderFolds: () => this.store.herderFolds(),
+      saveHerderContext: (key, state, folds) => this.store.saveHerderContext(key, state, folds),
+      recordPrompt: (hash, text, tokens) => this.store.putHerderPrompt(hash, text, tokens),
+      herderEvent: (kind, data, round) => this.store.addHerderEvent(kind, data, round),
     };
   }
 

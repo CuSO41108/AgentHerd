@@ -207,7 +207,8 @@ export interface HerderTrendPoint {
   model: string;
   /** Our estimate of the request and its parts. */
   tokens: number;
-  parts: HerderContextParts;
+  /** Missing for requests backfilled from replies (ADR 0095). */
+  parts?: HerderContextParts;
   input: number;
   output: number;
   cacheRead: number;
