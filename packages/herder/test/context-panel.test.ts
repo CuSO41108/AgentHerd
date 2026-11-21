@@ -23,7 +23,8 @@ describe("what the Herder's requests are made of (ADR 0093)", () => {
       [
         {
           role: "system",
-          content: "你是主管。\n\n[记忆 · 主人画像 — 用量 5/600 字]\n- 称呼：火哥",
+          content:
+            "你是主管。[记忆 · 主人画像] 是主人的画像卡。\n\n[记忆 · 主人画像 — 用量 5/600 字]\n- 称呼：火哥",
           toolsAdded: [{ name: "session_list", description: "列出任务", parameters: {} }],
         } as never,
         {
@@ -70,6 +71,7 @@ describe("what the Herder's requests are made of (ADR 0093)", () => {
     expect(labels).toContainEqual(["results", "session_list"]);
     expect(snapshot.items.find((i) => i.part === "memory")?.text).toContain("称呼：火哥");
     expect(snapshot.items.find((i) => i.part === "system")?.text).not.toContain("称呼");
+    expect(snapshot.items.find((i) => i.part === "system")?.text).toContain("是主人的画像卡");
   });
 
   it("keeps the numbers the model counted for each request, with what was sent", async () => {
