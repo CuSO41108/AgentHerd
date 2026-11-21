@@ -37,7 +37,8 @@ first), but nothing could draw that as a tree.
    - `herder_rounds(seq, at, kind, title)`: one row per prompt, with a short title (the owner's
      words, 「修登录 401」finished its turn, the answer).
    - `herder_requests` again, one row per model call: seq of its reply, round, model, input,
-     output, cache read and write, cost, size, parts (when measured), prompt hash, failed. It keeps
+     output, cache read and write, cost, size, working window, parts (when measured), prompt
+     hash, failed. It keeps
      every row; the upgrade fills it from the usage on the stored replies.
    - `herder_folds(block_id, parent, level, state, made_by, topic, summary, start_seq, end_seq,
      direct_start, direct_end, messages, call_seq, tokens_before, tokens_after, created_at,
@@ -45,8 +46,8 @@ first), but nothing could draw that as a tree.
      (taken into its parent) or opened; `made_by` is herder (its compress call is at `call_seq`),
      forced (90 % full) or overflow (the provider refused).
    - `herder_events(at, kind, round, data)`: start, fold, fold.repaired.
-   - `herder_prompts(hash, at, tokens, text)`: each system prompt with its tools, once per change
-     (200 kept).
+   - `herder_prompts(hash, at, tokens, system, tools_json)`: each system prompt with its tools,
+     once per change (200 kept), so the next request can be rebuilt from `herd.db` alone.
    - The `herder.context` state keeps only the kernel's bookkeeping (refs, counters, nudges); the
      folds are saved with it in one transaction.
 2. **Folds nest.** A compress range must take in whole folds or none of one. A range that cuts

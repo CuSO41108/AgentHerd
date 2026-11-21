@@ -40,6 +40,7 @@ import {
   type HerderContextSnapshot,
   type HerderFoldBy,
   type HerderFoldRecord,
+  type HerderPromptRecord,
 } from "@agentherd/core";
 import type { AgentMessage, AgentTool, AgentToolResult } from "@agentherd/herder-loop";
 import { bool, int, obj, opt, str } from "@earendil-works/pi-schema";
@@ -446,20 +447,31 @@ export function measureContext(
 }
 
 /** The system prompt and tools a request went with, once per change (`herder_prompts`, ADR 0095). */
-export function promptOf(
-  view: readonly AgentMessage[],
-): { hash: string; text: string; tokens: number } | undefined {
+export function promptOf(view: readonly AgentMessage[]): HerderPromptRecord | undefined {
   const head = view.slice(0, leadingSystem(view));
   if (head.length === 0) return undefined;
-  const text = head
-    .map((m) => {
-      const body = typeof m.content === "string" ? m.content : textOf(m.content as Content);
-      const tools = (m as { toolsAdded?: unknown[] }).toolsAdded ?? [];
-      return [body, ...tools.map((t) => JSON.stringify(t, null, 2))].join("\n\n");
-    })
+  const system = head
+    .map((m) => (typeof m.content === "string" ? m.content : textOf(m.content as Content)))
     .join("\n\n");
-  const hash = createHash("sha256").update(text).digest("hex").slice(0, 16);
-  return { hash, text, tokens: defaultCountTokens(text) };
+  const tools = head.flatMap((m) => (m as { toolsAdded?: unknown[] }).toolsAdded ?? []);
+  const toolText = tools.map((t) => JSON.stringify(t, null, 2)).join("\n\n");
+  const hash = createHash("sha256")
+    .update(system)
+    .update("\u0000")
+    .update(toolText)
+    .digest("hex")
+    .slice(0, 16);
+  return { hash, system, tools, tokens: defaultCountTokens(`${system}\n\n${toolText}`) };
+}
+
+/** The system message a kept prompt stands for, to measure or project a request from herd.db. */
+export function promptMessage(prompt: Pick<HerderPromptRecord, "system" | "tools">): AgentMessage {
+  return {
+    role: "system",
+    content: prompt.system,
+    timestamp: 0,
+    toolsAdded: prompt.tools,
+  } as AgentMessage;
 }
 
 /** First and last position in the log of these engine ids (the opening line is not in the log). */

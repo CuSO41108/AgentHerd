@@ -8,6 +8,7 @@ import type {
   HerderContextParts,
   HerderEventRecord,
   HerderFoldRecord,
+  HerderPromptRecord,
   HerderRequestRecord,
 } from "./herder-port.ts";
 
@@ -148,7 +149,7 @@ export class HerderStore {
   addRequest(r: HerderRequestRecord): void {
     this.db
       .prepare(
-        "INSERT INTO herder_requests(at, seq, round, model, input, output, cache_read, cache_write, cost, tokens, parts_json, prompt, failed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO herder_requests(at, seq, round, model, input, output, cache_read, cache_write, cost, tokens, window, parts_json, prompt, failed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         r.at,
@@ -161,6 +162,7 @@ export class HerderStore {
         r.cacheWrite,
         r.cost ?? 0,
         r.tokens,
+        r.window ?? null,
         r.parts === undefined ? null : JSON.stringify(r.parts),
         r.prompt ?? null,
         r.failed === true ? 1 : 0,
@@ -171,13 +173,14 @@ export class HerderStore {
   requests(since: string, limit = HERDER_REQUESTS_READ_MAX): HerderRequestRecord[] {
     const rows = this.db
       .prepare(
-        "SELECT at, seq, round, model, input, output, cache_read, cache_write, cost, tokens, parts_json, prompt, failed FROM herder_requests WHERE at >= ? ORDER BY id DESC LIMIT ?",
+        "SELECT at, seq, round, model, input, output, cache_read, cache_write, cost, tokens, window, parts_json, prompt, failed FROM herder_requests WHERE at >= ? ORDER BY id DESC LIMIT ?",
       )
       .all(since, limit);
     return rows.reverse().map((r) => {
       const seq = optNumber(r.seq);
       const round = optNumber(r.round);
       const prompt = optString(r.prompt);
+      const window = optNumber(r.window);
       return {
         at: String(r.at),
         model: String(r.model),
@@ -187,6 +190,7 @@ export class HerderStore {
         cacheWrite: Number(r.cache_write),
         cost: Number(r.cost),
         tokens: Number(r.tokens),
+        ...(window === undefined ? {} : { window }),
         ...(r.parts_json === null
           ? {}
           : { parts: JSON.parse(String(r.parts_json)) as HerderContextParts }),
@@ -291,10 +295,12 @@ export class HerderStore {
   }
 
   /** Keeps a system prompt once; the oldest go when there are too many. */
-  putPrompt(hash: string, text: string, tokens: number): void {
+  putPrompt(p: HerderPromptRecord): void {
     const info = this.db
-      .prepare("INSERT OR IGNORE INTO herder_prompts(hash, at, tokens, text) VALUES (?, ?, ?, ?)")
-      .run(hash, this.now().toISOString(), tokens, text);
+      .prepare(
+        "INSERT OR IGNORE INTO herder_prompts(hash, at, tokens, system, tools_json) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(p.hash, this.now().toISOString(), p.tokens, p.system, JSON.stringify(p.tools));
     if (Number(info.changes) === 0) return;
     this.db
       .prepare(
@@ -303,13 +309,29 @@ export class HerderStore {
       .run(HERDER_PROMPTS_KEEP);
   }
 
-  prompt(hash: string): { at: string; tokens: number; text: string } | undefined {
-    const row = this.db
-      .prepare("SELECT at, tokens, text FROM herder_prompts WHERE hash = ?")
-      .get(hash);
+  /** A kept prompt by hash, or the newest when no hash is given. */
+  prompt(hash?: string): (HerderPromptRecord & { at: string }) | undefined {
+    const row =
+      hash === undefined
+        ? this.db
+            .prepare(
+              "SELECT hash, at, tokens, system, tools_json FROM herder_prompts ORDER BY at DESC, rowid DESC LIMIT 1",
+            )
+            .get()
+        : this.db
+            .prepare(
+              "SELECT hash, at, tokens, system, tools_json FROM herder_prompts WHERE hash = ?",
+            )
+            .get(hash);
     return row === undefined
       ? undefined
-      : { at: String(row.at), tokens: Number(row.tokens), text: String(row.text) };
+      : {
+          hash: String(row.hash),
+          at: String(row.at),
+          tokens: Number(row.tokens),
+          system: String(row.system),
+          tools: JSON.parse(String(row.tools_json)) as unknown[],
+        };
   }
 
   /**

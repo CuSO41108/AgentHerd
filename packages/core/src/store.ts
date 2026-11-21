@@ -8,6 +8,7 @@ import { headTail } from "./cut-text.ts";
 import type {
   HerderEventRecord,
   HerderFoldRecord,
+  HerderPromptRecord,
   HerderRequestRecord,
   HerderTurnRole,
 } from "./herder-port.ts";
@@ -453,8 +454,8 @@ export class Store {
     return this.herder.events(since, limit);
   }
 
-  putHerderPrompt(hash: string, text: string, tokens: number): void {
-    this.herder.putPrompt(hash, text, tokens);
+  putHerderPrompt(prompt: HerderPromptRecord): void {
+    this.herder.putPrompt(prompt);
   }
 
   /** The last `limit` lines of the Herder's conversation, oldest first. */

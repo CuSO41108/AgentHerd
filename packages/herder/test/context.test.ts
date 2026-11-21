@@ -363,8 +363,8 @@ describe("folds as rows of their own (ADR 0095)", () => {
       owner("hi"),
     ];
     const a = promptOf(view);
-    expect(a?.text).toContain("rules");
-    expect(a?.text).toContain('"name": "session_list"');
+    expect(a?.system).toBe("rules");
+    expect(a?.tools).toEqual([{ name: "session_list" }]);
     expect(a?.hash).toMatch(/^[0-9a-f]{16}$/);
     expect(promptOf([{ ...SYSTEM, content: "other" } as AgentMessage])?.hash).not.toBe(a?.hash);
     expect(promptOf([owner("no system")])).toBeUndefined();

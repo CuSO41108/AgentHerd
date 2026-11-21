@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS herder_requests(
   cache_write INTEGER NOT NULL,
   cost REAL NOT NULL DEFAULT 0,
   tokens INTEGER NOT NULL,
+  window INTEGER,
   parts_json TEXT,
   prompt TEXT,
   failed INTEGER NOT NULL DEFAULT 0
@@ -233,7 +234,8 @@ CREATE TABLE IF NOT EXISTS herder_prompts(
   hash TEXT PRIMARY KEY,
   at TEXT NOT NULL,
   tokens INTEGER NOT NULL,
-  text TEXT NOT NULL
+  system TEXT NOT NULL,
+  tools_json TEXT NOT NULL
 );`;
 
 export const LATEST_SCHEMA_VERSION = 17;

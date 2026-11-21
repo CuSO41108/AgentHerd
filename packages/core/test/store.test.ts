@@ -574,13 +574,14 @@ describe("Store (herder_requests, ADR 0093)", () => {
       seq: 7,
       round: 4,
       cost: 0.002,
+      window: 128_000,
       prompt: "abc",
       failed: true,
     });
     const { parts: _, ...bare } = req(NOW);
     store.addHerderRequest(bare);
     expect(store.herderRequests(NOW)).toEqual([
-      { ...req(NOW), seq: 7, round: 4, cost: 0.002, prompt: "abc", failed: true },
+      { ...req(NOW), seq: 7, round: 4, cost: 0.002, window: 128_000, prompt: "abc", failed: true },
       { ...bare, cost: 0 },
     ]);
     store.close();
@@ -777,11 +778,14 @@ describe("Store (the Herder's conversation in herd.db, ADR 0095)", () => {
       ["fold", 4, { blockId: "b1" }],
       ["start", undefined, { messages: 3 }],
     ]);
-    store.putHerderPrompt("h1", "系统提示词", 5);
-    store.putHerderPrompt("h1", "不会改", 9);
-    expect(store.herder.prompt("h1")).toMatchObject({ text: "系统提示词", tokens: 5 });
-    for (let i = 0; i < HERDER_PROMPTS_KEEP + 5; i++) store.putHerderPrompt(`p${i}`, String(i), 1);
-    expect(store.herder.prompt(`p${HERDER_PROMPTS_KEEP + 4}`)).toBeDefined();
+    const tools = [{ name: "session_list" }];
+    store.putHerderPrompt({ hash: "h1", system: "系统提示词", tools, tokens: 5 });
+    store.putHerderPrompt({ hash: "h1", system: "不会改", tools: [], tokens: 9 });
+    expect(store.herder.prompt("h1")).toMatchObject({ system: "系统提示词", tools, tokens: 5 });
+    expect(store.herder.prompt()?.hash).toBe("h1");
+    for (let i = 0; i < HERDER_PROMPTS_KEEP + 5; i++)
+      store.putHerderPrompt({ hash: `p${i}`, system: String(i), tools: [], tokens: 1 });
+    expect(store.herder.prompt()?.hash).toBe(`p${HERDER_PROMPTS_KEEP + 4}`);
     expect(store.herder.prompt("h1")).toBeUndefined();
     store.close();
   });

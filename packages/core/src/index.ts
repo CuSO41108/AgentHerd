@@ -62,6 +62,7 @@ export type {
   HerderHost,
   HerderPlugins,
   HerderPort,
+  HerderPromptRecord,
   HerderRequestRecord,
   HerderSuggestion,
   HerderTurnRole,

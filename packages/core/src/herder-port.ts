@@ -232,7 +232,7 @@ export interface HerderHost {
    */
   saveHerderContext?(key: string, state: unknown, folds: HerderFoldRecord[]): void;
   /** Keeps a system prompt and tool list once, by hash (ADR 0095). */
-  recordPrompt?(hash: string, text: string, tokens: number): void;
+  recordPrompt?(prompt: HerderPromptRecord): void;
   /** Keeps something that happened to the conversation: a fold, a repair, a start (ADR 0095). */
   herderEvent?(kind: string, data: Record<string, unknown>, round?: number): void;
 }
@@ -306,6 +306,8 @@ export interface HerderRequestRecord {
   cost?: number;
   /** Size of the prompt: input, cache read and cache write as counted, else our estimate. */
   tokens: number;
+  /** The working window the Herder had then (the model's, at most 128K). */
+  window?: number;
   /** Our estimate of the parts; absent for requests kept from before ADR 0095. */
   parts?: HerderContextParts;
   /** Where the reply it made sits in the conversation; absent when the try was taken back. */
@@ -316,6 +318,16 @@ export interface HerderRequestRecord {
   prompt?: string;
   /** The provider answered with an error. */
   failed?: boolean;
+}
+
+/** A system prompt with its tools, kept once per change (`herder_prompts`, ADR 0095). */
+export interface HerderPromptRecord {
+  hash: string;
+  /** The system message's text, the resident memory at its end. */
+  system: string;
+  /** The tool definitions it declared. */
+  tools: unknown[];
+  tokens: number;
 }
 
 /** How a fold came about (ADR 0095). */

@@ -268,7 +268,7 @@ export class Herder implements HerderPort {
       const prompt = promptOf(view);
       if (prompt === undefined) return undefined;
       if (prompt.hash !== this.keptPrompt) {
-        this.host.recordPrompt(prompt.hash, prompt.text, prompt.tokens);
+        this.host.recordPrompt(prompt);
         this.keptPrompt = prompt.hash;
       }
       return prompt.hash;
@@ -915,6 +915,7 @@ export class Herder implements HerderPort {
           cacheWrite: usage?.cacheWrite ?? 0,
           cost: usage?.cost?.total ?? 0,
           tokens: counted > 0 ? counted : sent.snapshot.tokens,
+          window: sent.snapshot.window,
           parts: sent.snapshot.parts,
           // A try that failed is taken back, so its replies have no place in the conversation.
           ...(kept ? { seq: round + k } : {}),
