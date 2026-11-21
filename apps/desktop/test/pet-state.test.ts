@@ -1,10 +1,12 @@
 import type { PetCard, PetView, TasksView } from "@agentherd/host/api";
 import { describe, expect, it } from "vitest";
 import {
+  addDrops,
   badgeOf,
   CHAT_DEFAULT,
   CHAT_MIN,
   canStop,
+  cardGroups,
   clockOf,
   conversationOf,
   cut,
@@ -24,15 +26,34 @@ import {
   newestScroll,
   newLine,
   readChatSize,
+  readTab,
   remainingSays,
   reportHead,
+  runnerOf,
   SLEEP_AFTER_MS,
   separatorOf,
   statusOf,
   stepOf,
+  suggestionFor,
+  TASK_DOTS_MAX,
+  TASKS_ENDED_MS,
+  taskDots,
+  taskGroups,
   trailingLine,
 } from "../src/renderer/src/pet/pet-state";
-import { ANIMATIONS, ATLAS, frameAt, HELLO_MS } from "../src/renderer/src/pet/sprite";
+import {
+  ANIMATIONS,
+  ATLAS,
+  clipOf,
+  FIDGET_EVERY_MS,
+  fidgetDelay,
+  frameAt,
+  HELLO_MS,
+  nextFidget,
+  THINK_MAX_MS,
+  thinkingOf,
+  walkOf,
+} from "../src/renderer/src/pet/sprite";
 import { hitPetRegion } from "../src/shared/bridge";
 
 const IDLE: PetView = { connected: true, pending: [] };
@@ -134,14 +155,68 @@ describe("pet frames", () => {
     });
   });
 
-  it("gives every clip its own row inside the atlas", () => {
-    const rows = Object.values(ANIMATIONS).map((a) => a.row);
+  it("gives every clip its own row inside the atlas; a jump replays the cheer once", () => {
+    const { jump, ...own } = ANIMATIONS;
+    const rows = Object.values(own).map((a) => a.row);
     expect(new Set(rows).size).toBe(rows.length);
+    expect(jump.row).toBe(ANIMATIONS.celebrate.row);
+    expect(jump.loop).toBe(false);
+    expect(ATLAS.rows).toBe(10);
     for (const a of Object.values(ANIMATIONS)) {
       expect(a.row).toBeLessThan(ATLAS.rows);
       expect(a.durations.length).toBeLessThanOrEqual(ATLAS.columns);
     }
     expect(HELLO_MS).toBe(700);
+  });
+});
+
+describe("more moves (ADR 0087)", () => {
+  const at = (msAgo: number) => new Date(Date.parse("2026-11-20T02:00:00Z") - msAgo).toISOString();
+  const now = Date.parse("2026-11-20T02:00:00Z");
+
+  it("reads while the Herder works on the owner's message, for a few minutes at most", () => {
+    expect(thinkingOf([], 1, now)).toBe(true);
+    expect(thinkingOf([{ kind: "owner", at: at(5_000) }], 0, now)).toBe(true);
+    expect(thinkingOf([{ kind: "owner", at: at(THINK_MAX_MS + 1) }], 0, now)).toBe(false);
+    expect(
+      thinkingOf(
+        [
+          { kind: "owner", at: at(9_000) },
+          { kind: "say", at: at(1_000) },
+        ],
+        0,
+        now,
+      ),
+    ).toBe(false);
+    expect(thinkingOf([], 0, now)).toBe(false);
+  });
+
+  it("walks the way it is dragged and keeps that way while moved up or down", () => {
+    expect(walkOf(undefined, 5)).toBe("walkRight");
+    expect(walkOf("walkRight", -3)).toBe("walkLeft");
+    expect(walkOf("walkLeft", 0)).toBe("walkLeft");
+    expect(walkOf(undefined, 1)).toBeUndefined();
+  });
+
+  it("fidgets every 20 to 40 seconds, never the same move twice running", () => {
+    expect(fidgetDelay(0)).toBe(FIDGET_EVERY_MS.min);
+    expect(fidgetDelay(0.999)).toBeLessThan(FIDGET_EVERY_MS.max);
+    for (const r of [0, 0.4, 0.99]) {
+      expect(nextFidget("hello", r)).not.toBe("hello");
+      expect(nextFidget("jump", r)).not.toBe("jump");
+    }
+  });
+
+  it("plays the strongest move: walking, a wave, a jump, the mood, reading, a fidget", () => {
+    expect(clipOf({ mood: "waiting", walk: "walkLeft", hello: true })).toBe("walkLeft");
+    expect(clipOf({ mood: "working", hello: true, jump: true })).toBe("hello");
+    expect(clipOf({ mood: "resting", jump: true, thinking: true })).toBe("jump");
+    expect(clipOf({ mood: "waiting", thinking: true })).toBe("waiting");
+    expect(clipOf({ mood: "working", thinking: true })).toBe("thinking");
+    expect(clipOf({ mood: "sleeping", thinking: true })).toBe("thinking");
+    expect(clipOf({ mood: "resting", fidget: "jump" })).toBe("jump");
+    expect(clipOf({ mood: "working", fidget: "jump" })).toBe("working");
+    expect(clipOf({ mood: "resting" })).toBe("resting");
   });
 });
 
@@ -365,5 +440,133 @@ describe("the conversation's new look (ADR 0073)", () => {
     expect(statusOf(true, 2)).toBe("飞书已连接 · 2 个任务在跑");
     expect(modelName("deepseek/deepseek-flash")).toBe("deepseek-flash");
     expect(modelName(undefined)).toBeUndefined();
+  });
+});
+
+describe("the pet's pages (ADR 0078)", () => {
+  it("names a task's model once", () => {
+    expect(runnerOf("Pi · deepseek/deepseek-flash", "deepseek/deepseek-flash")).toBe(
+      "Pi · deepseek-flash",
+    );
+    expect(runnerOf("pi", "deepseek/deepseek-flash")).toBe("pi · deepseek-flash");
+    expect(runnerOf("Codex · gpt-5.5", "openai/gpt-5.5")).toBe("Codex · gpt-5.5");
+    expect(runnerOf("pi", undefined)).toBe("pi");
+  });
+
+  const NOW_AT = Date.UTC(2026, 10, 19, 12, 0);
+  const ago = (min: number) => new Date(NOW_AT - min * 60_000).toISOString();
+  const task = (id: string, stage: TasksView["tasks"][number]["stage"], updated: number) => ({
+    id,
+    title: `任务 ${id}`,
+    project: "demo",
+    agent: "Pi",
+    stage,
+    lastReport: "",
+    startedAt: ago(updated + 10),
+    updatedAt: ago(updated),
+    automaticDecisions: [],
+  });
+  const card = (ref: string, min: number, open: boolean): PetCard => ({
+    ref,
+    at: ago(min),
+    open,
+    view: { kind: "ask", askId: ref, text: "要哪种？", options: [] },
+  });
+
+  it("remembers the page, the conversation when unknown", () => {
+    expect(readTab("tasks")).toBe("tasks");
+    expect(readTab("cards")).toBe("cards");
+    expect(readTab(null)).toBe("chat");
+    expect(readTab("board")).toBe("chat");
+  });
+
+  it("lists running tasks, the ones waiting for the owner first, then the last day's ended", () => {
+    const { running, ended } = taskGroups(
+      [
+        task("w1", "working", 5),
+        task("w2", "working", 1),
+        task("n", "needs-owner", 30),
+        task("q", "queued", 0),
+        task("d", "done", 20),
+        task("f", "failed", 3),
+        task("old", "done", TASKS_ENDED_MS / 60_000 + 5),
+      ],
+      NOW_AT,
+    );
+    expect(running.map((t) => t.id)).toEqual(["n", "w2", "w1", "q"]);
+    expect(ended.map((t) => t.id)).toEqual(["f", "d"]);
+  });
+
+  it("puts cards that wait for the owner first, as they came, then the others newest first", () => {
+    const { waiting, recent } = cardGroups([
+      card("a", 50, false),
+      card("b", 40, true),
+      card("c", 30, false),
+      card("d", 20, true),
+      card("e", 10, false),
+    ]);
+    expect(waiting.map((c) => c.ref)).toEqual(["b", "d"]);
+    expect(recent.map((c) => c.ref)).toEqual(["e", "c", "a"]);
+  });
+});
+
+describe("task dots and dropped files (ADR 0082)", () => {
+  const NOW_AT = Date.UTC(2026, 10, 19, 12, 0);
+  const task = (id: string, stage: TasksView["tasks"][number]["stage"], updated: number) => ({
+    id,
+    title: `任务 ${id}`,
+    project: "demo",
+    agent: "Pi",
+    stage,
+    lastReport: "",
+    startedAt: new Date(NOW_AT - (updated + 10) * 60_000).toISOString(),
+    updatedAt: new Date(NOW_AT - updated * 60_000).toISOString(),
+    automaticDecisions: [],
+  });
+
+  it("puts one dot per running task over the pet, waiting ones first", () => {
+    const { dots, more } = taskDots(
+      [
+        task("w", "working", 1),
+        task("n", "needs-owner", 30),
+        task("s", "stuck", 3),
+        task("d", "done", 2),
+        task("q", "queued", 0),
+      ],
+      NOW_AT,
+    );
+    expect(dots.map((d) => [d.id, d.tone])).toEqual([
+      ["n", "amber"],
+      ["s", "red"],
+      ["w", "blue"],
+      ["q", "gray"],
+    ]);
+    expect(dots[0]?.label).toBe("任务 n · 等你");
+    expect(more).toBe(0);
+    const many = Array.from({ length: TASK_DOTS_MAX + 2 }, (_, i) => task(`t${i}`, "working", i));
+    expect(taskDots(many, NOW_AT).more).toBe(2);
+    expect(taskDots([], NOW_AT).dots).toEqual([]);
+  });
+
+  it("keeps dropped files once each, up to the limit, with their names", () => {
+    const first = addDrops([], ["/Users/me/Desktop/screen.PNG", "", "C:\\docs\\plan.pdf"], 3);
+    expect(first).toEqual([
+      { path: "/Users/me/Desktop/screen.PNG", name: "screen.PNG", picture: true },
+      { path: "C:\\docs\\plan.pdf", name: "plan.pdf", picture: false },
+    ]);
+    const next = addDrops(first, ["/Users/me/Desktop/screen.PNG", "/a/b/", "/c"], 3);
+    expect(next.map((d) => d.name)).toEqual(["screen.PNG", "plan.pdf", "b"]);
+  });
+});
+
+describe("guessing the owner's next message (ADR 0084)", () => {
+  it("shows the guess only in an empty input while the chat is up", () => {
+    const view = { suggestion: " 把 b 下载下来 " };
+    expect(suggestionFor(view, "", 0, false)).toBe("把 b 下载下来");
+    expect(suggestionFor(view, "把", 0, false)).toBeUndefined();
+    expect(suggestionFor(view, "", 1, false)).toBeUndefined();
+    expect(suggestionFor(view, "", 0, true)).toBeUndefined();
+    expect(suggestionFor({}, "", 0, false)).toBeUndefined();
+    expect(suggestionFor({ suggestion: "  " }, "", 0, false)).toBeUndefined();
   });
 });

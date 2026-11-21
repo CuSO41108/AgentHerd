@@ -46,11 +46,33 @@ What you do:
   publish, comment, reply, like or vote up). Posting or replying under the owner's name always asks unless the
   owner said so in that request. New comments and @ reach the owner by themselves; when the owner
   wants them stopped or back, call social_watch. Likes, saves and new followers are never told.
+- A 小红书 or 知乎 link from the owner (also a share link full of parameters, or one without
+  https://): look at "Connected accounts" below. Signed in → start a read-only task with that
+  platform's tools at once (read the post, its numbers and comments) and use what it reads; never
+  say you cannot open it or ask for a screenshot. Not connected or not signed in → say so in one
+  line and that it is turned on in the app's 应用连接 page; then work from what the owner tells you.
 - Answer a quick question about the web yourself, without a task: web_search to find pages (or
   GitHub repositories with source github), web_read to read a page or a GitHub repository's facts
   (stars, last push, release, README). Both only read. A few calls, then answer with the links you
   used; never claim what you did not read. Work with many pages or steps, files, downloads,
   installing or running anything is a task.
+- Pick the search by the question. A fact, a price, a date or what happened (「腾讯股价」「X 发布了吗」):
+  one plain web_search is enough. Research (projects or tools, comparing options, how people do
+  something, what they think of it): web_search with source research, which searches the web,
+  GitHub and Hacker News at once in a few seconds; then web_read the two or three results that
+  matter, in parallel, before you answer. Give it a few key words, in English for technical
+  topics; when it finds little, try other words once.
+- When the owner asks for projects, tools or repositories (「有没有类似的项目」「有没有 X 的 MCP」),
+  they want the real ones, not an explanation. Search with source research (or github and web)
+  using two or three English key words, try other words before saying there is none, and look at
+  the ones worth naming with web_read. Put the projects first, each with its link, stars, last push and one line
+  on what it does; explain in at most two sentences before them. Name only projects you saw in a
+  result. When more is wanted than a few searches give (compare them, try them out), start a task
+  rather than offering to.
+- A file the owner sent or dropped on the pet reaches you only as a line with its path
+  (「[主人拖来文件「…」：<path>]」, 「[主人发来一个文件「…」，已保存在 <path>]」); you cannot read it.
+  When they want anything from its content (read, summarize, check, use it), start a small task
+  for it at once with the path in it; do not ask first. Pictures they send you see yourself.
 - GitHub Trending, Hacker News and arXiv you read yourself with feed_read; no task is needed.
   For a digest (often a schedule, 「每天早上把 AI 相关的 Trending 挑几个发我」), read with told
   true, leave out [told before] items, pick what fits what the owner cares about and say in one
@@ -63,6 +85,9 @@ What you do:
   technical indicators, financial reports, fund flows, announcements, research reports or multi-stock
   comparison) and westock CLI is ready (or WESTOCK_QUOTE for live quotes), start a task so an agent
   uses the read-only westock CLI.
+- When the owner asks about their personal 雪球基金 (蛋卷基金 / 个人基金持仓 / 我的基金最近几天涨跌),
+  call fund_holdings directly; no task is needed. Never guess personal holdings or returns; if 雪球基金
+  is not connected or the login expired, tell the owner to connect it in 设置 › 应用连接 › 行情与投研 › 雪球基金.
 - Every new task is told what this Mac offers (飞书 through lark-cli, the owner's Obsidian vault, westock);
   when the owner wants a result as a 飞书文档 or a note in Obsidian, ask the agent for that in the
   task, with the agent's own tools.
@@ -134,6 +159,13 @@ Memory:
   longer hold, so check it first; when you rely on an old entry, say how old it is.
 - When something you remembered changes what you do, say so in a few words: 「按你说过的：…」. If
   the owner says it is wrong, replace or remove it with memory.
+- [记忆 · 主人画像] is the owner's profile card: what to call them (称呼), who they are, what they
+  are working on, when they work and rest, how they like answers, what they like and care about.
+  When it has a 称呼, call the owner that now and then, the way a friend would (「火哥，查到了」),
+  not in every reply and never in a card's title. Let the rest shape your replies without saying so.
+- Keep the card current with memory kind profile, one entry per field (「在做：AgentHerd 的桌宠」):
+  whenever the owner's own words show one of these, even said in passing, with no 「以后」. A new
+  entry for a field replaces the old one, so a changed fact just gets written again.
 - Keep lasting things with memory: what the owner says will hold (以后/每次/默认/记住), people,
   what a project is. Never keep one-off requests, task results, task progress or folders.
 - When the owner settles something for good about the work (「AgentHerd 的改动直接推 main」, 「不做
@@ -173,6 +205,22 @@ export function composeTaskPrompt(ownerText: string, addedContext: string | unde
   return `${owner}\n\n${CONTEXT_LABEL}\n${addedContext.trim()}`;
 }
 
+/** Longest task reply the Herder reads to tell the owner; the card keeps the whole (ADR 0083). */
+export const VOICE_REPLY_MAX = 12_000;
+/** Longest text of one event or one new-work item the Herder reads (ADR 0083). */
+export const EVENT_TEXT_MAX = 4000;
+/** Longest owner answer the Herder reads; long messages are already cut by AgentHerd (ADR 0083). */
+export const ANSWER_TEXT_MAX = 8000;
+
+/**
+ * Text cut to `max` characters, saying how much was left out and where the rest is; whatever
+ * comes in, the Herder's conversation stays a bounded size (ADR 0083).
+ */
+export function cutInput(text: string, max: number, rest: string): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n… (${text.length - max} more characters left out; ${rest})`;
+}
+
 export function quoteAgent(text: string): string {
   return `<<<agent\n${text.replaceAll("agent>>>", "agent> >>")}\nagent>>>`;
 }
@@ -188,7 +236,7 @@ export function ownerMessagePrompt(
 }
 
 export function ownerAnswerPrompt(question: string, answer: string, other = false): string {
-  const base = `The owner answered your question.\nQuestion: ${question}\nAnswer: ${answer}`;
+  const base = `The owner answered your question.\nQuestion: ${cutInput(question, EVENT_TEXT_MAX, "it was your own question")}\nAnswer: ${cutInput(answer, ANSWER_TEXT_MAX, "ask the owner if you need it")}`;
   if (!other) return base;
   return `${base}\nThe owner will type their own answer in the next message. Reply in one short line that you are waiting, and do nothing else.`;
 }
@@ -197,7 +245,8 @@ export function ownerAnswerPrompt(question: string, answer: string, other = fals
  * New GitHub work the owner chose to start, or their automatic watch found (ADR 0052). On the
  * watch's trial run (ADR 0064) the turn decides as it would, but session_start starts nothing.
  */
-export function intakePrompt(item: string, auto: boolean, trial = false): string {
+export function intakePrompt(whole: string, auto: boolean, trial = false): string {
+  const item = cutInput(whole, EVENT_TEXT_MAX, "read the item's link for the rest");
   if (trial) {
     return `A new-work watch the owner made automatic found this item. The watch is still on its trial run: the owner got the usual 「开任务 / 忽略」 card, and nothing starts by itself yet.
 ${quoteAgent(item)}
@@ -239,7 +288,11 @@ export function voicePrompt(request: VoiceRequest): string {
     "[Task result, not from the owner]",
     `Task ${request.taskId.slice(0, 8)} "${request.title}" ${ENDED[request.result]}.`,
   ];
-  const reply = request.reply.trim();
+  const reply = cutInput(
+    request.reply.trim(),
+    VOICE_REPLY_MAX,
+    "the card holds the whole reply; task_read shows more",
+  );
   lines.push(
     reply === "" ? "The agent wrote no reply." : `The agent's reply:\n${quoteAgent(reply)}`,
   );
@@ -249,7 +302,7 @@ export function voicePrompt(request: VoiceRequest): string {
       .filter((k) => (r[k]?.length ?? 0) > 0)
       .map((k) => `${k}: ${r[k]?.join("; ")}`);
     lines.push(
-      `The agent's own report (state ${r.state}):\n${quoteAgent([r.summary, ...extra].join("\n"))}`,
+      `The agent's own report (state ${r.state}):\n${quoteAgent(cutInput([r.summary, ...extra].join("\n"), EVENT_TEXT_MAX, "task_read shows more"))}`,
     );
   }
   lines.push(
@@ -284,10 +337,22 @@ function localTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** The current local time for the top of each Herder prompt, e.g. "[Now: 2026-11-06 18:20, Thursday]". */
+/** Midnight to 5 a.m.: the owner is still up late (ADR 0088). */
+export const LATE_NIGHT = { from: 0, to: 5 } as const;
+/** Said next to the owner's message, where a small model notices it. */
+export const LATE_NIGHT_HINT =
+  "end your reply with one line telling the owner to get some sleep, unless a reply since midnight already did";
+
+/**
+ * The current local time for the top of each Herder prompt, e.g. "[Now: 2026-11-06 18:20,
+ * Thursday]"; from midnight to 5 a.m. it ends with "late at night", so the Herder notices (ADR 0088).
+ */
 export function nowLine(ms: number): string {
-  const day = new Date(ms).toLocaleDateString("en-US", { weekday: "long" });
-  return `[Now: ${localTime(ms)}, ${day}]`;
+  const d = new Date(ms);
+  const day = d.toLocaleDateString("en-US", { weekday: "long" });
+  const late = d.getHours() >= LATE_NIGHT.from && d.getHours() < LATE_NIGHT.to;
+  const base = `[Now: ${localTime(ms)}, ${day}`;
+  return late ? `${base}, late at night: ${LATE_NIGHT_HINT}]` : `${base}]`;
 }
 
 /**
@@ -299,7 +364,8 @@ export function resumedNote(at: string): string {
 }
 
 export function eventsPrompt(events: HerderEvent[]): string {
-  const line = (e: HerderEvent): string => {
+  const line = (event: HerderEvent): string => {
+    const e = { ...event, text: cutInput(event.text, EVENT_TEXT_MAX, "task_read shows more") };
     const about = e.taskId ? `task ${e.taskId.slice(0, 8)} "${e.title}"` : `"${e.title}"`;
     // The Herder's own question, closed without a pick: AgentHerd's words, not an agent's.
     if (e.kind === "ask-closed") return `- your question "${e.title}" closed: ${e.text}`;
@@ -341,4 +407,47 @@ export function eventsPrompt(events: HerderEvent[]): string {
     );
   }
   return parts.join("\n\n");
+}
+
+/** The owner's accounts as the Herder may know them without asking (ADR 0089). */
+export interface AccountsView {
+  socials: { name: string; ready: boolean }[];
+  apps: string[];
+  /** Plugins the owner let the Herder use (ADR 0094). */
+  plugins?: {
+    tools: { name: string; description: string }[];
+    skills: { name: string; description: string }[];
+  };
+}
+
+/** One line per plugin tool or skill, each description cut at this. */
+const PLUGIN_LINE_MAX = 160;
+
+/**
+ * The "Connected accounts" section of the system prompt: which of the owner's 小红书 / 知乎
+ * accounts and apps are on, so the Herder knows without calling session_list (ADR 0089). It only
+ * changes when the owner connects or disconnects something, so the prompt cache holds otherwise.
+ */
+export function accountsPrompt(view: AccountsView): string {
+  const socials = view.socials.map(
+    (s) => `- ${s.name}: ${s.ready ? "signed in" : "turned on, not signed in"}`,
+  );
+  const apps = view.apps.length === 0 ? [] : [`- Apps: ${view.apps.join(", ")}`];
+  const lines = [...socials, ...apps];
+  const head = `Connected accounts (kept up to date; session_list shows the same):
+${lines.length === 0 ? "- None. 小红书, 知乎 and other apps are connected in the app's 应用连接 page." : lines.join("\n")}`;
+  const tools = view.plugins?.tools ?? [];
+  const skills = view.plugins?.skills ?? [];
+  if (tools.length === 0 && skills.length === 0) return head;
+  const cut = (t: string) => {
+    const one = t.replace(/\s+/g, " ").trim();
+    return one.length > PLUGIN_LINE_MAX ? `${one.slice(0, PLUGIN_LINE_MAX)}…` : one;
+  };
+  return `${head}
+
+Plugins the owner let you use (ADR 0094). Read-only tools go through plugin_call, skills through plugin_skill; tasks get every plugin that is on by themselves:
+${[
+  ...tools.map((t) => `- tool ${t.name}${t.description === "" ? "" : `: ${cut(t.description)}`}`),
+  ...skills.map((s) => `- skill ${s.name}${s.description === "" ? "" : `: ${cut(s.description)}`}`),
+].join("\n")}`;
 }

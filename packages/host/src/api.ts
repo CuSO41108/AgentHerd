@@ -5,6 +5,9 @@
 
 import type {
   CustomApi,
+  HerderContextFold,
+  HerderContextParts,
+  HerderContextSnapshot,
   MemoryRow,
   ModelRef,
   ModelRole,
@@ -24,6 +27,14 @@ import type {
   Risk,
   TextView,
 } from "@agentherd/protocol";
+
+export type {
+  HerderContextFold,
+  HerderContextItem,
+  HerderContextPart,
+  HerderContextParts,
+  HerderContextSnapshot,
+} from "@agentherd/core";
 
 export const API_VERSION = 1;
 
@@ -174,6 +185,48 @@ export interface HerderIncident {
 }
 
 /** 主管 › 行动记录: the Herder's turns and incidents, newest first. */
+/** Token counts of a span of the Herder's requests (ADR 0093). */
+export interface HerderUsage {
+  requests: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Share of the input the provider read from its cache, 0–1; 0 without requests. */
+  hitRate: number;
+}
+
+export interface HerderUsageDay extends HerderUsage {
+  /** Local day, YYYY-MM-DD. */
+  day: string;
+}
+
+/** One request, for the trend chart. */
+export interface HerderTrendPoint {
+  at: string;
+  model: string;
+  /** Our estimate of the request and its parts. */
+  tokens: number;
+  parts: HerderContextParts;
+  input: number;
+  output: number;
+  cacheRead: number;
+}
+
+/** The 上下文 tab of the 主管 page (ADR 0093). */
+export interface HerderContextView {
+  /** Whether a Herder is running now; its last request is gone after a restart until the next. */
+  on: boolean;
+  snapshot?: HerderContextSnapshot;
+  folds: HerderContextFold[];
+  today: HerderUsage;
+  week: HerderUsage;
+  /** The last seven days, oldest first, today last. */
+  days: HerderUsageDay[];
+  /** The newest requests, oldest first. */
+  trend: HerderTrendPoint[];
+}
+
 export interface HerderActivityView {
   turns: HerderActivityTurn[];
   incidents: HerderIncident[];
@@ -181,14 +234,33 @@ export interface HerderActivityView {
   total: number;
 }
 
+/**
+ * Fields of the owner's profile card (ADR 0091), in the order the app shows them. The same list as
+ * PROFILE_FIELDS in @agentherd/core; kept here because this file has no runtime imports.
+ */
+export const PROFILE_FIELD_NAMES = [
+  "称呼",
+  "身份",
+  "在做",
+  "作息",
+  "回答方式",
+  "喜好",
+  "在意",
+] as const;
+export type ProfileFieldName = (typeof PROFILE_FIELD_NAMES)[number];
+/** The owner's profile card: the value of each field it has. */
+export type OwnerProfile = Partial<Record<ProfileFieldName, string>>;
+/** Characters one profile field may hold. */
+export const PROFILE_VALUE_MAX = 60;
+
 /** The Herder's long-term memory for the 记忆 page (ADR 0038). */
 export interface MemoryView {
   /** Active entries, newest first, and the last deleted ones (to restore). */
   entries: MemoryRow[];
   deleted: MemoryRow[];
   /** Characters used and allowed of the kinds kept in the Herder's prompt. */
-  used: { owner: number; decision: number; note: number };
-  caps: { owner: number; decision: number; note: number };
+  used: { profile: number; owner: number; decision: number; note: number };
+  caps: { profile: number; owner: number; decision: number; note: number };
   /** False while AgentHerd is not following tasks (no herd): nothing to show or change. */
   ready: boolean;
 }
@@ -288,17 +360,112 @@ export interface SettingsPatch {
   pet?: Partial<PetSettings>;
 }
 
-/** The two figures that come with the app (ADR 0070). */
-export const PET_FIGURES = ["claude", "deepseek"] as const;
+/**
+ * The figures that come with the app: two from llm-pet (ADR 0070) and sixteen anime figures from
+ * awesome-codex-pet (ADR 0092). Where each comes from is in the desktop's pet/figures.ts.
+ */
+export const PET_FIGURES = [
+  "deepseek",
+  "claude",
+  "frieren",
+  "bocchi",
+  "nijika",
+  "kita",
+  "ryo",
+  "emilia",
+  "reze",
+  "mikoto",
+  "miku",
+  "chiikawa",
+  "hachiware",
+  "toothless",
+  "luoxiaohei",
+  "tushansusu",
+  "hanli",
+  "wukong",
+] as const;
 export type PetFigure = (typeof PET_FIGURES)[number];
 
 export interface PetSettings {
   /** Shown on the desktop. */
   on: boolean;
   figure: PetFigure;
+  /**
+   * System notifications for what waits for the owner and for task results, even when the pet
+   * and the chat app are out of sight (ADR 0079).
+   */
+  notify: boolean;
+  /** Those notifications ring; a finished task never does, a failed one and a question do. */
+  sound: boolean;
+  /** `HH:MM-HH:MM` local hours with no notification, no sound and no panel popping open; "" none. */
+  quietHours: string;
+  /** Quiet until this ISO time (暂停打扰 from the menu bar or settings); "" when not snoozed. */
+  quietUntil: string;
+  /**
+   * A global shortcut (an Electron accelerator such as `CommandOrControl+Shift+Space`) that opens
+   * the pet's conversation with the cursor in the input; "" for none (ADR 0080).
+   */
+  talkKey: string;
+  /**
+   * A global shortcut that picks the oldest approval waiting; pressed again within a few seconds
+   * it allows that one (ADR 0080). "" for none.
+   */
+  approveKey: string;
+  /**
+   * "always": the pet floats above other windows; "busy": only while it has something for the
+   * owner (an approval or a question waits, a new line, its panel open), else it sits among the
+   * other windows (ADR 0080).
+   */
+  onTop: PetOnTop;
+  /** macOS: also shown over apps in full screen (ADR 0080). Off by default. */
+  overFullscreen: boolean;
+  /**
+   * After a reply the Herder guesses what the owner will say next; the pet shows it in the empty
+   * input and Tab takes it (ADR 0084). One small model call per reply.
+   */
+  suggest: boolean;
 }
 
-export const DEFAULT_PET: PetSettings = { on: true, figure: "deepseek" };
+export const PET_ON_TOP = ["always", "busy"] as const;
+export type PetOnTop = (typeof PET_ON_TOP)[number];
+
+/** Files the owner can drop on the pet at once (ADR 0082). */
+export const PET_DROP_MAX = 6;
+
+export const DEFAULT_PET: PetSettings = {
+  on: true,
+  figure: "deepseek",
+  notify: true,
+  sound: true,
+  quietHours: "",
+  quietUntil: "",
+  talkKey: "CommandOrControl+Shift+Space",
+  approveKey: "CommandOrControl+Shift+Y",
+  onTop: "always",
+  overFullscreen: false,
+  suggest: true,
+};
+
+/** `HH:MM-HH:MM`, both in 00:00–23:59; the hours may cross midnight (ADR 0079). */
+export const QUIET_HOURS = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Modifiers a pet shortcut may use (Electron accelerator words, ADR 0080). */
+export const PET_SHORTCUT_MODIFIERS = ["CommandOrControl", "Control", "Alt", "Super", "Shift"];
+
+/**
+ * A global shortcut the pet takes (ADR 0080): up to three different modifiers, one of them not
+ * Shift, then a letter, digit, Space, an arrow or a punctuation key; a function key needs none.
+ */
+export function isPetShortcut(value: string): boolean {
+  const parts = value.split("+");
+  // "+" itself is not offered, so the key is never empty.
+  const key = parts.pop() ?? "";
+  if (parts.length > 3 || new Set(parts).size !== parts.length) return false;
+  if (!parts.every((m) => PET_SHORTCUT_MODIFIERS.includes(m))) return false;
+  if (/^F([1-9]|1\d|2[0-4])$/.test(key)) return true;
+  const ok = /^([A-Z0-9]|Space|Up|Down|Left|Right|[/.,;'[\]\\`=-])$/.test(key);
+  return ok && parts.some((m) => m !== "Shift");
+}
 
 /** One thing AgentHerd sent to the owner, as the pet shows it. */
 export interface PetLine {
@@ -360,6 +527,11 @@ export interface PetView {
   history: PetLine[];
   /** The cards sent to the owner over the same time, oldest first (ADR 0072). */
   cards: PetCard[];
+  /**
+   * What the owner might say next, guessed after the Herder's last reply (ADR 0084). Gone once
+   * anything new is said or a card waits for them.
+   */
+  suggestion?: string;
 }
 
 /** 飞书 through lark-cli in 应用连接 (ADR 0059). */
@@ -413,6 +585,30 @@ export interface WestockTest {
   message: string;
   sample?: string;
   westock: WestockView;
+}
+
+/** 雪球基金 (Danjuan Funds) login & session state (ADR 0077). */
+export type DanjuanState = "off" | "signing-in" | "starting" | "ready" | "signed-out" | "failed";
+
+/** 雪球基金 connection state in 设置 › 应用连接 › 行情与投研 (ADR 0077). */
+export interface DanjuanView {
+  /** True when Chrome or Edge is available on this computer for isolated session calls. */
+  available: boolean;
+  /** True once the owner accepted the read-only local-session risk notice. */
+  accepted: boolean;
+  enabled: boolean;
+  state: DanjuanState;
+  account?: string;
+  problem?: string;
+  checkedAt?: string;
+}
+
+/** What 雪球基金 › 测试连接 found. */
+export interface DanjuanTest {
+  ok: boolean;
+  message: string;
+  sample?: string;
+  danjuan: DanjuanView;
 }
 
 /** Everything the host offers. Each method is one request on the socket. */
@@ -527,6 +723,88 @@ export interface WatchView {
   activeAt?: string;
 }
 
+/** One MCP server of a plugin, as the owner sees it before installing (ADR 0094). */
+export interface PluginServerView {
+  name: string;
+  kind: "stdio" | "http";
+  /** The command line it runs, or the address it talks to, as written by the plugin. */
+  run: string;
+}
+
+export interface PluginSkillView {
+  name: string;
+  description: string;
+}
+
+/** What a plugin would add, shown before the owner installs it. */
+export interface PluginPreview {
+  /** `official:<name>` or `github:owner/repo[/folder][@ref]`. */
+  source: string;
+  /** Where its files are on GitHub. */
+  link: string;
+  name: string;
+  description: string;
+  version?: string;
+  author?: string;
+  format: "claude" | "gemini";
+  servers: PluginServerView[];
+  /** Keys its servers read (`${GITHUB_TOKEN}`). */
+  keys: string[];
+  skills: PluginSkillView[];
+  /** Parts only Claude Code or Gemini CLI can use, in words: 「3 个斜杠命令」. */
+  ignored: string[];
+  /** Servers that cannot run here, in words. */
+  problems: string[];
+  /** Set when a plugin from this source is installed already. */
+  installedId?: string;
+}
+
+/**
+ * off: turned off; idle: on, its servers start when an agent first needs them; starting;
+ * ready: tools listed; failed: a server did not start or answer (see problem).
+ */
+export type PluginState = "off" | "idle" | "starting" | "ready" | "failed";
+
+/** An installed plugin. */
+export interface PluginView extends Omit<PluginPreview, "installedId"> {
+  id: string;
+  /** Task agents get its tools and skills. */
+  enabled: boolean;
+  /** The Herder also gets its read-only tools and its skills (off unless the owner turns it on). */
+  herder: boolean;
+  installedAt: string;
+  state: PluginState;
+  /** Tools its servers listed, and how many of them only read. */
+  tools: number;
+  readTools: number;
+  problem?: string;
+  /** Keys the owner filled in (the values stay in secrets.json). */
+  keysSet: string[];
+  /** The folder AgentHerd keeps it in. */
+  dir: string;
+}
+
+/** One plugin of the official Claude Code plugin library. */
+export interface PluginCatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  category?: string;
+  author?: string;
+  homepage?: string;
+  /** What to pass to previewPlugin; missing when AgentHerd cannot install it (see why). */
+  source?: string;
+  why?: string;
+  installed: boolean;
+}
+
+export interface PluginPatch {
+  enabled?: boolean;
+  herder?: boolean;
+  /** Keys to save; "" removes one. */
+  keys?: Record<string, string>;
+}
+
 export interface HostApi {
   status(): HostStatus;
   tasks(): TasksView;
@@ -534,11 +812,22 @@ export interface HostApi {
   transcript(taskId: string): TranscriptView;
   /** What the Herder did, newest turn first: at most `limit` turns (default 200). */
   herderActivity(limit?: number): HerderActivityView;
+  /** What the Herder's requests are made of, its folds and its token use (ADR 0093). */
+  herderContext(): HerderContextView;
+  /** The original messages of one fold, as text. */
+  herderContextFold(blockId: string): string;
   memories(): MemoryView;
   /** Changes an entry's text; the old text stays in its history. */
   editMemory(id: string, text: string): MemoryView;
   forgetMemory(id: string): MemoryView;
   restoreMemory(id: string): MemoryView;
+  /** The owner's profile card (ADR 0091), with fields set before AgentHerd first ran. */
+  ownerProfile(): OwnerProfile;
+  /**
+   * Sets one field of the owner's profile card; "" clears it. While AgentHerd is not running (the
+   * first-run guide), the value waits in config.json and is written when it starts.
+   */
+  setProfile(field: ProfileFieldName, value: string): OwnerProfile;
   /** Schedules are made in chat; the app shows them and can pause or remove one. */
   schedules(): SchedulesView;
   setSchedulePaused(id: string, paused: boolean): SchedulesView;
@@ -619,14 +908,31 @@ export interface HostApi {
   installWestock(): Promise<WestockView>;
   removeWestock(): Promise<WestockView>;
   testWestock(query?: string): Promise<WestockTest>;
+  danjuan(): Promise<DanjuanView>;
+  connectDanjuan(accepted: boolean): Promise<DanjuanView>;
+  cancelDanjuanLogin(): Promise<DanjuanView>;
+  testDanjuan(): Promise<DanjuanTest>;
+  logoutDanjuan(): Promise<DanjuanView>;
   /** What the desktop pet shows (ADR 0070). */
   pet(): PetView;
-  /** The owner typed this to the pet: it reaches AgentHerd as a chat message. */
-  petSay(text: string): Promise<PetView>;
+  /**
+   * The owner typed this to the pet: it reaches AgentHerd as a chat message. `paths` are files
+   * dropped on the pet (ADR 0082): pictures go in as images, the rest as lines with their paths.
+   */
+  petSay(text: string, paths?: string[]): Promise<PetView>;
   /** The owner pressed a button on a card in the pet's bubble. */
   petPress(target: string, action: string): Promise<PetView>;
   /** The owner stopped a task (the pet's task card): its agent stops, the task stays (ADR 0072). */
   stopTask(taskId: string): Promise<void>;
+  /** The official Claude Code plugin library (ADR 0094). */
+  pluginCatalog(): Promise<PluginCatalogEntry[]>;
+  plugins(): PluginView[];
+  /** Downloads a plugin and says what it would add; nothing is installed yet. */
+  previewPlugin(source: string): Promise<PluginPreview>;
+  /** Installs a plugin the owner looked at, with the keys they filled in. */
+  installPlugin(source: string, keys: Record<string, string>): Promise<PluginView[]>;
+  setPlugin(id: string, patch: PluginPatch): Promise<PluginView[]>;
+  removePlugin(id: string): Promise<PluginView[]>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -636,8 +942,12 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "tasks",
   "transcript",
   "herderActivity",
+  "herderContext",
+  "herderContextFold",
   "memories",
   "editMemory",
+  "ownerProfile",
+  "setProfile",
   "forgetMemory",
   "restoreMemory",
   "schedules",
@@ -692,10 +1002,21 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "installWestock",
   "removeWestock",
   "testWestock",
+  "danjuan",
+  "connectDanjuan",
+  "cancelDanjuanLogin",
+  "testDanjuan",
+  "logoutDanjuan",
   "pet",
   "petSay",
   "petPress",
   "stopTask",
+  "pluginCatalog",
+  "plugins",
+  "previewPlugin",
+  "installPlugin",
+  "setPlugin",
+  "removePlugin",
 ];
 
 export type HostEvent =
@@ -709,8 +1030,10 @@ export type HostEvent =
   | { topic: "watches"; data: WatchView[] }
   | { topic: "lark"; data: LarkView }
   | { topic: "westock"; data: WestockView }
+  | { topic: "danjuan"; data: DanjuanView }
   | { topic: "login"; data: LoginView }
-  | { topic: "pet"; data: PetView };
+  | { topic: "pet"; data: PetView }
+  | { topic: "plugins"; data: PluginView[] };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {

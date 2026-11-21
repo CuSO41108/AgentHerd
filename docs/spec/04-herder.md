@@ -3,7 +3,8 @@
 Applied ADRs: [0003](../adr/0003-herder-on-pi-agent-core.md), [0007](../adr/0007-tiered-decisions-fail-open-to-human.md),
 [0008](../adr/0008-observe-first-rollout.md), [0012](../adr/0012-channel-is-the-only-decision-surface.md),
 [0018](../adr/0018-one-herder-as-secretary-separate-approvals.md), [0019](../adr/0019-relay-verbatim-board-and-reports.md),
-[0076](../adr/0076-westock-market-quotes-and-research-cli.md).
+[0076](../adr/0076-westock-market-quotes-and-research-cli.md),
+[0077](../adr/0077-xueqiu-danjuan-fund-holdings.md).
 
 AgentHerd has three roles:
 
@@ -109,8 +110,8 @@ The Herder may add, never rewrite.
 | Read | `task_get`, `task_list`, `session_transcript`, `decisions_list`, `read`, `grep`, `list`, `git_log`, `git_diff` (read tools only inside known project directories) |
 | Schedules | `schedule_add(about, prompt, kind, at?, days?, hours?)`, `schedule_change(schedule, …, paused?)`, `schedule_remove(schedule)`: what the Herder does at set times, only when the owner asks ([ADR 0055](../adr/0055-schedules-the-herder-makes.md)) |
 | Context | `compress`, `decompress`, `search_context`, `acp_status`: fold finished parts of its own conversation, find and show them again ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)) |
-| Web | `web_search(query, source?, limit?)` (web results from DuckDuckGo, then Bing; `source: github` lists repositories), `web_read(url, maxChars?)` (a public page as text; a GitHub repository's facts from the API): read-only, public hosts only, for quick answers without a task ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)) |
-| Market | `stock_quote(query)` (live A-share, HK, US, ETF and broad index quotes from Tencent Finance when 腾讯自选股 is on; read-only, zero login, objective reference only; [ADR 0076](../adr/0076-westock-market-quotes-and-research-cli.md)) |
+| Web | `web_search(query, source?, limit?)` (web results from DuckDuckGo, then Bing; `source: github` lists repositories, trying fewer words when all of them find nothing, [ADR 0085](../adr/0085-asked-for-projects-the-herder-names-real-ones.md); `source: research` asks the web, GitHub and Hacker News at once, at most 8 s, merged by link, [ADR 0086](../adr/0086-research-searches-several-sources-at-once.md)), `web_read(url, maxChars?)` (a public page as text; a GitHub repository's facts from the API): read-only, public hosts only, for quick answers without a task ([ADR 0071](../adr/0071-look-things-up-and-keep-the-board-short.md)) |
+| Market | `stock_quote(query)` (live A-share, HK, US, ETF and broad index quotes from Tencent Finance when 腾讯自选股 is on; read-only, zero login, objective reference only; [ADR 0076](../adr/0076-westock-market-quotes-and-research-cli.md)), `fund_holdings(days?, account?)` (personal 雪球基金 holdings and recent N-day NAV gains when signed in; read-only, [ADR 0077](../adr/0077-xueqiu-danjuan-fund-holdings.md)) |
 
 There is no tool to approve an item, write files or run shell commands. Every Herder tool call
 is checked by the guard list first; a match goes to the owner instead of running. Every call is
@@ -149,6 +150,14 @@ later task gets and which counts as the owner allowing that step.
   whole turns itself (never the current one); a "context too long" error folds about half and
   retries once
   ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)).
+- The 主管 page's 上下文 tab shows the last request split into system prompt, memory, tools, folds,
+  the owner, the Herder and tool results against the window, each request's token use and cache
+  hits (`herder_requests`), a trend, every item, and the folds with their originals
+  ([ADR 0093](../adr/0093-the-herders-context-panel.md)).
+- No single input fills it: the owner's message goes in up to 8,000 characters (the whole is saved
+  under `attachments` and the message says where), a task's reply up to 12,000, a report, event or
+  new-work item up to 4,000; each cut says how much was left out. Files dropped on the pet come as
+  paths, read by tasks, not by the Herder ([ADR 0083](../adr/0083-the-herder-reads-bounded-input.md)).
 - Tasks are saved in `herd.db` and come back after a restart as ended tasks. `session_prompt` to an
   ended task starts its agent again in the same folder with the same model; Pi reopens its own
   session, other agents get the earlier conversation as text ([ADR 0039](../adr/0039-tasks-kept-and-continued.md)).
@@ -205,6 +214,11 @@ board.
 | `stuck` | Watchdog alarm, or last report `blocked` |
 | `done` | Last report `ready`, or `dropped` |
 | `failed` | Last report `failed`, or the session ended with an error |
+
+A task that is `needs-owner` because of its own `waiting` report (not an open approval) and has
+not changed for 30 minutes is asked about once: 「还要做 / 不做了」. 还要做 sends it back to redo what
+went stale and tell the owner what to do; 不做了, or no answer for a day, stops it as `failed`.
+停止 on a task that ended while it waited does the same ([ADR 0081](../adr/0081-a-waiting-task-asks-whether-it-still-matters.md)).
 
 ### Watchdog
 
@@ -416,12 +430,17 @@ New GitHub work is offered only when the owner asks for it ([ADR 0052](../adr/00
   likes, saves and new followers are never told. `social_watch` turns this off or on when the
   owner asks; `session_list` shows platforms. Agents use the account through `XIAOHONGSHU_` and
   `ZHIHU_` tools; writes ask (ADR 0056).
-- **News and this Mac's tools** (ADR 0059, ADR 0076). `feed_read` reads GitHub Trending, Hacker News or
+  The Herder's system prompt ends with the connected accounts (signed in or not) and apps, rebuilt
+  on the next turn after one changes; a 小红书 or 知乎 link starts a read-only task at once when
+  that account is signed in (ADR 0089).
+- **News and this Mac's tools** (ADR 0059, ADR 0076, ADR 0077). `feed_read` reads GitHub Trending, Hacker News or
   arXiv; with `told: true` (a digest, often a schedule) the items are recorded and later reads
   mark them `[told before]`, which the Herder leaves out. `stock_quote` reads live stock and index
-  quotes when 腾讯自选股 is enabled. `session_start` adds what the host says the computer offers
-  (lark-cli signed in as the owner, the Obsidian vault, and whether Tencent WeStock live quotes or
-  the `westock` research CLI are available) to every new task's context.
+  quotes when 腾讯自选股 is enabled. `fund_holdings` reads personal 雪球基金 holdings and recent N-day
+  returns when connected. `session_start` adds what the host says the computer offers
+  (lark-cli signed in as the owner, the Obsidian vault, whether Tencent WeStock live quotes or the
+  `westock` research CLI are available, and 雪球基金 read-only status when connected) to every new
+  task's context.
 - **Watches list.** 定时任务 → 在盯的 lists pull requests, mail watches, new-work watches and
   platform kinds; pausing keeps a watch without looking (`paused` in its row), removing deletes it.
 
@@ -493,6 +512,19 @@ not a number: the result in a sentence or two when that is all they want, every 
 ask for a list, the whole of it when it matters. No filler, no steps, no 「结论：」 lines; when
 there is far too much, what matters plus where the rest is. The style text no longer carries
 "say less" or "under three sentences".
+
+It cares about the owner ([ADR 0088](../adr/0088-the-herder-cares-and-writes-plain-chinese.md)): after the answer, one short
+line when there is a reason. From midnight to 5 a.m. the time line before each message ends with
+"late at night", and the first reply after midnight ends with a line telling the owner to get some
+sleep (once a night). Tired, ill, upset, hours at it or a failure they cared about get one line
+that shows the Herder noticed. Empty politeness (「好的！」「希望对你有帮助」) stays out. The owner
+found a bare time at 01:55 cold (「这里其实我希望能回复一个早点睡」, 2026-11-20). Its Chinese reads
+like a person wrote it: no 「不是……而是……」 when nothing is compared, no opening or closing
+summary, no jargon (落地、对齐、钉死), full two-character words, no plan in front of the answer,
+nothing about what was ruled out, no trace of a corrected mistake, no remarks on how much work
+something is.
+Like a text message, no line of a reply ends with 「。」: AgentHerd drops it before the reply is
+said or kept (code and herd-ui blocks untouched); the owner: 「不要加句号」 (2026-11-20).
 
 It is written for a phone: several things with details of their own (repositories, options,
 files, findings) go one per line starting with "- ", never run together in one paragraph; a

@@ -142,7 +142,21 @@ export const OWNER_CARDS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS owner_cards(
 );
 CREATE INDEX IF NOT EXISTS owner_cards_at ON owner_cards(at);`;
 
-export const LATEST_SCHEMA_VERSION = 15;
+/** One row per request to the Herder's model (ADR 0093). */
+export const HERDER_REQUESTS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS herder_requests(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input INTEGER NOT NULL,
+  output INTEGER NOT NULL,
+  cache_read INTEGER NOT NULL,
+  cache_write INTEGER NOT NULL,
+  tokens INTEGER NOT NULL,
+  parts_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS herder_requests_at ON herder_requests(at);`;
+
+export const LATEST_SCHEMA_VERSION = 16;
 
 export const SCHEMA_SQL = `
 CREATE TABLE sessions(
@@ -209,4 +223,5 @@ ${INTAKE_WATCHES_TABLE_SQL}
 ${SCHEDULES_TABLE_SQL}
 ${TASK_ALLOWED_STEPS_SQL}
 ${OWNER_CARDS_TABLE_SQL}
+${HERDER_REQUESTS_TABLE_SQL}
 `;

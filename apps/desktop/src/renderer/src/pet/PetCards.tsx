@@ -13,8 +13,8 @@ import {
   cut,
   elapsedOf,
   foldBody,
-  modelName,
   reportHead,
+  runnerOf,
   stepOf,
   TASK_STAGE,
 } from "./pet-state";
@@ -274,8 +274,8 @@ export function TaskCard(props: {
   const running = canStop(task);
   const step = stepOf(task);
   const [asking, setAsking] = useState(false);
-  const meta = [task.agent, modelName(task.model), elapsedOf(task, props.now)].filter(
-    (x) => x !== undefined && x !== "",
+  const meta = [runnerOf(task.agent, task.model), elapsedOf(task, props.now)].filter(
+    (x) => x !== "",
   );
   return (
     <div className={`pet-task${running ? " running" : ""}`}>

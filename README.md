@@ -26,7 +26,8 @@ English · [简体中文](README.zh-CN.md)
 - **A Herder that talks like a person.** The Herder is a light-model agent that takes your
   messages, starts and follows tasks, and tells you each result in its own words, with the
   agent's own reply one tap away. It talks like a capable friend. The app's 「主管」 page shows
-  every step it took and why.
+  every step it took and why, and what its context is made of: how full it is, what it folded,
+  and the tokens and cache hits its model used.
 - **The right agent and model for each task.** Pi and Codex (for GPT models) come inside the app;
   Claude Code takes hard coding work, using your own `claude` or a download on the **Agent** page,
   with your own Anthropic-style model service. They run through the
@@ -47,19 +48,34 @@ English · [简体中文](README.zh-CN.md)
   sheets and calendar and write results as new docs; changing existing things asks you. GitHub
   Trending, Hacker News and arXiv need no sign-in: ask for a daily digest and nothing repeats.
   Notion comes through Composio, and your Obsidian vault is handed to every task.
+- **Plugins.** Install Claude Code plugins and Gemini CLI extensions from the official library or a
+  GitHub link. You see what they run first; tasks get their tools and skills, tools that change
+  things ask you, and the Herder uses a plugin only if you switch it on.
 - **Schedules in plain words.** "Every weekday at 9, check for new issues" — the Herder makes the
   schedule, and missed runs happen once when your machine wakes.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
-  itself. It learns a lesson only when a task went wrong, and finds past results in task records.
-- **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop, says what AgentHerd just told you
+  itself. It keeps a profile card of you (what to call you, what you work on, your hours and
+  likes), from things you say in passing; you see and edit it on the Memory page, and the first
+  run asks what to call you. It learns a lesson only when a task went wrong, and finds past results
+  in task records.
+- **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop (she reads while the Herder thinks, jumps when it answers and walks when you drag her), says what AgentHerd just told you
   in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
   her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
   drawn as components (in Feishu too); pictures a task saves for you (a QR code to scan, a
   screenshot) shown right in the reply; files the Herder points you to one click away; the same cards as Feishu;
-  and a card for each task to stop or open it. Fold her into a dot when she is in the way.
+  and a card for each task to stop or open it. Three pages — 对话, 任务, 卡片 — put running tasks
+  and the cards waiting for you on pages of their own; a dot over her head for each running task
+  shows at a glance which one waits on you. Drag a file or a screenshot onto her to hand it to the
+  Herder. After a reply her empty input shows a grey guess of what you might say next; Tab takes
+  it. Fold her into a dot when she is in the way.
+  When she is out of sight she sends a system notification (only approvals and failures ring),
+  a sheep in the menu bar shows what runs and waits, and quiet hours or a snooze keep her silent.
+  ⇧⌘Space opens her to type from any app, ⇧⌘Y twice allows the oldest approval, and she can
+  tuck at a screen edge or float on top only when she has something for you.
 - **Local only.** No AgentHerd server. Keys and sign-ins stay in `~/.agentherd/secrets.json`
-  (`%USERPROFILE%\.agentherd\secrets.json` on Windows), readable only by you. Agents can keep
-  running with the lid closed on macOS, or in the system tray with idle sleep blocked on Windows.
+  (`%USERPROFILE%\.agentherd\secrets.json` on Windows), readable only by you. With 防止休眠 on,
+  agents keep running while a task runs: with the lid closed on macOS, and without idle sleep on
+  Windows.
 
 ## How it works
 
@@ -79,16 +95,17 @@ pnpm install
 pnpm --filter @agentherd/desktop start
 ```
 
-The first run walks you through it: scan a QR code to connect Feishu, add a model service and
-its key (or sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi
-and Codex come with the app; on the **Agent** page, press 验证 to check that one starts. In
-development, run `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev
-app looks (`pnpm --filter @agentherd/desktop dev` runs with live reload). Then send the Herder a
-message in Feishu.
+The first run walks you through it: say what the Herder should call you and pick its figure
+(both can be skipped), scan a QR code to connect Feishu, add a model service and its key (or
+sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi and Codex
+come with the app; on the **Agent** page, press 验证 to check that one starts. In development,
+run `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks
+(`pnpm --filter @agentherd/desktop dev` runs with live reload). Then send the Herder a message
+in Feishu.
 
 - **Windows:** run the same commands in PowerShell. Closing the window keeps AgentHerd connected
-  in the system tray — right-click the tray icon to quit. There is no Windows installer yet; run
-  from source.
+  in the system tray; right-click the tray icon to quit. There is no Windows installer yet, so
+  run from source.
 - **macOS packaging:** `pnpm --filter @agentherd/desktop package:mac` builds `AgentHerd.app` and
   an unsigned `.dmg`.
 
@@ -102,8 +119,8 @@ node packages/cli/bin/agentherd.ts model use herder deepseek/deepseek-flash
 node packages/cli/bin/agentherd.ts start
 ```
 
-Run one task directly with `run --profile pi /tmp/demo "Create out.txt containing hello"` (`C:\temp\demo` on Windows), and see
-recent decisions with `status`.
+Run one task directly with `run --profile pi /tmp/demo "Create out.txt containing hello"`
+(`C:\temp\demo` on Windows), and see recent decisions with `status`.
 
 </details>
 
@@ -115,4 +132,4 @@ recent decisions with `status`.
 
 AgentHerd is under the [MIT License](LICENSE).
 
-<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md). The desktop pet's figures are drawn by ZipZipPipe and come from [llm-pet](https://github.com/savanna0425/llm-pet); they are not under the MIT License and may not be used commercially ([notice](apps/desktop/src/renderer/src/pet/figures/NOTICE.md)).</sub>
+<sub>The Herder's loop is a fork of [Pi](https://github.com/earendil-works/pi)'s agent loop (MIT, [`packages/herder-loop`](packages/herder-loop/UPSTREAM.md)). Its context management uses [acp-kernel](https://github.com/ranxianglei/acp-kernel) from [billion-context](https://github.com/ranxianglei/billion-context) (MIT plus an attribution term), copied into [`packages/context-kernel`](packages/context-kernel/UPSTREAM.md). See [References](docs/references.md). The desktop pet's figures come from community Codex pets: 大肥鱼 and Claude 娘 drawn by ZipZipPipe from [llm-pet](https://github.com/savanna0425/llm-pet), and sixteen anime figures by their makers from [awesome-codex-pet](https://github.com/legeling/awesome-codex-pet). They are not under the MIT License and may not be used commercially; the characters belong to their original works. Every figure's maker, terms and link are in the [notice](apps/desktop/src/renderer/src/pet/figures/NOTICE.md).</sub>

@@ -2,9 +2,15 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeChannel } from "@agentherd/channel-fake";
-import { type Herd, type SecretStore, Store } from "@agentherd/core";
+import {
+  type Herd,
+  type HerderHost,
+  PROFILE_FIELDS,
+  type SecretStore,
+  Store,
+} from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HostEvent } from "../src/api.ts";
+import { DEFAULT_PET, type HostEvent, PROFILE_FIELD_NAMES } from "../src/api.ts";
 import { readConfig, writeConfig } from "../src/config.ts";
 import { Host } from "../src/host.ts";
 import { connectHost, isHostRunning, serveApi, socketPath } from "../src/server.ts";
@@ -166,24 +172,69 @@ describe("Host", () => {
 
   it("shows the desktop pet by default, saves its figure and passes the owner's words on (ADR 0070)", async () => {
     const t = makeHost(true);
-    expect(t.host.status().pet).toEqual({ on: true, figure: "deepseek" });
+    expect(t.host.status().pet).toEqual(DEFAULT_PET);
     expect(t.host.pet()).toEqual({ connected: false, pending: [], history: [], cards: [] });
     await expect(t.host.stopTask("t1")).rejects.toThrow("not running");
     await t.host.start();
     expect(t.host.pet().connected).toBe(true);
 
     expect(t.host.updateSettings({ pet: { figure: "claude" } }).pet).toEqual({
-      on: true,
+      ...DEFAULT_PET,
       figure: "claude",
     });
     expect(t.host.updateSettings({ pet: { on: false } }).pet).toEqual({
+      ...DEFAULT_PET,
       on: false,
       figure: "claude",
     });
-    expect(readConfig(t.home).pet).toEqual({ on: false, figure: "claude" });
+    expect(readConfig(t.home).pet).toMatchObject({ on: false, figure: "claude" });
     expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
-      /claude, deepseek/,
+      /deepseek, claude, frieren/,
     );
+    // The anime figures of ADR 0092 are kept like the others.
+    expect(t.host.updateSettings({ pet: { figure: "frieren" } }).pet.figure).toBe("frieren");
+    t.host.updateSettings({ pet: { figure: "claude" } });
+    // Notifications and quiet hours (ADR 0079).
+    expect(
+      t.host.updateSettings({
+        pet: { sound: false, quietHours: "22:30-07:45", quietUntil: "2026-11-19T12:00:00.000Z" },
+      }).pet,
+    ).toMatchObject({ notify: true, sound: false, quietHours: "22:30-07:45" });
+    expect(() => t.host.updateSettings({ pet: { quietHours: "25:00-07:00" } })).toThrow(
+      /HH:MM-HH:MM/,
+    );
+    expect(() => t.host.updateSettings({ pet: { quietUntil: "soon" } })).toThrow(/quietUntil/);
+    expect(() => t.host.updateSettings({ pet: { notify: "yes" as never } })).toThrow(/pet.notify/);
+    t.host.updateSettings({ pet: { sound: true, quietHours: "", quietUntil: "" } });
+    // Global shortcuts (ADR 0080).
+    expect(t.host.status().pet).toMatchObject({
+      talkKey: "CommandOrControl+Shift+Space",
+      approveKey: "CommandOrControl+Shift+Y",
+    });
+    expect(
+      t.host.updateSettings({ pet: { talkKey: "Control+Alt+Space", approveKey: "" } }).pet,
+    ).toMatchObject({
+      talkKey: "Control+Alt+Space",
+      approveKey: "",
+    });
+    expect(() => t.host.updateSettings({ pet: { talkKey: "Y" } })).toThrow(
+      /pet.talkKey must be a shortcut/,
+    );
+    expect(() => t.host.updateSettings({ pet: { approveKey: "Control+Alt+Space" } })).toThrow(
+      /different shortcuts/,
+    );
+    t.host.updateSettings({
+      pet: { talkKey: "CommandOrControl+Shift+Space", approveKey: "CommandOrControl+Shift+Y" },
+    });
+    // Where it floats (ADR 0080).
+    expect(t.host.status().pet).toMatchObject({ onTop: "always", overFullscreen: false });
+    expect(
+      t.host.updateSettings({ pet: { onTop: "busy", overFullscreen: true } }).pet,
+    ).toMatchObject({ onTop: "busy", overFullscreen: true });
+    expect(() => t.host.updateSettings({ pet: { onTop: "never" as never } })).toThrow(
+      /pet.onTop must be one of always, busy/,
+    );
+    t.host.updateSettings({ pet: { onTop: "always", overFullscreen: false } });
 
     await t.host.petSay("在吗");
     const chat = t.channels[0];
@@ -212,6 +263,46 @@ describe("Host", () => {
     ]);
     await expect(t.host.petPress("nothing", "allow")).rejects.toThrow("这件事已经处理过了");
   });
+
+  it("shows the Herder's guess at the owner's next message until anything new is said (ADR 0084)", async () => {
+    const t = makeHost(true);
+    await t.host.start();
+    let port: HerderHost | undefined;
+    const herd = (t.host as unknown as { herd: Herd }).herd;
+    await herd.setHerder((h) => {
+      port = h;
+      return {
+        ownerMessage: () => {},
+        ownerAnswer: () => {},
+        event: () => {},
+        stop: async () => {},
+      };
+    });
+    const hook = port?.suggestion;
+    expect(hook?.on()).toBe(true);
+    hook?.show("把 b 下载下来");
+    expect(t.host.pet().suggestion).toBe("把 b 下载下来");
+    expect(t.events.some((e) => e.topic === "pet" && e.data.suggestion === "把 b 下载下来")).toBe(
+      true,
+    );
+    // A card that waits for the owner comes first.
+    hook?.show("好");
+    await new Promise((r) => setTimeout(r, 5));
+    herd.store.putOwnerCard("fake:m1", { kind: "ask", askId: "a1", text: "用哪个？", options: [] });
+    (t.host as unknown as { petFeed: { isOpen(ref: string): boolean } }).petFeed.isOpen = () =>
+      true;
+    expect(t.host.pet().suggestion).toBeUndefined();
+    // Anything said makes it stale.
+    hook?.show("再试一次");
+    port?.recordTurn("owner", "算了");
+    expect(t.host.pet().suggestion).toBeUndefined();
+    // The owner can turn it off.
+    expect(t.host.updateSettings({ pet: { suggest: false } }).pet.suggest).toBe(false);
+    expect(hook?.on()).toBe(false);
+    expect(() => t.host.updateSettings({ pet: { suggest: "yes" as never } })).toThrow(
+      /pet.suggest must be true or false/,
+    );
+  }, 20_000);
 
   it("shows the Herder's schedules and lets the owner pause and remove them (ADR 0055)", async () => {
     const off = makeHost(false);
@@ -396,5 +487,66 @@ describe("local API socket", () => {
     });
     await expect(client.host.removeService("nope")).rejects.toThrow(/no service "nope"/);
     expect((await client.host.providers()).some((p) => p.provider === "deepseek")).toBe(true);
+  });
+});
+
+describe("the owner's profile card (ADR 0091)", () => {
+  it("lists the same fields as core", () => {
+    expect([...PROFILE_FIELD_NAMES]).toEqual([...PROFILE_FIELDS]);
+  });
+
+  it("keeps a 称呼 set in the guide until AgentHerd runs, then writes it to memory", async () => {
+    const t = makeHost();
+    await t.host.start();
+    expect(t.host.ownerProfile()).toEqual({});
+    expect(t.host.setProfile("称呼", "  火哥 ")).toEqual({ 称呼: "火哥" });
+    expect(readConfig(t.home).profileWaiting).toEqual({ 称呼: "火哥" });
+    expect(() => t.host.setProfile("爱好" as "称呼", "爬山")).toThrow(/field must be one of/);
+    expect(() => t.host.setProfile("在做", "很".repeat(61))).toThrow(/at most 60/);
+
+    expect(t.host.setupFeishu().phase).toBe("starting");
+    await until(() => t.host.status().channel.connected);
+    expect(readConfig(t.home).profileWaiting).toBeUndefined();
+    const card = t.host.memories().entries.filter((e) => e.kind === "profile");
+    expect(card.map((e) => [e.abstract, e.source])).toEqual([["称呼：火哥", "owner_edit"]]);
+    expect(t.host.memories().used.profile).toBe(5);
+
+    expect(t.host.setProfile("在做", "AgentHerd")).toEqual({ 称呼: "火哥", 在做: "AgentHerd" });
+    expect(t.host.setProfile("称呼", "")).toEqual({ 在做: "AgentHerd" });
+    expect(t.host.memories().deleted.map((e) => e.abstract)).toContain("称呼：火哥");
+  });
+});
+
+describe("the Herder's token use (ADR 0093)", () => {
+  it("adds up requests and counts the cache hit rate over everything read", async () => {
+    const { usageOf } = await import("../src/host.ts");
+    const parts = { system: 1, memory: 0, tools: 0, owner: 0, herder: 0, results: 0, folds: 0 };
+    const r = (input: number, cacheRead: number, cacheWrite = 0) => ({
+      at: "2026-11-21T06:00:00.000Z",
+      model: "x/y",
+      input,
+      output: 10,
+      cacheRead,
+      cacheWrite,
+      tokens: 1,
+      parts,
+    });
+    expect(usageOf([])).toEqual({
+      requests: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      hitRate: 0,
+    });
+    const u = usageOf([r(100, 900), r(50, 850, 100)]);
+    expect(u).toMatchObject({
+      requests: 2,
+      input: 150,
+      output: 20,
+      cacheRead: 1750,
+      cacheWrite: 100,
+    });
+    expect(u.hitRate).toBeCloseTo(1750 / 2000);
   });
 });

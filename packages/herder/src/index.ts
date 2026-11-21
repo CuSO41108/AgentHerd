@@ -103,8 +103,12 @@ export {
   type HerderChoice,
   herderFallbacks,
   herderFromSettings,
+  MEMORY_MODEL_DOWN_MS,
+  MEMORY_TRY_MS,
   type MemoryModel,
+  MemoryModelChain,
   memoryModel,
+  memoryModels,
   notReadyReason,
   PI_KEY_ENV,
   PI_MODEL_ENV,
@@ -119,17 +123,36 @@ export {
   testModel,
 } from "./models.ts";
 export {
+  PLUGIN_REPLY_MAX,
+  PLUGIN_TOOL_NAMES,
+  pluginReplyText,
+  pluginTools,
+} from "./plugin-tools.ts";
+export {
+  ANSWER_TEXT_MAX,
   CONTEXT_LABEL,
   composeTaskPrompt,
+  cutInput,
+  EVENT_TEXT_MAX,
   eventsPrompt,
   HERDER_LABEL,
   OWNER_LABEL,
   QUIET,
   quoteAgent,
   systemPrompt,
+  VOICE_REPLY_MAX,
   voicePrompt,
 } from "./prompt.ts";
-export { STYLE_SOURCE, stylePrompt } from "./style.ts";
+export { STYLE_SOURCE, stylePrompt, withoutEndPeriods } from "./style.ts";
+export {
+  filterSuggestion,
+  SUGGEST_MAX_CHARS,
+  SUGGEST_MAX_TOKENS,
+  SUGGEST_TIMEOUT_MS,
+  type SuggestRequest,
+  sampleSuggestion,
+  suggestInstruction,
+} from "./suggest.ts";
 export {
   fallbackOrder,
   findTasks,

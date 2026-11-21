@@ -110,7 +110,8 @@ Rules:
   `testModel`, `probeModels` (GET `/models` of an OpenAI- or Anthropic-compatible service, so
   the owner ticks models instead of typing ids), `setupFeishu`, `cancelSetup`, `setupState`,
   `updateSettings`, `transcript` (a task's conversation), `herderActivity` (what the Herder did,
-  see 08 §6), `pet`, `petSay`, `petPress` (the desktop pet, ADR 0070: what it shows, and the
+  see 08 §6), `herderContext`, `herderContextFold` (what its requests are made of, its token use
+  and folds, ADR 0093), `pluginCatalog`, `plugins`, `previewPlugin`, `installPlugin`, `setPlugin`, `removePlugin` (plugins, ADR 0094), `pet`, `petSay`, `petPress` (the desktop pet, ADR 0070: what it shows, and the
   owner's message or button press, delivered to the herd as if from the channel; the cards
   AgentHerd sent, ADR 0072), `stopTask` (the owner stops a task from the pet's task card, ADR
   0072). Later:
@@ -123,7 +124,8 @@ All state is under `~/.agentherd/` (overridable by `AGENTHERD_HOME`):
 | Path | Content |
 | --- | --- |
 | `config.json` | Settings and agent profiles, without secrets |
-| `herd.db` | SQLite: sessions, tasks, items, decisions, rules, memory, the Herder's whole conversation (`herder_log`), the cards sent to the owner (`owner_cards`, ADR 0072) |
+| `plugins/` | Installed plugins, one folder each, and the official library cache (ADR 0094) |
+| `herd.db` | SQLite: sessions, tasks, items, decisions, rules, memory, the Herder's whole conversation (`herder_log`), the cards sent to the owner (`owner_cards`, ADR 0072), each Herder request's token use (`herder_requests`, ADR 0093) |
 | `run/herd.sock` | Local API socket (not on Windows, see §4) |
 | `logs/` | Rotated logs. Secrets redacted. |
 | `backups/` | Copies of agent config files before each export |

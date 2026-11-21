@@ -57,9 +57,25 @@ export function replyMarkdown(text: string): string {
     .join("\n\n");
 }
 
-/** A reply with fences is never folded: folding would hide its components and its buttons. */
-export function replyFold(text: string): { folded: boolean; more: number } {
-  return hasHerdUi(text) ? { folded: false, more: 0 } : foldOf(text);
+/** A reply drawn taller than this (its words, pictures and components) folds too. */
+export const FOLD_HEIGHT = 280;
+
+/**
+ * Whether a reply folds behind 「展开全文」, and how many more lines that shows (ADR 0073): long words
+ * (its fences left out) or a drawn `height` over `FOLD_HEIGHT` fold, so every long reply does,
+ * components or not. A reply whose choices still `wait` for an answer stays open: folding would
+ * hide its buttons. The line count is only told for words alone.
+ */
+export function replyFold(
+  text: string,
+  height = 0,
+  wait = false,
+): { folded: boolean; more: number } {
+  if (wait) return { folded: false, more: 0 };
+  const fenced = hasHerdUi(text);
+  const words = foldOf(fenced ? replyMarkdown(text) : text);
+  if (!words.folded && height <= FOLD_HEIGHT) return { folded: false, more: 0 };
+  return { folded: true, more: fenced ? 0 : words.more };
 }
 
 /** Whether the picked answer is one of the reply's choices (else it is shown on its own). */

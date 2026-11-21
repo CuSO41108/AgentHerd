@@ -39,15 +39,29 @@ export type {
   FeedItem,
   FeedQuery,
   FeedSource,
+  HerderContextFold,
+  HerderContextItem,
+  HerderContextPart,
+  HerderContextParts,
+  HerderContextReport,
+  HerderContextSnapshot,
   HerderEvent,
   HerderFactory,
   HerderHost,
+  HerderPlugins,
   HerderPort,
+  HerderRequestRecord,
+  HerderSuggestion,
   HerderTurnRole,
   OwnerImage,
   VoiceRequest,
 } from "./herder-port.ts";
-export { FEED_SOURCES, HERDER_RETRY_TARGET } from "./herder-port.ts";
+export {
+  FEED_SOURCES,
+  HERDER_CONTEXT_ITEM_TEXT_MAX,
+  HERDER_CONTEXT_PARTS,
+  HERDER_RETRY_TARGET,
+} from "./herder-port.ts";
 export type { Answerable, InboxOptions, OwnerAnswer } from "./inbox.ts";
 export { BODY_MAX_LINES, DEFAULT_REMIND_MINUTES, Inbox, itemBody, itemView } from "./inbox.ts";
 export type { IntakeItem, IntakeKind, IntakeOptions, IntakeRequest } from "./intake.ts";
@@ -102,6 +116,9 @@ export {
   type MemorySource,
   type MemoryStatus,
   MemoryStore,
+  PROFILE_FIELDS,
+  type ProfileField,
+  profileField,
   RESIDENT_CAPS,
   RESIDENT_KINDS,
   REVIEW_JOB,
@@ -140,6 +157,7 @@ export {
   noticeLevels,
   setNoticeLevel,
 } from "./notices.ts";
+export { OWNER_TEXT_MAX } from "./owner-commands.ts";
 export {
   ACK_WORDS_MAX,
   cutWords,
@@ -205,6 +223,7 @@ export type {
 } from "./store.ts";
 export {
   ftsQuery,
+  HERDER_REQUESTS_KEEP,
   type HerderTurn,
   OWNER_CARDS_KEEP,
   type OwnerCard,
@@ -216,5 +235,14 @@ export {
 export type { StageInput, Task } from "./tasks.ts";
 export { projectName, sortForBoard, stageOf, TITLE_MAX_CHARS, taskTitle } from "./tasks.ts";
 export { CORE_TEXTS, type CoreTexts, coreTexts } from "./texts.ts";
+export {
+  WAIT_ASK_MINUTES,
+  WAIT_GIVE_UP_HOURS,
+  WAIT_STATE_KEY,
+  WAIT_TARGET,
+  type WaitEntry,
+  WaitWatch,
+  waitedFor,
+} from "./waiting.ts";
 export type { Alarm, AlarmReason, WatchdogOptions } from "./watchdog.ts";
 export { MAX_QUIET_MINUTES, REPEAT_LIMIT, WATCHDOG_SECONDS, Watchdog } from "./watchdog.ts";

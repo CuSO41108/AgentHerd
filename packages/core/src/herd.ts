@@ -49,6 +49,7 @@ import { applyReport, onAlarm, restage } from "./task-report.ts";
 import { TaskRunner, unfinished } from "./task-runner.ts";
 import type { Task } from "./tasks.ts";
 import { type CoreTexts, coreTexts } from "./texts.ts";
+import { WaitWatch } from "./waiting.ts";
 import { Watchdog } from "./watchdog.ts";
 import { Workspaces } from "./workspace.ts";
 
@@ -85,6 +86,8 @@ export class Herd {
   private readonly intake: Intake | undefined;
   /** What the Herder does at set times (ADR 0055); the app lists, pauses and removes them. */
   readonly schedules: Schedules;
+  /** Asks about tasks that wait on the owner for long (ADR 0081). */
+  readonly waits: WaitWatch;
   /** Mail the owner asked to hear about; only with connected apps (ADR 0048). */
   private readonly mail: MailWatches | undefined;
   /** Notices on the owner's 小红书 and 知乎 accounts (ADR 0058). */
@@ -121,6 +124,8 @@ export class Herd {
       tasks: () => this.tasks(),
       onChange: () => {
         for (const f of this.ctx.following.values()) saveTask(this.ctx, f);
+        // Set further down; a task that now waits on the owner starts the look (ADR 0081).
+        this.waits?.nudge();
       },
       ...(opts.boardDebounceMs === undefined ? {} : { debounceMs: opts.boardDebounceMs }),
     });
@@ -160,6 +165,7 @@ export class Herd {
       mode: () => this.mode,
       github: () => this.github,
       intake: () => this.intake,
+      waits: () => this.waits,
     };
     this.relays = new Relay(this.ctx);
     this.runner = new TaskRunner(this.ctx, this.relays, this);
@@ -205,6 +211,16 @@ export class Herd {
             start: (item, auto, trial) => this.startIntake(item, auto, trial),
           });
     this.schedules = new Schedules(this.ctx);
+    this.waits = new WaitWatch(
+      this.ctx,
+      {
+        keep: async (taskId) => {
+          await this.runner.promptTask(taskId, this.texts.waitKeepPrompt, [], "owner");
+        },
+        stop: (taskId, why) => this.runner.letGo(taskId, why),
+      },
+      opts.waitAskMinutes,
+    );
     this.herder = opts.herder?.(this.herderHost());
     this.github =
       opts.github === undefined
@@ -215,6 +231,11 @@ export class Herd {
   }
 
   /** Replaces the Herder, e.g. after the owner chose another model. `undefined` turns it off. */
+  /** The Herder now, if there is one. */
+  herderPort(): HerderPort | undefined {
+    return this.herder;
+  }
+
   async setHerder(factory: HerderFactory | undefined): Promise<void> {
     const old = this.herder;
     this.herder = undefined;
@@ -276,6 +297,13 @@ export class Herd {
             westock: () => (this.opts.westock as NonNullable<HerdOptions["westock"]>).state(),
             stockQuote: (query: string) =>
               (this.opts.westock as NonNullable<HerdOptions["westock"]>).quote(query),
+          }),
+      ...(this.opts.danjuan === undefined
+        ? {}
+        : {
+            danjuan: () => (this.opts.danjuan as NonNullable<HerdOptions["danjuan"]>).state(),
+            fundHoldings: (query?: { days?: number; account?: string }) =>
+              (this.opts.danjuan as NonNullable<HerdOptions["danjuan"]>).holdings(query),
           }),
       ...(this.mail === undefined
         ? {}
@@ -350,10 +378,13 @@ export class Herd {
       noticeLevels: () => noticeLevels(this.store),
       setNoticeLevel: (kind, level) => setNoticeLevel(this.store, kind, level),
       audit: (type, data) => this.store.audit(type, data),
+      recordRequest: (request) => this.store.addHerderRequest(request),
       recordTurn: (role, text, taskId) => {
         this.store.addHerderTurn(role, text, taskId);
         this.opts.herderTurnAdded?.();
       },
+      ...(this.opts.suggestion === undefined ? {} : { suggestion: this.opts.suggestion }),
+      ...(this.opts.plugins === undefined ? {} : { plugins: this.opts.plugins }),
       memory: this.store.memory,
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(this.opts.memoryComplete === undefined
@@ -410,6 +441,8 @@ export class Herd {
     this.socials?.start();
     this.intake?.start();
     this.schedules.start();
+    // A one-off run beside a host leaves that host's tasks alone.
+    if (this.opts.closeStaleTasks !== false) this.waits.start();
     await this.endOldRelay(relay?.taskId);
     await this.askToResume();
     // The owner's messages the last run had not finished are taken up now (ADR 0062).
@@ -537,7 +570,13 @@ export class Herd {
    */
   async stopTask(taskId: string): Promise<void> {
     if (!this.tasks().some((t) => t.id === taskId)) throw new Error(`no task ${taskId}`);
-    await this.endTask(taskId, this.texts.endedByOwner);
+    // Also a task that ended while it waited on the owner stops waiting (ADR 0081).
+    await this.runner.letGo(taskId, this.texts.endedByOwner);
+  }
+
+  /** Looks at the tasks that wait on the owner now (tests). */
+  checkWaiting(): Promise<void> {
+    return this.waits.check();
   }
 
   /** Looks at the new-work watches now (tests). */
@@ -633,6 +672,7 @@ export class Herd {
     this.socials?.stop();
     this.intake?.stop();
     this.schedules.stop();
+    this.waits.stop();
     if (this.started) await this.opts.channel.stop();
     this.store.audit("herd.stopped", {});
     if (this.opts.store === undefined) this.store.close();

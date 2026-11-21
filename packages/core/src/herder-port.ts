@@ -95,6 +95,25 @@ export interface VoiceRequest {
 }
 
 /** Everything the Herder can do. There is deliberately nothing here that answers an item. */
+/** Where the Herder's guess at the owner's next message goes (ADR 0084). */
+export interface HerderSuggestion {
+  on(): boolean;
+  show(text: string): void;
+}
+
+/**
+ * Plugins the owner let the Herder use (ADR 0094): their read-only tools and their skills.
+ * `list` is what is known now (it changes when a plugin is turned on or off).
+ */
+export interface HerderPlugins {
+  list(): {
+    tools: { name: string; description: string }[];
+    skills: { name: string; description: string }[];
+  };
+  call(name: string, args: unknown): Promise<unknown>;
+  skill(name: string): string;
+}
+
 export interface HerderHost {
   readonly locale: Locale;
   readonly texts: CoreTexts;
@@ -160,7 +179,11 @@ export interface HerderHost {
   westock?(): { enabled: boolean; cliReady: boolean };
   /** Reads live market quotes (indices, A-shares, HK, US) from Tencent Finance (ADR 0076). */
   stockQuote?(query: string): Promise<string>;
-  /** Lines every new task gets: tools on this computer the agent can use (ADR 0059, ADR 0076). */
+  /** Whether 雪球基金 (Danjuan Funds) is connected for reading personal fund holdings (ADR 0077). */
+  danjuan?(): { enabled: boolean; ready: boolean; state: string };
+  /** Reads the owner's 雪球基金 holdings and recent N-day NAV gains/losses (ADR 0077). */
+  fundHoldings?(query?: { days?: number; account?: string }): Promise<string>;
+  /** Lines every new task gets: tools on this computer the agent can use (ADR 0059, ADR 0076, ADR 0077). */
   toolNotes?(): string[];
   /** New-work watches (ADR 0052), when GitHub is set up. */
   intakeWatches?(): IntakeWatch[];
@@ -177,6 +200,13 @@ export interface HerderHost {
   noticeLevels?(): Record<NoticeKind, NoticeLevel>;
   /** Changes one when the owner asks (「合并了不用告诉我」); throws on an unknown kind or level. */
   setNoticeLevel?(kind: NoticeKind, level: NoticeLevel): void;
+  /**
+   * What the owner might say next, for the desktop pet's input (ADR 0084): whether to work one out
+   * now, and where to put it. Absent → none.
+   */
+  suggestion?: HerderSuggestion;
+  /** Plugins the owner let the Herder use (ADR 0094); absent → none. */
+  plugins?: HerderPlugins;
   audit(type: string, data: Record<string, unknown>): void;
   /** Keeps a line of the Herder's conversation with the owner (`herder_turns`). */
   recordTurn(role: HerderTurnRole, text: string, taskId?: string): void;
@@ -192,6 +222,75 @@ export interface HerderHost {
   herderLog(): unknown[];
   /** Replaces the saved conversation from position `from` on with `messages`. */
   writeHerderLog(from: number, messages: unknown[]): void;
+  /** Keeps one request's token counts for the 上下文 tab (ADR 0093); absent → not kept. */
+  recordRequest?(request: HerderRequestRecord): void;
+}
+
+/** What the Herder's requests are made of, as the 主管 page's 上下文 tab shows it (ADR 0093). */
+export const HERDER_CONTEXT_PARTS = [
+  "system",
+  "memory",
+  "tools",
+  "owner",
+  "herder",
+  "results",
+  "folds",
+] as const;
+export type HerderContextPart = (typeof HERDER_CONTEXT_PARTS)[number];
+export type HerderContextParts = Record<HerderContextPart, number>;
+
+/** One piece of a request: a message, a tool's schema, the system prompt. */
+export interface HerderContextItem {
+  part: HerderContextPart;
+  label: string;
+  tokens: number;
+  /** Its text, cut to {@link HERDER_CONTEXT_ITEM_TEXT_MAX} characters. */
+  text: string;
+  /** Characters cut off the end of `text`. */
+  more: number;
+}
+export const HERDER_CONTEXT_ITEM_TEXT_MAX = 1500;
+
+/** The Herder's last request, measured before it went out (estimated tokens). */
+export interface HerderContextSnapshot {
+  at: string;
+  tokens: number;
+  /** The working window (the model's, at most 128K) and where a forced fold starts. */
+  window: number;
+  foldAt: number;
+  parts: HerderContextParts;
+  items: HerderContextItem[];
+}
+
+/** A folded part of the conversation. */
+export interface HerderContextFold {
+  blockId: string;
+  topic?: string;
+  summary: string;
+  /** Tokens of the messages it replaced. */
+  tokens: number;
+  messages: number;
+  at: string;
+  /** Folded by AgentHerd because the context was nearly full, not by the Herder. */
+  forced: boolean;
+}
+
+export interface HerderContextReport {
+  snapshot?: HerderContextSnapshot;
+  folds: HerderContextFold[];
+}
+
+/** One request to the Herder's model: what the provider counted, and what we sent. */
+export interface HerderRequestRecord {
+  at: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Our estimate of the request, and its parts. */
+  tokens: number;
+  parts: HerderContextParts;
 }
 
 /** Card action target of the 「重试」 button on a held Herder message. */
@@ -224,6 +323,10 @@ export interface HerderPort {
    * Called once AgentHerd is up, and after the Herder is replaced.
    */
   resume?(): void;
+  /** What the last request was made of and what is folded (ADR 0093). */
+  contextReport?(): HerderContextReport;
+  /** The original messages of a folded part, as text. */
+  contextFold?(blockId: string): string;
   stop(): Promise<void>;
 }
 

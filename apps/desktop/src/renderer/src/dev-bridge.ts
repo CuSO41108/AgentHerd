@@ -19,10 +19,13 @@
 // The pet window (/pet.html, ADR 0070) uses the same bridge; `?pet=` picks what it shows:
 //   waiting          an approval waits for the owner
 //   done             a task just finished
+// `&arm=1` with `?pet=waiting` shows the approve shortcut's first press (ADR 0080).
 
 import type {
   AgentView,
   AppsView,
+  DanjuanTest,
+  DanjuanView,
   FeedView,
   HostEvent,
   HostStatus,
@@ -33,6 +36,9 @@ import type {
   ModelTiersView,
   PetCard,
   PetView,
+  PluginCatalogEntry,
+  PluginPreview,
+  PluginView,
   RemoteHost,
   SchedulesView,
   SetupState,
@@ -42,6 +48,7 @@ import type {
   WestockTest,
   WestockView,
 } from "@agentherd/host/api";
+import { DEFAULT_PET } from "@agentherd/host/api";
 import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
 import {
@@ -51,6 +58,7 @@ import {
   SAMPLE_SUBSCRIPTIONS,
   sampleFeeds,
   sampleHerderActivity,
+  sampleHerderContext,
   sampleLark,
   sampleMemory,
   sampleSchedules,
@@ -60,6 +68,7 @@ import {
   sampleTranscript,
   sampleWatches,
 } from "./dev-fixtures";
+import { fakeProfile, profileFieldOf } from "./profile";
 
 type Listener<T> = (value: T) => void;
 
@@ -101,7 +110,13 @@ function installFakeBridge(): void {
     locale: "zh-CN",
     keepAwake: true,
     profiles: sim === "no-agent" ? [] : ["pi"],
-    pet: { on: true, figure: "deepseek" },
+    // `?quiet=1`: the pet keeps quiet (ADR 0079).
+    pet: {
+      ...DEFAULT_PET,
+      ...(new URLSearchParams(location.search).get("quiet") === "1"
+        ? { quietUntil: new Date(Date.now() + 3_600_000).toISOString() }
+        : {}),
+    },
   };
 
   const petSim = new URLSearchParams(window.location.search).get("pet");
@@ -331,6 +346,8 @@ function installFakeBridge(): void {
     last: petHistory.at(-1),
     history: petHistory,
     cards: petCards,
+    // The Herder's guess at the next message (ADR 0084).
+    suggestion: "把第二家的地址也发我",
     pending:
       petSim === "waiting"
         ? [
@@ -435,6 +452,115 @@ function installFakeBridge(): void {
     westock = next;
     emit({ topic: "westock", data: structuredClone(westock) });
   };
+  let danjuan: DanjuanView = {
+    available: true,
+    accepted: false,
+    enabled: false,
+    state: "off",
+  };
+  const setDanjuan = (next: DanjuanView): void => {
+    danjuan = next;
+    emit({ topic: "danjuan", data: structuredClone(danjuan) });
+  };
+  // 插件 (ADR 0094): one installed plugin and a small library.
+  const pluginCatalog: PluginCatalogEntry[] = [
+    {
+      name: "context7",
+      title: "Context7",
+      description:
+        "Upstash Context7 MCP server for up-to-date documentation lookup. Pull version-specific docs and code examples directly from source repositories into your LLM context.",
+      category: "development",
+      author: "Upstash",
+      source: "official:context7",
+      installed: true,
+    },
+    {
+      name: "github",
+      title: "GitHub",
+      description:
+        "Official GitHub MCP server for repository management. Create issues, manage pull requests, review code, search repositories.",
+      category: "productivity",
+      author: "GitHub",
+      source: "official:github",
+      installed: false,
+    },
+    {
+      name: "playwright",
+      title: "Playwright",
+      description: "Browser automation and end-to-end testing MCP server by Microsoft.",
+      category: "testing",
+      author: "Microsoft",
+      source: "official:playwright",
+      installed: false,
+    },
+    {
+      name: "code-review",
+      title: "Code Review",
+      description: "Automated code review for pull requests using multiple specialized agents.",
+      category: "productivity",
+      author: "Anthropic",
+      source: "official:code-review",
+      installed: false,
+    },
+    {
+      name: "xcode",
+      title: "Xcode",
+      description: "Build and test iOS apps from Xcode.",
+      category: "development",
+      why: "要用它自己的命令装，AgentHerd 不支持",
+      installed: false,
+    },
+  ];
+  let plugins: PluginView[] = [
+    {
+      id: "context7",
+      source: "official:context7",
+      link: "https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/context7",
+      name: "context7",
+      description: "Upstash Context7 MCP server for up-to-date documentation lookup",
+      format: "claude",
+      servers: [
+        {
+          name: "context7",
+          kind: "http",
+          run: "https://mcp.context7.com/mcp?client=claude-code-plugin",
+        },
+      ],
+      keys: [],
+      skills: [],
+      ignored: [],
+      problems: [],
+      enabled: true,
+      herder: false,
+      installedAt: "2026-11-21T07:30:00.000Z",
+      state: "ready",
+      tools: 2,
+      readTools: 2,
+      keysSet: [],
+      dir: "~/.agentherd/plugins/context7",
+    },
+  ];
+  const setPlugins = (next: PluginView[]): PluginView[] => {
+    plugins = next;
+    emit({ topic: "plugins", data: structuredClone(plugins) });
+    return structuredClone(plugins);
+  };
+  const pluginPreview = (source: string): PluginPreview => ({
+    source,
+    link: "https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/github",
+    name:
+      source
+        .replace(/^official:/, "")
+        .split("/")
+        .pop() ?? "plugin",
+    description: "Official GitHub MCP server for repository management.",
+    format: "claude",
+    servers: [{ name: "github", kind: "http", run: "https://api.githubcopilot.com/mcp/" }],
+    keys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    skills: [{ name: "pr-review", description: "Review a pull request step by step" }],
+    ignored: ["3 个斜杠命令", "1 个子 Agent"],
+    problems: [],
+  });
   /** Changes 飞书 and tells the page, as the host's "lark" event does. */
   const setLark = (next: LarkView): void => {
     lark = next;
@@ -623,12 +749,20 @@ function installFakeBridge(): void {
       return delay(lark);
     },
     pet: () => delay(pet),
-    petSay: (text) => {
+    petSay: (text, paths = []) => {
       if (!pet.connected)
         return Promise.reject(new Error("AgentHerd 还没连上飞书，先在 App 里设置好"));
-      petLine({ kind: "owner", text });
+      const files = paths.map((p) => `[主人拖来文件「${p.split("/").at(-1)}」：${p}]`);
+      const said = [text, ...files].filter((x) => x !== "").join("\n");
+      petLine({ kind: "owner", text: said });
+      const { suggestion: _gone, ...rest } = pet;
+      pet = rest;
       emit({ topic: "pet", data: structuredClone(pet) });
-      setTimeout(() => petSays({ kind: "say", text: `收到：「${text}」。我这就去办。` }), 1200);
+      setTimeout(() => petSays({ kind: "say", text: `收到：「${said}」。我这就去办。` }), 1200);
+      setTimeout(() => {
+        pet = { ...pet, suggestion: "好，做完告诉我" };
+        emit({ topic: "pet", data: structuredClone(pet) });
+      }, 2400);
       return delay(pet);
     },
     petPress: (target, action) => {
@@ -726,6 +860,103 @@ function installFakeBridge(): void {
           "- 上证指数 (sh000001): 3328.45 (+20.51 / +0.62%) | 开 3310.12 昨收 3307.94 区间 3302.18-3334.90 | 成交额 6420.15亿 CNY\n- 腾讯控股 (hk00700): 412.60 HKD (+6.20 / +1.53%) | 开 408.00 昨收 406.40 区间 407.20-415.00 | 成交额 98.42亿 HKD | PE 19.80\nSource: 腾讯财经实时行情 (qt.gtimg.cn) · Objective market data for reference only, not investment advice.",
         westock: structuredClone(westock),
       });
+    },
+    danjuan: () => delay(structuredClone(danjuan)),
+    pluginCatalog: () => delay(structuredClone(pluginCatalog)),
+    plugins: () => delay(structuredClone(plugins)),
+    previewPlugin: async (source) => {
+      await new Promise((r) => setTimeout(r, 600));
+      return pluginPreview(source);
+    },
+    installPlugin: async (source) => {
+      const p = pluginPreview(source);
+      return setPlugins([
+        ...plugins,
+        {
+          ...p,
+          id: p.name,
+          enabled: true,
+          herder: false,
+          installedAt: new Date().toISOString(),
+          state: "idle",
+          tools: 0,
+          readTools: 0,
+          keysSet: [],
+          dir: `~/.agentherd/plugins/${p.name}`,
+        },
+      ]);
+    },
+    setPlugin: async (id, patch) =>
+      setPlugins(
+        plugins.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                ...(patch.enabled === undefined
+                  ? {}
+                  : { enabled: patch.enabled, state: patch.enabled ? "ready" : "off" }),
+                ...(patch.herder === undefined ? {} : { herder: patch.herder }),
+                ...(patch.keys === undefined
+                  ? {}
+                  : { keysSet: [...new Set([...p.keysSet, ...Object.keys(patch.keys)])] }),
+              }
+            : p,
+        ),
+      ),
+    removePlugin: async (id) => setPlugins(plugins.filter((p) => p.id !== id)),
+    connectDanjuan: async (accepted) => {
+      if (!accepted && !danjuan.accepted) {
+        throw new Error("连接雪球基金前需先确认只读风险提示");
+      }
+      setDanjuan({
+        available: true,
+        accepted: true,
+        enabled: true,
+        state: "signing-in",
+      });
+      await new Promise((r) => setTimeout(r, 350));
+      setDanjuan({
+        available: true,
+        accepted: true,
+        enabled: true,
+        state: "ready",
+        account: "默认账户",
+        checkedAt: new Date().toISOString(),
+      });
+      return structuredClone(danjuan);
+    },
+    cancelDanjuanLogin: () => {
+      setDanjuan({
+        available: true,
+        accepted: danjuan.accepted,
+        enabled: false,
+        state: "off",
+      });
+      return delay(structuredClone(danjuan));
+    },
+    testDanjuan: (): Promise<DanjuanTest> =>
+      delay({
+        ok: danjuan.state === "ready",
+        message:
+          danjuan.state === "ready"
+            ? "连接正常：共 3 只持仓基金，总资产 128450.20元"
+            : "还没连接雪球基金",
+        ...(danjuan.state === "ready"
+          ? {
+              sample:
+                "雪球基金账户概览：总资产 128450.20元 · 最新日收益 (2026-11-18) +1120.40元 · 持有收益 +9420.15元\n近 5 个交易日估算汇总：+2.18% (+2741.80元，按当前持仓静态回算)\n持仓明细（按市值降序）：\n- 华泰柏瑞沪深300ETF联接C (006131) | 市值 62400.00元 (占比 48.6%) | 日收益 +590.10元 | 近5日 +2.35%\n  每日净值涨跌: 11-12 -0.30% · 11-13 +0.85% · 11-16 +0.42% · 11-17 +0.44% · 11-18 +0.92%\nSource: 雪球基金 (danjuanfunds.com) 本机登录态 · 近几日区间涨跌按当前持仓市值回算（未计期间申赎），仅供参考，不构成投资建议。",
+            }
+          : {}),
+        danjuan: structuredClone(danjuan),
+      }),
+    logoutDanjuan: () => {
+      setDanjuan({
+        available: true,
+        accepted: danjuan.accepted,
+        enabled: false,
+        state: "off",
+      });
+      return delay(structuredClone(danjuan));
     },
     socials: () => delay(socials),
     enableSocial: (platform) => {
@@ -867,6 +1098,11 @@ function installFakeBridge(): void {
     tasks: () => delay(tasks),
     transcript: (taskId) => delay(sampleTranscript(taskId)),
     herderActivity: () => delay(sampleHerderActivity()),
+    herderContext: () => delay(sampleHerderContext()),
+    herderContextFold: (blockId: string) =>
+      delay(
+        `${blockId} 原文\n\n[Owner's message]\n帮我看看别人的搜索方案\n\n主管：Codex 和 Claude Code 都只有一个 web_search……`,
+      ),
     memories: () => delay(memory),
     schedules: () => delay(schedules),
     setSchedulePaused: (id, paused) => {
@@ -902,6 +1138,24 @@ function installFakeBridge(): void {
           gone === undefined ? memory.deleted : [{ ...gone, status: "deleted" }, ...memory.deleted],
       };
       return delay(memory);
+    },
+    ownerProfile: () => delay(fakeProfile(memory)),
+    setProfile: (field, value) => {
+      const text = value.trim();
+      const rest = memory.entries.filter(
+        (e) => !(e.kind === "profile" && profileFieldOf(e.abstract) === field),
+      );
+      const added = {
+        ...(memory.entries.find((e) => e.kind === "profile") ?? memory.entries[0]),
+        id: `p-${field}-${Date.now()}`,
+        kind: "profile" as const,
+        abstract: `${field}：${text}`,
+        source: "owner_edit" as const,
+        rev: 1,
+      };
+      const { evidence: _, ...entry } = added;
+      memory = { ...memory, entries: text === "" ? rest : [entry, ...rest] };
+      return delay(fakeProfile(memory));
     },
     restoreMemory: (id) => {
       const back = memory.deleted.find((e) => e.id === id);
@@ -1085,6 +1339,34 @@ function installFakeBridge(): void {
       openApp: () => {},
       openFile: (path) => console.info("[AgentHerd] open", path),
       readImage: async (path) => (path.includes("missing") ? undefined : fakePicture()),
+      pathOf: (file) => `/Users/me/Desktop/${file.name}`,
+      onArm: (listener) => {
+        if (new URLSearchParams(location.search).get("arm") !== "1") return () => {};
+        const timer = setTimeout(
+          () =>
+            listener({
+              kind: "arm",
+              approval: {
+                target: "item-1",
+                title: "运行 rm -rf ./logs/*",
+                task: "清理旧日志",
+                ref: "fake:m9",
+              },
+              until: Date.now() + 600_000,
+              key: "⌘⇧Y",
+            }),
+          800,
+        );
+        return () => clearTimeout(timer);
+      },
+      disarm: () => {},
+      peek: () => {},
+      float: () => {},
+    },
+    shortcuts: {
+      state: async () => ({ talk: "ok", approve: "ok" }),
+      onState: () => () => {},
+      pause: () => {},
     },
     onEvent: (listener) => {
       eventListeners.add(listener);

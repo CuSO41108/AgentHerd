@@ -11,13 +11,17 @@ import {
   FEED_SOURCES,
   type GhRun,
   Herd,
+  type HerderContextReport,
+  type HerderRequestRecord,
   isSubscription,
   type JsonRpcMessage,
+  type MemoryStore,
   type ModelRef,
   type ModelRole,
   type ModelService,
   type ModelSettings,
   modelKeyAccount,
+  profileField,
   putService,
   RESIDENT_CAPS,
   removeService,
@@ -33,8 +37,9 @@ import {
   herderFromSettings,
   LOGIN_FIELD,
   loginsFor,
+  MemoryModelChain,
   MemoryWorker,
-  memoryModel,
+  memoryModels,
   modelChoices,
   modelLaunchFor,
   PI_MODEL_ENV,
@@ -57,9 +62,13 @@ import type {
   AgentCheck,
   AgentView,
   AppsView,
+  DanjuanTest,
+  DanjuanView,
   FeedSource,
   FeedView,
   HerderActivityView,
+  HerderContextView,
+  HerderUsage,
   HostApi,
   HostEvent,
   HostStatus,
@@ -72,10 +81,17 @@ import type {
   ModelsView,
   ModelTest,
   ModelTiersView,
+  OwnerProfile,
   PetFigure,
+  PetOnTop,
   PetSettings,
   PetView,
+  PluginCatalogEntry,
+  PluginPatch,
+  PluginPreview,
+  PluginView,
   ProbeTarget,
+  ProfileFieldName,
   ProviderView,
   SchedulesView,
   SettingsPatch,
@@ -93,18 +109,30 @@ import type {
   WestockTest,
   WestockView,
 } from "./api.ts";
-import { DEFAULT_PET, PET_FIGURES } from "./api.ts";
+import {
+  DEFAULT_PET,
+  isPetShortcut,
+  PET_FIGURES,
+  PET_ON_TOP,
+  PROFILE_FIELD_NAMES,
+  PROFILE_VALUE_MAX,
+  QUIET_HOURS,
+} from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
 import { withClaudeHome } from "./claude-home.ts";
 import { withCodexHome } from "./codex-home.ts";
 import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts";
+import { Danjuan, type DanjuanBrowser } from "./danjuan.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
 import { PET_CARDS_MAX, PET_HISTORY_MAX, PetFeed, petConversation } from "./pet.ts";
+import { droppedFiles } from "./pet-drop.ts";
+import type { McpClient } from "./plugin-mcp.ts";
+import { PluginStore, type RunningServer } from "./plugins.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -150,6 +178,9 @@ export interface HostOptions {
   fetchers?: Fetchers;
   /** HTTP for probeModels (tests). Default: global fetch. */
   fetch?: typeof fetch;
+  /** Plugins (ADR 0094): how a downloaded .tar.gz is unpacked and how a server is reached; tests fake them. */
+  pluginExtract?: (file: string, dir: string) => Promise<void>;
+  pluginClient?: (server: RunningServer) => McpClient;
   /** Runs `gh` for following pull requests tasks open (tests replace it). */
   gh?: GhRun;
   target?: string;
@@ -160,10 +191,14 @@ export interface HostOptions {
   mcpSocket?: string;
   /** Command runner for checking the `westock` CLI binary (tests). */
   westockRun?: WestockRun;
+  /** Interactive/headless browser driver for 雪球基金 (tests). */
+  danjuanBrowser?: DanjuanBrowser;
 }
 
 /** Turns 主管 › 行动记录 shows by default. */
 const HERDER_ACTIVITY_TURNS = 200;
+/** Requests on the 上下文 tab's trend chart (ADR 0093). */
+export const HERDER_TREND_POINTS = 160;
 /** Herder audit rows looked at for incidents. */
 const HERDER_INCIDENTS_MAX = 2000;
 /** Herder audit kinds the turns already show. */
@@ -210,8 +245,14 @@ export class Host implements HostApi {
   private readonly feedList: Feeds;
   /** 腾讯自选股 live quotes + official westock CLI (ADR 0076). */
   private readonly westockCli: Westock;
+  /** 雪球基金 (Danjuan Funds) local browser session & holdings (ADR 0077). */
+  private readonly danjuanCli: Danjuan;
   /** What the desktop pet sees of the chat (ADR 0070). */
   private readonly petFeed: PetFeed;
+  /** Installed plugins (ADR 0094). */
+  private readonly pluginList: PluginStore;
+  /** The Herder's guess at the owner's next message, and when it came (ADR 0084). */
+  private petSuggestion: { text: string; at: string } | undefined;
 
   constructor(opts: HostOptions) {
     this.opts = opts;
@@ -261,6 +302,24 @@ export class Host implements HostApi {
       },
     });
     this.feedList = new Feeds({ home: opts.home, off: () => this.config().feedsOff ?? [] });
+    this.pluginList = new PluginStore({
+      home: opts.home,
+      secrets: opts.secrets,
+      config: () => this.config(),
+      save: (change) => writeConfig(this.opts.home, change(this.config())),
+      changed: () => this.emit({ topic: "plugins", data: this.plugins() }),
+      env: () => {
+        const base: Record<string, string> = {};
+        for (const [k, v] of Object.entries(this.opts.env ?? process.env)) {
+          if (v !== undefined) base[k] = v;
+        }
+        return this.withToolPath(base);
+      },
+      ...(opts.fetch === undefined ? {} : { fetchFn: opts.fetch }),
+      ...(opts.pluginExtract === undefined ? {} : { extract: opts.pluginExtract }),
+      ...(opts.pluginClient === undefined ? {} : { client: opts.pluginClient }),
+      log: (line) => this.log(line),
+    });
     this.westockCli = new Westock({
       home: opts.home,
       enabled: () => !(this.config().westockOff ?? false),
@@ -276,6 +335,21 @@ export class Host implements HostApi {
           this.herd.setProfiles(this.herdProfiles());
         }
       },
+      log: (line) => this.log(line),
+    });
+    this.danjuanCli = new Danjuan({
+      home: opts.home,
+      settings: () => this.config().danjuan ?? {},
+      save: (patch) => {
+        const cur = this.config();
+        writeConfig(this.opts.home, {
+          ...cur,
+          danjuan: { ...cur.danjuan, ...patch },
+        });
+      },
+      changed: () => this.emit({ topic: "danjuan", data: this.danjuanCli.current() }),
+      ...(opts.fetch === undefined ? {} : { fetch: opts.fetch }),
+      ...(opts.danjuanBrowser === undefined ? {} : { browser: opts.danjuanBrowser }),
       log: (line) => this.log(line),
     });
   }
@@ -335,6 +409,26 @@ export class Host implements HostApi {
     return this.westockCli.test(query);
   }
 
+  danjuan(): Promise<DanjuanView> {
+    return this.danjuanCli.check();
+  }
+
+  connectDanjuan(accepted: boolean): Promise<DanjuanView> {
+    return this.danjuanCli.connect(accepted);
+  }
+
+  cancelDanjuanLogin(): Promise<DanjuanView> {
+    return this.danjuanCli.cancelLogin();
+  }
+
+  testDanjuan(): Promise<DanjuanTest> {
+    return this.danjuanCli.test();
+  }
+
+  logoutDanjuan(): Promise<DanjuanView> {
+    return this.danjuanCli.logout();
+  }
+
   /** What every new task is told about this Mac's tools (ADR 0059). */
   private toolNotes(): string[] {
     const notes: string[] = [];
@@ -342,6 +436,10 @@ export class Host implements HostApi {
     if (lark !== undefined) notes.push(lark);
     const westock = this.westockCli.note();
     if (westock !== undefined) notes.push(westock);
+    const danjuan = this.danjuanCli.note();
+    if (danjuan !== undefined) notes.push(danjuan);
+    const plugins = this.pluginList.note();
+    if (plugins !== undefined) notes.push(plugins);
     const vault = this.config().obsidianVault;
     if (vault !== undefined && vault !== "") {
       notes.push(
@@ -356,6 +454,32 @@ export class Host implements HostApi {
     this.herd?.socials?.schedule();
     this.emit({ topic: "socials", data: this.socials() });
     this.emit({ topic: "watches", data: this.watches() });
+  }
+
+  // ---- Plugins (ADR 0094) ----
+
+  pluginCatalog(): Promise<PluginCatalogEntry[]> {
+    return this.pluginList.catalog();
+  }
+
+  plugins(): PluginView[] {
+    return this.pluginList.views();
+  }
+
+  previewPlugin(source: string): Promise<PluginPreview> {
+    return this.pluginList.preview(source);
+  }
+
+  installPlugin(source: string, keys: Record<string, string> = {}): Promise<PluginView[]> {
+    return this.pluginList.install(source, keys);
+  }
+
+  setPlugin(id: string, patch: PluginPatch): Promise<PluginView[]> {
+    return this.pluginList.set(id, patch);
+  }
+
+  removePlugin(id: string): Promise<PluginView[]> {
+    return this.pluginList.remove(id);
   }
 
   socials(): SocialView[] {
@@ -470,6 +594,7 @@ export class Host implements HostApi {
     void this.appList.load();
     this.socialList.start();
     void this.westockCli.check();
+    if (this.danjuanCli.enabled()) void this.danjuanCli.check();
     await this.restartHerd();
   }
 
@@ -512,6 +637,8 @@ export class Host implements HostApi {
     this.agentList.stop();
     this.socialList.stop();
     this.westockCli.stop();
+    this.danjuanCli.stop();
+    this.pluginList.stopAll();
     this.setupRun++;
     await this.stopHerd();
   }
@@ -563,9 +690,36 @@ export class Host implements HostApi {
         }),
         quote: (query) => this.westockCli.quote(query),
       },
+      danjuan: {
+        state: () => ({
+          enabled: this.danjuanCli.enabled(),
+          ready: this.danjuanCli.ready(),
+          state: this.danjuanCli.current().state,
+        }),
+        holdings: (query) => this.danjuanCli.holdings(query),
+      },
       toolNotes: () => this.toolNotes(),
       watchesChanged: () => this.socialsChanged(),
-      herderTurnAdded: () => this.emit({ topic: "pet", data: this.pet() }),
+      herderTurnAdded: () => {
+        // Anything said makes the last guess stale (ADR 0084).
+        this.petSuggestion = undefined;
+        this.emit({ topic: "pet", data: this.pet() });
+      },
+      suggestion: {
+        on: () => {
+          const pet = petSettings(this.config());
+          return pet.on && pet.suggest;
+        },
+        show: (text) => {
+          this.petSuggestion = { text, at: new Date().toISOString() };
+          this.emit({ topic: "pet", data: this.pet() });
+        },
+      },
+      plugins: {
+        list: () => this.pluginList.herderList(),
+        call: (name, args) => this.pluginList.herderCall(name, args),
+        skill: (name) => this.pluginList.skillText(name),
+      },
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -576,6 +730,8 @@ export class Host implements HostApi {
                 this.socialList.tools(this.appList.appTools()),
                 this.feedList.tools(),
                 this.westockCli.tools(),
+                this.danjuanCli.tools(),
+                this.pluginList.tools(),
               ]),
             appNames: () => this.appList.connectedNames(),
           }),
@@ -613,6 +769,7 @@ export class Host implements HostApi {
     try {
       await herd.start();
       this.herd = herd;
+      this.writeWaitingProfile();
       this.startMemoryWorker(herd);
       this.connected = true;
       this.channelError = undefined;
@@ -637,10 +794,14 @@ export class Host implements HostApi {
     return this.embedder;
   }
 
-  private async memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
-    const model = memoryModel(this.settings(), this.opts.secrets, this.placement(), this.opts.env);
-    if (model === undefined) throw new Error("no model for memory");
-    return model.complete(system, user, signal);
+  /** Memory jobs try the cheap models in turn, then the Herder's (ADR 0090). */
+  private readonly memoryChain = new MemoryModelChain(
+    () => memoryModels(this.settings(), this.opts.secrets, this.placement(), this.opts.env),
+    (line) => this.log(line),
+  );
+
+  private memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
+    return this.memoryChain.complete(system, user, signal);
   }
 
   private startMemoryWorker(herd: Herd): void {
@@ -648,7 +809,7 @@ export class Host implements HostApi {
     const worker = new MemoryWorker({
       memory: herd.store.memory,
       transcript: (taskId) => herd.store.transcript(taskId),
-      herderTurns: (limit) => herd.store.herderTurns(limit),
+      herderTurnsAfter: (afterId, limit) => herd.store.herderTurnsAfter(afterId, limit),
       complete: (system, user, signal) => this.memoryComplete(system, user, signal),
       embedder: this.memoryEmbedder(),
       log: (line) => this.log(line),
@@ -810,11 +971,19 @@ export class Host implements HostApi {
 
   pet(): PetView {
     const last = this.petFeed.last;
+    const conversation = this.petConversation();
+    const guess = this.petSuggestion;
+    // A card that came after it waits for the owner: answering it comes first.
+    const suggestion =
+      guess === undefined || conversation.cards.some((c) => c.open && c.at > guess.at)
+        ? undefined
+        : guess.text;
     return {
       connected: this.petFeed.connected,
       ...(last === undefined ? {} : { last }),
       pending: this.petFeed.pending(),
-      ...this.petConversation(),
+      ...conversation,
+      ...(suggestion === undefined ? {} : { suggestion }),
     };
   }
 
@@ -833,8 +1002,9 @@ export class Host implements HostApi {
     );
   }
 
-  async petSay(text: string): Promise<PetView> {
-    await this.petFeed.say(text);
+  async petSay(text: string, paths: string[] = []): Promise<PetView> {
+    const locale = this.config().locale ?? DEFAULT_LOCALE;
+    await this.petFeed.say(text, droppedFiles(paths, locale));
     return this.pet();
   }
 
@@ -890,13 +1060,57 @@ export class Host implements HostApi {
     return { turns, incidents, total: all.length };
   }
 
+  herderContext(): HerderContextView {
+    const herder = this.herd?.herderPort();
+    let report: HerderContextReport = { folds: [] };
+    try {
+      report = herder?.contextReport?.() ?? report;
+    } catch {
+      // The tab still shows the token counts.
+    }
+    const store = this.herd?.store;
+    const now = new Date();
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6 + i);
+      return { start: d, day: localDay(d) };
+    });
+    const weekStart = (days[0] as { start: Date }).start.toISOString();
+    const week = store?.herderRequests(weekStart) ?? [];
+    const byDay = new Map(days.map((d) => [d.day, [] as HerderRequestRecord[]]));
+    for (const r of week) byDay.get(localDay(new Date(r.at)))?.push(r);
+    const trend = (store?.herderRequests("", HERDER_TREND_POINTS) ?? []).map((r) => ({
+      at: r.at,
+      model: r.model,
+      tokens: r.tokens,
+      parts: r.parts,
+      input: r.input,
+      output: r.output,
+      cacheRead: r.cacheRead,
+    }));
+    return {
+      on: herder !== undefined,
+      ...(report.snapshot === undefined ? {} : { snapshot: report.snapshot }),
+      folds: report.folds,
+      today: usageOf(byDay.get(localDay(now)) ?? []),
+      week: usageOf(week),
+      days: days.map((d) => ({ day: d.day, ...usageOf(byDay.get(d.day) ?? []) })),
+      trend,
+    };
+  }
+
+  herderContextFold(blockId: string): string {
+    const herder = this.herd?.herderPort();
+    if (herder?.contextFold === undefined) throw new Error("the Herder is not running");
+    return herder.contextFold(blockId);
+  }
+
   memories(): MemoryView {
     const memory = this.herd?.store.memory;
     if (memory === undefined) {
       return {
         entries: [],
         deleted: [],
-        used: { owner: 0, decision: 0, note: 0 },
+        used: { profile: 0, owner: 0, decision: 0, note: 0 },
         caps: { ...RESIDENT_CAPS },
         ready: false,
       };
@@ -905,6 +1119,7 @@ export class Host implements HostApi {
       entries: memory.list(),
       deleted: memory.list({ status: "deleted" }).slice(0, MEMORY_DELETED_SHOWN),
       used: {
+        profile: memory.used("profile"),
         owner: memory.used("owner"),
         decision: memory.used("decision"),
         note: memory.used("note"),
@@ -956,6 +1171,58 @@ export class Host implements HostApi {
     const herd = this.herd;
     if (herd === undefined) throw new Error("AgentHerd is not running; connect Feishu first");
     return herd.schedules;
+  }
+
+  ownerProfile(): OwnerProfile {
+    const out: OwnerProfile = {};
+    for (const r of this.herd?.store.memory.list({ kinds: ["profile"] }) ?? []) {
+      const field = profileField(r.abstract);
+      if (field !== undefined) out[field] = profileValue(r.abstract);
+    }
+    for (const [field, value] of Object.entries(this.config().profileWaiting ?? {})) {
+      if (!isProfileField(field) || value === undefined) continue;
+      if (value === "") delete out[field];
+      else out[field] = value;
+    }
+    return out;
+  }
+
+  setProfile(field: ProfileFieldName, value: string): OwnerProfile {
+    if (!isProfileField(field)) {
+      throw new Error(`field must be one of ${PROFILE_FIELD_NAMES.join(", ")}`);
+    }
+    const text = value.replace(/\s+/g, " ").trim();
+    if (text.length > PROFILE_VALUE_MAX) {
+      throw new Error(`${field} must be at most ${PROFILE_VALUE_MAX} characters`);
+    }
+    const memory = this.herd?.store.memory;
+    if (memory === undefined) {
+      const config = this.config();
+      writeConfig(this.opts.home, {
+        ...config,
+        profileWaiting: { ...config.profileWaiting, [field]: text },
+      });
+      return this.ownerProfile();
+    }
+    writeProfileField(memory, field, text);
+    return this.ownerProfile();
+  }
+
+  /** Writes the profile fields set while AgentHerd was not running (ADR 0091). */
+  private writeWaitingProfile(): void {
+    const memory = this.herd?.store.memory;
+    const config = this.config();
+    const waiting = config.profileWaiting;
+    if (memory === undefined || waiting === undefined) return;
+    try {
+      for (const [field, value] of Object.entries(waiting)) {
+        if (isProfileField(field) && value !== undefined) writeProfileField(memory, field, value);
+      }
+      const { profileWaiting: _written, ...rest } = config;
+      writeConfig(this.opts.home, rest);
+    } catch (error) {
+      this.log(`[memory] could not write the profile: ${(error as Error).message}`);
+    }
   }
 
   private ownMemory() {
@@ -1220,9 +1487,35 @@ export class Host implements HostApi {
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
     if (patch.pet !== undefined) {
       const pet: PetSettings = { ...petSettings(config), ...patch.pet };
-      if (typeof pet.on !== "boolean") throw new Error("pet.on must be true or false");
+      for (const key of ["on", "notify", "sound", "overFullscreen", "suggest"] as const) {
+        if (typeof pet[key] !== "boolean") throw new Error(`pet.${key} must be true or false`);
+      }
       if (!PET_FIGURES.includes(pet.figure)) {
         throw new Error(`pet.figure must be one of ${PET_FIGURES.join(", ")}`);
+      }
+      if (
+        typeof pet.quietHours !== "string" ||
+        !(pet.quietHours === "" || QUIET_HOURS.test(pet.quietHours))
+      ) {
+        throw new Error('pet.quietHours must be "HH:MM-HH:MM" or ""');
+      }
+      if (
+        typeof pet.quietUntil !== "string" ||
+        !(pet.quietUntil === "" || !Number.isNaN(Date.parse(pet.quietUntil)))
+      ) {
+        throw new Error('pet.quietUntil must be a time or ""');
+      }
+      for (const key of ["talkKey", "approveKey"] as const) {
+        const value = pet[key];
+        if (typeof value !== "string" || !(value === "" || isPetShortcut(value))) {
+          throw new Error(`pet.${key} must be a shortcut like CommandOrControl+Shift+Y, or ""`);
+        }
+      }
+      if (pet.talkKey !== "" && pet.talkKey === pet.approveKey) {
+        throw new Error("pet.talkKey and pet.approveKey must be different shortcuts");
+      }
+      if (!PET_ON_TOP.includes(pet.onTop)) {
+        throw new Error(`pet.onTop must be one of ${PET_ON_TOP.join(", ")}`);
       }
       next.pet = pet;
     }
@@ -1353,10 +1646,78 @@ function cleanService(s: ModelService): ModelService {
 }
 
 /** The pet settings with defaults filled in; an unknown figure falls back to the default. */
+function isProfileField(field: string): field is ProfileFieldName {
+  return (PROFILE_FIELD_NAMES as readonly string[]).includes(field);
+}
+
+/** 「称呼：火哥」 → 「火哥」. */
+function profileValue(abstract: string): string {
+  return abstract.slice(abstract.search(/[：:]/) + 1).trim();
+}
+
+/** Sets or clears one field of the owner's profile card as the owner's own edit (ADR 0091). */
+function writeProfileField(memory: MemoryStore, field: ProfileFieldName, value: string): void {
+  const meta = { actor: "owner", source: "owner_edit" } as const;
+  if (value === "") {
+    const old = memory.list({ kinds: ["profile"] }).find((r) => profileField(r.abstract) === field);
+    if (old !== undefined) memory.write([{ op: "remove", id: old.id }], meta);
+    return;
+  }
+  memory.write([{ op: "add", kind: "profile", abstract: `${field}：${value}` }], meta);
+}
+
 function petSettings(config: CliConfig): PetSettings {
   const saved = config.pet ?? {};
   const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)
     ? (saved.figure as PetFigure)
     : DEFAULT_PET.figure;
-  return { on: typeof saved.on === "boolean" ? saved.on : DEFAULT_PET.on, figure };
+  const flag = (key: "on" | "notify" | "sound" | "overFullscreen" | "suggest") =>
+    typeof saved[key] === "boolean" ? (saved[key] as boolean) : DEFAULT_PET[key];
+  const quietHours =
+    typeof saved.quietHours === "string" && QUIET_HOURS.test(saved.quietHours)
+      ? saved.quietHours
+      : DEFAULT_PET.quietHours;
+  const quietUntil =
+    typeof saved.quietUntil === "string" && !Number.isNaN(Date.parse(saved.quietUntil))
+      ? saved.quietUntil
+      : DEFAULT_PET.quietUntil;
+  const key = (name: "talkKey" | "approveKey") => {
+    const value = saved[name];
+    return typeof value === "string" && (value === "" || isPetShortcut(value))
+      ? value
+      : DEFAULT_PET[name];
+  };
+  return {
+    on: flag("on"),
+    figure,
+    notify: flag("notify"),
+    sound: flag("sound"),
+    quietHours,
+    quietUntil,
+    talkKey: key("talkKey"),
+    approveKey: key("approveKey"),
+    onTop: PET_ON_TOP.includes(saved.onTop as PetOnTop)
+      ? (saved.onTop as PetOnTop)
+      : DEFAULT_PET.onTop,
+    overFullscreen: flag("overFullscreen"),
+    suggest: flag("suggest"),
+  };
+}
+
+function localDay(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Sums token counts; the hit rate is cache reads over all input the provider read. */
+export function usageOf(records: readonly HerderRequestRecord[]): HerderUsage {
+  const sum = { requests: records.length, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  for (const r of records) {
+    sum.input += r.input;
+    sum.output += r.output;
+    sum.cacheRead += r.cacheRead;
+    sum.cacheWrite += r.cacheWrite;
+  }
+  const read = sum.input + sum.cacheRead + sum.cacheWrite;
+  return { ...sum, hitRate: read === 0 ? 0 : sum.cacheRead / read };
 }

@@ -4,7 +4,7 @@
 // herd-ui `file` item; a path in its words is just text (it judges which files matter).
 
 import type { PetLine } from "@agentherd/host/api";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { type ChoiceBinding, HerdUiView } from "./HerdUi";
 import { offersAnswer, replyFold, replyParts } from "./herd-ui-state";
 import { PetMarkdown } from "./PetMarkdown";
@@ -12,8 +12,9 @@ import { clockOf, eventOf, historyHead } from "./pet-state";
 
 /**
  * The text of a Herder reply: its Markdown, the components of its herd-ui fences in between (their
- * answers numbered across the whole reply). Long replies without
- * fences fold behind 「展开全文」. `choices` binds the answers to the card the reply came as.
+ * answers numbered across the whole reply). A long reply folds behind 「展开全文」 and 收起 folds it
+ * again, components or not; one whose answers are still open does not. `choices` binds the answers
+ * to the card the reply came as.
  */
 export function ReplyBody(props: {
   text: string;
@@ -22,14 +23,28 @@ export function ReplyBody(props: {
 }) {
   const { text, choices } = props;
   const [all, setAll] = useState(false);
-  const { folded, more } = replyFold(text);
-  const closed = folded && !all;
+  const body = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  // The drawn height decides too (pictures and components are tall in few words). Measured before
+  // paint and again when it grows (a picture loads); a folded body keeps its box, so read scrollHeight.
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (el === null) return;
+    const measure = () => setHeight(el.scrollHeight);
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
   const chosen = choices?.chosen;
+  const wait = choices?.open === true && chosen === undefined;
+  const { folded, more } = replyFold(text, height, wait);
+  const closed = folded && !all;
   // An answer that is not among the buttons (typed instead) is still said.
   const loose = chosen !== undefined && !offersAnswer(text, chosen);
   return (
     <>
-      <div className={closed ? "pet-reply-body pet-folded" : "pet-reply-body"}>
+      <div ref={body} className={closed ? "pet-reply-body pet-folded" : "pet-reply-body"}>
         {replyParts(text).map((part, i) =>
           part.kind === "markdown" ? (
             // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional and re-read as a whole
