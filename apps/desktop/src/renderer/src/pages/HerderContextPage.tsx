@@ -233,10 +233,15 @@ function TrendCard({ trend }: { trend: HerderTrendPoint[] }) {
                 className="flex flex-col-reverse"
                 style={{ height: `${(t.tokens / peak) * 100}%` }}
               >
-                {CONTEXT_PARTS.map((p) =>
-                  t.parts[p] > 0 ? (
-                    <div key={p} style={{ flex: t.parts[p], background: PART_COLORS[p] }} />
-                  ) : null,
+                {t.parts === undefined ? (
+                  <div style={{ flex: 1, background: PART_COLORS.herder }} />
+                ) : (
+                  CONTEXT_PARTS.map((p) => {
+                    const n = t.parts?.[p] ?? 0;
+                    return n > 0 ? (
+                      <div key={p} style={{ flex: n, background: PART_COLORS[p] }} />
+                    ) : null;
+                  })
                 )}
               </div>
               {dropped && (

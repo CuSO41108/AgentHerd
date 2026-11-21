@@ -125,7 +125,7 @@ All state is under `~/.agentherd/` (overridable by `AGENTHERD_HOME`):
 | --- | --- |
 | `config.json` | Settings and agent profiles, without secrets |
 | `plugins/` | Installed plugins, one folder each, and the official library cache (ADR 0094) |
-| `herd.db` | SQLite: sessions, tasks, items, decisions, rules, memory, the Herder's whole conversation (`herder_log`), the cards sent to the owner (`owner_cards`, ADR 0072), each Herder request's token use (`herder_requests`, ADR 0093) |
+| `herd.db` | SQLite: sessions, tasks, items, decisions, rules, memory, the Herder's whole conversation (`herder_messages` with `herder_rounds`, ADR 0095), the cards sent to the owner (`owner_cards`, ADR 0072), each Herder request's token use (`herder_requests`), its folds (`herder_folds`), events and system prompts (ADR 0095) |
 | `run/herd.sock` | Local API socket (not on Windows, see §4) |
 | `logs/` | Rotated logs. Secrets redacted. |
 | `backups/` | Copies of agent config files before each export |
