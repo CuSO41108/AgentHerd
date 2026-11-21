@@ -5,6 +5,9 @@
 
 import type {
   CustomApi,
+  HerderContextFold,
+  HerderContextParts,
+  HerderContextSnapshot,
   MemoryRow,
   ModelRef,
   ModelRole,
@@ -24,6 +27,14 @@ import type {
   Risk,
   TextView,
 } from "@agentherd/protocol";
+
+export type {
+  HerderContextFold,
+  HerderContextItem,
+  HerderContextPart,
+  HerderContextParts,
+  HerderContextSnapshot,
+} from "@agentherd/core";
 
 export const API_VERSION = 1;
 
@@ -174,6 +185,48 @@ export interface HerderIncident {
 }
 
 /** 主管 › 行动记录: the Herder's turns and incidents, newest first. */
+/** Token counts of a span of the Herder's requests (ADR 0093). */
+export interface HerderUsage {
+  requests: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Share of the input the provider read from its cache, 0–1; 0 without requests. */
+  hitRate: number;
+}
+
+export interface HerderUsageDay extends HerderUsage {
+  /** Local day, YYYY-MM-DD. */
+  day: string;
+}
+
+/** One request, for the trend chart. */
+export interface HerderTrendPoint {
+  at: string;
+  model: string;
+  /** Our estimate of the request and its parts. */
+  tokens: number;
+  parts: HerderContextParts;
+  input: number;
+  output: number;
+  cacheRead: number;
+}
+
+/** The 上下文 tab of the 主管 page (ADR 0093). */
+export interface HerderContextView {
+  /** Whether a Herder is running now; its last request is gone after a restart until the next. */
+  on: boolean;
+  snapshot?: HerderContextSnapshot;
+  folds: HerderContextFold[];
+  today: HerderUsage;
+  week: HerderUsage;
+  /** The last seven days, oldest first, today last. */
+  days: HerderUsageDay[];
+  /** The newest requests, oldest first. */
+  trend: HerderTrendPoint[];
+}
+
 export interface HerderActivityView {
   turns: HerderActivityTurn[];
   incidents: HerderIncident[];
@@ -677,6 +730,10 @@ export interface HostApi {
   transcript(taskId: string): TranscriptView;
   /** What the Herder did, newest turn first: at most `limit` turns (default 200). */
   herderActivity(limit?: number): HerderActivityView;
+  /** What the Herder's requests are made of, its folds and its token use (ADR 0093). */
+  herderContext(): HerderContextView;
+  /** The original messages of one fold, as text. */
+  herderContextFold(blockId: string): string;
   memories(): MemoryView;
   /** Changes an entry's text; the old text stays in its history. */
   editMemory(id: string, text: string): MemoryView;
@@ -794,6 +851,8 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "tasks",
   "transcript",
   "herderActivity",
+  "herderContext",
+  "herderContextFold",
   "memories",
   "editMemory",
   "ownerProfile",

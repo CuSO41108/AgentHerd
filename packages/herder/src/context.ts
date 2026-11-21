@@ -27,9 +27,23 @@ import {
   resolvePrompts,
   searchBlocks,
 } from "@agentherd/context-kernel";
+import {
+  HERDER_CONTEXT_ITEM_TEXT_MAX,
+  HERDER_CONTEXT_PARTS,
+  type HerderContextFold,
+  type HerderContextItem,
+  type HerderContextPart,
+  type HerderContextParts,
+  type HerderContextReport,
+  type HerderContextSnapshot,
+} from "@agentherd/core";
 import type { AgentMessage, AgentTool, AgentToolResult } from "@agentherd/herder-loop";
 import { bool, int, obj, opt, str } from "@earendil-works/pi-schema";
 import { OWNER_LABEL } from "./prompt.ts";
+
+/** Where the memory starts in the system prompt (`memorySnapshot`). */
+const MEMORY_START = "[记忆 ·";
+const FOLD_START = "[Compressed conversation section]";
 
 /** Where the folds and refs are saved; the messages themselves are in `herder_log`. */
 export const CONTEXT_STATE_KEY = "herder.context";
@@ -333,6 +347,94 @@ export function forcedSummary(log: readonly AgentMessage[], from: number, to: nu
   ].join("\n");
 }
 
+function cutText(text: string): { text: string; more: number } {
+  return text.length > HERDER_CONTEXT_ITEM_TEXT_MAX
+    ? {
+        text: text.slice(0, HERDER_CONTEXT_ITEM_TEXT_MAX),
+        more: text.length - HERDER_CONTEXT_ITEM_TEXT_MAX,
+      }
+    : { text, more: 0 };
+}
+
+function firstLine(text: string, max = 60): string {
+  const line = text.replace(LEADING_TAG, "").trim().split("\n")[0] ?? "";
+  return line.length > max ? `${line.slice(0, max)}…` : line;
+}
+
+/**
+ * What a request is made of, by part (ADR 0093): the system prompt with the memory split off, the
+ * tool schemas, the owner's messages, the Herder's replies and calls, tool results, and the folded
+ * summaries with AgentHerd's notes. Tokens are estimates, counted as the kernel counts them.
+ */
+export function measureContext(
+  messages: readonly AgentMessage[],
+  window: number,
+  at = new Date(),
+): HerderContextSnapshot {
+  const parts = Object.fromEntries(HERDER_CONTEXT_PARTS.map((p) => [p, 0])) as HerderContextParts;
+  const items: HerderContextItem[] = [];
+  const add = (part: HerderContextPart, label: string, text: string, tokens?: number) => {
+    const n = tokens ?? defaultCountTokens(text) + MESSAGE_OVERHEAD;
+    if (text === "" && n === 0) return;
+    parts[part] += n;
+    items.push({ part, label, tokens: n, ...cutText(text) });
+  };
+  for (const m of messages) {
+    if (m.role === "system") {
+      const text = typeof m.content === "string" ? m.content : textOf(m.content as Content);
+      const at = text.indexOf(MEMORY_START);
+      if (at < 0) add("system", "系统提示词", text);
+      else {
+        add("system", "系统提示词", text.slice(0, at).trimEnd());
+        add("memory", "记忆", text.slice(at));
+      }
+      const tools = (m as { toolsAdded?: { name: string }[] }).toolsAdded ?? [];
+      for (const t of tools) add("tools", t.name, JSON.stringify(t, null, 2));
+    } else if (m.role === "user") {
+      const text = textOf(m.content as Content);
+      const bare = text.replace(LEADING_TAG, "");
+      if (bare.startsWith(FOLD_START))
+        add("folds", firstLine(bare.slice(FOLD_START.length)) || "折叠摘要", bare);
+      else if (m.timestamp === 0) add("folds", firstLine(bare) || "提示", bare);
+      else add("owner", firstLine(bare) || "（图片）", bare);
+    } else if (m.role === "assistant") {
+      const texts: string[] = [];
+      const calls: string[] = [];
+      for (const c of m.content as {
+        type: string;
+        text?: string;
+        thinking?: string;
+        name?: string;
+        arguments?: unknown;
+      }[]) {
+        if (c.type === "text") texts.push(c.text ?? "");
+        else if (c.type === "thinking") texts.push(c.thinking ?? "");
+        else if (c.type === "toolCall") {
+          calls.push(c.name ?? "");
+          texts.push(`${c.name}(${JSON.stringify(c.arguments ?? {})})`);
+        }
+      }
+      const said = firstLine(
+        texts.find((t) => t.trim() !== "" && !calls.some((n) => t.startsWith(`${n}(`))) ?? "",
+      );
+      const label = calls.length > 0 ? `调用 ${calls.join("、")}` : said || "回复";
+      add("herder", label, texts.join("\n\n"));
+    } else if (m.role === "toolResult") {
+      const r = m as { toolName?: string; content: Content };
+      add("results", r.toolName ?? "工具结果", textOf(r.content).replace(LEADING_TAG, ""));
+    }
+  }
+  const tokens = Object.values(parts).reduce((a, b) => a + b, 0);
+  return {
+    at: at.toISOString(),
+    tokens,
+    window,
+    foldAt: Math.round(window * FORCED_FOLD_AT),
+    parts,
+    items,
+  };
+}
+
 export class HerderContext {
   private readonly core = createCore();
   private readonly prompts: Prompts = resolvePrompts(undefined, { languagePreservation: true });
@@ -340,6 +442,8 @@ export class HerderContext {
   state: CompressionState;
   /** Tokens of the last request, for the status report. */
   private lastTokens = 0;
+  /** What the last request was made of (ADR 0093). */
+  snapshot: HerderContextSnapshot | undefined;
 
   constructor(hooks: ContextHooks, log: readonly AgentMessage[], saved?: CompressionState) {
     this.hooks = hooks;
@@ -379,15 +483,22 @@ export class HerderContext {
    * answers.
    */
   project(messages: readonly AgentMessage[]): AgentMessage[] {
+    let out: AgentMessage[];
     try {
-      return this.view(messages);
+      out = this.view(messages);
     } catch (error) {
       this.hooks.audit("herder.context.error", {
         during: "project",
         message: (error as Error).message,
       });
-      return this.tail(messages);
+      out = this.tail(messages);
     }
+    try {
+      this.snapshot = measureContext(out, this.config().modelContextLimit);
+    } catch {
+      // Measuring is for the 上下文 tab only.
+    }
+    return out;
   }
 
   private tail(messages: readonly AgentMessage[]): AgentMessage[] {
@@ -445,6 +556,33 @@ export class HerderContext {
     }
     if (turn.statusLine !== undefined) out.push(note(turn.statusLine));
     return out;
+  }
+
+  /** What the last request was made of and the folds that are active, for the 上下文 tab. */
+  report(): HerderContextReport {
+    const folds: HerderContextFold[] = this.state.blocks
+      .filter((b) => b.active)
+      .map((b) => ({
+        blockId: b.blockId,
+        ...(b.topic === undefined ? {} : { topic: b.topic }),
+        summary: b.summary,
+        tokens: b.compressedTokens,
+        messages: b.effectiveMessageIds.length,
+        at: new Date(b.createdAt).toISOString(),
+        forced: b.summary.includes("Folded without a summary"),
+      }))
+      .sort((a, b) => (a.at < b.at ? 1 : -1));
+    return { ...(this.snapshot === undefined ? {} : { snapshot: this.snapshot }), folds };
+  }
+
+  /** The original messages of a folded part, as text; throws for an unknown block. */
+  foldText(blockId: string): string {
+    const block = this.state.blocks.find((b) => b.blockId === parseBlockIdArg(blockId));
+    if (block === undefined) throw new Error(`no block ${blockId}`);
+    const { text } = collectBlockContent(this.state, block, toCore(this.log()), { full: true });
+    return text.length > DECOMPRESS_MAX_CHARS
+      ? `${text.slice(0, DECOMPRESS_MAX_CHARS)}\n…（后面还有 ${text.length - DECOMPRESS_MAX_CHARS} 字）`
+      : text;
   }
 
   /**

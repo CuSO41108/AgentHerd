@@ -26,7 +26,8 @@ English · [简体中文](README.zh-CN.md)
 - **A Herder that talks like a person.** The Herder is a light-model agent that takes your
   messages, starts and follows tasks, and tells you each result in its own words, with the
   agent's own reply one tap away. It talks like a capable friend. The app's 「主管」 page shows
-  every step it took and why.
+  every step it took and why, and what its context is made of: how full it is, what it folded,
+  and the tokens and cache hits its model used.
 - **The right agent and model for each task.** Pi and Codex (for GPT models) come inside the app;
   Claude Code takes hard coding work, using your own `claude` or a download on the **Agent** page,
   with your own Anthropic-style model service. They run through the

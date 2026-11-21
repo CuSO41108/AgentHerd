@@ -150,6 +150,10 @@ later task gets and which counts as the owner allowing that step.
   whole turns itself (never the current one); a "context too long" error folds about half and
   retries once
   ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)).
+- The 主管 page's 上下文 tab shows the last request split into system prompt, memory, tools, folds,
+  the owner, the Herder and tool results against the window, each request's token use and cache
+  hits (`herder_requests`), a trend, every item, and the folds with their originals
+  ([ADR 0093](../adr/0093-the-herders-context-panel.md)).
 - No single input fills it: the owner's message goes in up to 8,000 characters (the whole is saved
   under `attachments` and the message says where), a task's reply up to 12,000, a report, event or
   new-work item up to 4,000; each cut says how much was left out. Files dropped on the pet come as

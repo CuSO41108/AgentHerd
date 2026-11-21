@@ -207,6 +207,75 @@ export interface HerderHost {
   herderLog(): unknown[];
   /** Replaces the saved conversation from position `from` on with `messages`. */
   writeHerderLog(from: number, messages: unknown[]): void;
+  /** Keeps one request's token counts for the 上下文 tab (ADR 0093); absent → not kept. */
+  recordRequest?(request: HerderRequestRecord): void;
+}
+
+/** What the Herder's requests are made of, as the 主管 page's 上下文 tab shows it (ADR 0093). */
+export const HERDER_CONTEXT_PARTS = [
+  "system",
+  "memory",
+  "tools",
+  "owner",
+  "herder",
+  "results",
+  "folds",
+] as const;
+export type HerderContextPart = (typeof HERDER_CONTEXT_PARTS)[number];
+export type HerderContextParts = Record<HerderContextPart, number>;
+
+/** One piece of a request: a message, a tool's schema, the system prompt. */
+export interface HerderContextItem {
+  part: HerderContextPart;
+  label: string;
+  tokens: number;
+  /** Its text, cut to {@link HERDER_CONTEXT_ITEM_TEXT_MAX} characters. */
+  text: string;
+  /** Characters cut off the end of `text`. */
+  more: number;
+}
+export const HERDER_CONTEXT_ITEM_TEXT_MAX = 1500;
+
+/** The Herder's last request, measured before it went out (estimated tokens). */
+export interface HerderContextSnapshot {
+  at: string;
+  tokens: number;
+  /** The working window (the model's, at most 128K) and where a forced fold starts. */
+  window: number;
+  foldAt: number;
+  parts: HerderContextParts;
+  items: HerderContextItem[];
+}
+
+/** A folded part of the conversation. */
+export interface HerderContextFold {
+  blockId: string;
+  topic?: string;
+  summary: string;
+  /** Tokens of the messages it replaced. */
+  tokens: number;
+  messages: number;
+  at: string;
+  /** Folded by AgentHerd because the context was nearly full, not by the Herder. */
+  forced: boolean;
+}
+
+export interface HerderContextReport {
+  snapshot?: HerderContextSnapshot;
+  folds: HerderContextFold[];
+}
+
+/** One request to the Herder's model: what the provider counted, and what we sent. */
+export interface HerderRequestRecord {
+  at: string;
+  model: string;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Our estimate of the request, and its parts. */
+  tokens: number;
+  parts: HerderContextParts;
 }
 
 /** Card action target of the 「重试」 button on a held Herder message. */
@@ -239,6 +308,10 @@ export interface HerderPort {
    * Called once AgentHerd is up, and after the Herder is replaced.
    */
   resume?(): void;
+  /** What the last request was made of and what is folded (ADR 0093). */
+  contextReport?(): HerderContextReport;
+  /** The original messages of a folded part, as text. */
+  contextFold?(blockId: string): string;
   stop(): Promise<void>;
 }
 

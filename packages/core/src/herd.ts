@@ -231,6 +231,11 @@ export class Herd {
   }
 
   /** Replaces the Herder, e.g. after the owner chose another model. `undefined` turns it off. */
+  /** The Herder now, if there is one. */
+  herderPort(): HerderPort | undefined {
+    return this.herder;
+  }
+
   async setHerder(factory: HerderFactory | undefined): Promise<void> {
     const old = this.herder;
     this.herder = undefined;
@@ -373,6 +378,7 @@ export class Herd {
       noticeLevels: () => noticeLevels(this.store),
       setNoticeLevel: (kind, level) => setNoticeLevel(this.store, kind, level),
       audit: (type, data) => this.store.audit(type, data),
+      recordRequest: (request) => this.store.addHerderRequest(request),
       recordTurn: (role, text, taskId) => {
         this.store.addHerderTurn(role, text, taskId);
         this.opts.herderTurnAdded?.();
