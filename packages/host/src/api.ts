@@ -723,6 +723,88 @@ export interface WatchView {
   activeAt?: string;
 }
 
+/** One MCP server of a plugin, as the owner sees it before installing (ADR 0094). */
+export interface PluginServerView {
+  name: string;
+  kind: "stdio" | "http";
+  /** The command line it runs, or the address it talks to, as written by the plugin. */
+  run: string;
+}
+
+export interface PluginSkillView {
+  name: string;
+  description: string;
+}
+
+/** What a plugin would add, shown before the owner installs it. */
+export interface PluginPreview {
+  /** `official:<name>` or `github:owner/repo[/folder][@ref]`. */
+  source: string;
+  /** Where its files are on GitHub. */
+  link: string;
+  name: string;
+  description: string;
+  version?: string;
+  author?: string;
+  format: "claude" | "gemini";
+  servers: PluginServerView[];
+  /** Keys its servers read (`${GITHUB_TOKEN}`). */
+  keys: string[];
+  skills: PluginSkillView[];
+  /** Parts only Claude Code or Gemini CLI can use, in words: 「3 个斜杠命令」. */
+  ignored: string[];
+  /** Servers that cannot run here, in words. */
+  problems: string[];
+  /** Set when a plugin from this source is installed already. */
+  installedId?: string;
+}
+
+/**
+ * off: turned off; idle: on, its servers start when an agent first needs them; starting;
+ * ready: tools listed; failed: a server did not start or answer (see problem).
+ */
+export type PluginState = "off" | "idle" | "starting" | "ready" | "failed";
+
+/** An installed plugin. */
+export interface PluginView extends Omit<PluginPreview, "installedId"> {
+  id: string;
+  /** Task agents get its tools and skills. */
+  enabled: boolean;
+  /** The Herder also gets its read-only tools and its skills (off unless the owner turns it on). */
+  herder: boolean;
+  installedAt: string;
+  state: PluginState;
+  /** Tools its servers listed, and how many of them only read. */
+  tools: number;
+  readTools: number;
+  problem?: string;
+  /** Keys the owner filled in (the values stay in secrets.json). */
+  keysSet: string[];
+  /** The folder AgentHerd keeps it in. */
+  dir: string;
+}
+
+/** One plugin of the official Claude Code plugin library. */
+export interface PluginCatalogEntry {
+  name: string;
+  title: string;
+  description: string;
+  category?: string;
+  author?: string;
+  homepage?: string;
+  /** What to pass to previewPlugin; missing when AgentHerd cannot install it (see why). */
+  source?: string;
+  why?: string;
+  installed: boolean;
+}
+
+export interface PluginPatch {
+  enabled?: boolean;
+  herder?: boolean;
+  /** Keys to save; "" removes one. */
+  keys?: Record<string, string>;
+}
+
 export interface HostApi {
   status(): HostStatus;
   tasks(): TasksView;
@@ -842,6 +924,15 @@ export interface HostApi {
   petPress(target: string, action: string): Promise<PetView>;
   /** The owner stopped a task (the pet's task card): its agent stops, the task stays (ADR 0072). */
   stopTask(taskId: string): Promise<void>;
+  /** The official Claude Code plugin library (ADR 0094). */
+  pluginCatalog(): Promise<PluginCatalogEntry[]>;
+  plugins(): PluginView[];
+  /** Downloads a plugin and says what it would add; nothing is installed yet. */
+  previewPlugin(source: string): Promise<PluginPreview>;
+  /** Installs a plugin the owner looked at, with the keys they filled in. */
+  installPlugin(source: string, keys: Record<string, string>): Promise<PluginView[]>;
+  setPlugin(id: string, patch: PluginPatch): Promise<PluginView[]>;
+  removePlugin(id: string): Promise<PluginView[]>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -920,6 +1011,12 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "petSay",
   "petPress",
   "stopTask",
+  "pluginCatalog",
+  "plugins",
+  "previewPlugin",
+  "installPlugin",
+  "setPlugin",
+  "removePlugin",
 ];
 
 export type HostEvent =
@@ -935,7 +1032,8 @@ export type HostEvent =
   | { topic: "westock"; data: WestockView }
   | { topic: "danjuan"; data: DanjuanView }
   | { topic: "login"; data: LoginView }
-  | { topic: "pet"; data: PetView };
+  | { topic: "pet"; data: PetView }
+  | { topic: "plugins"; data: PluginView[] };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {

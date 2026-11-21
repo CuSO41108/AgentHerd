@@ -101,6 +101,19 @@ export interface HerderSuggestion {
   show(text: string): void;
 }
 
+/**
+ * Plugins the owner let the Herder use (ADR 0094): their read-only tools and their skills.
+ * `list` is what is known now (it changes when a plugin is turned on or off).
+ */
+export interface HerderPlugins {
+  list(): {
+    tools: { name: string; description: string }[];
+    skills: { name: string; description: string }[];
+  };
+  call(name: string, args: unknown): Promise<unknown>;
+  skill(name: string): string;
+}
+
 export interface HerderHost {
   readonly locale: Locale;
   readonly texts: CoreTexts;
@@ -192,6 +205,8 @@ export interface HerderHost {
    * now, and where to put it. Absent → none.
    */
   suggestion?: HerderSuggestion;
+  /** Plugins the owner let the Herder use (ADR 0094); absent → none. */
+  plugins?: HerderPlugins;
   audit(type: string, data: Record<string, unknown>): void;
   /** Keeps a line of the Herder's conversation with the owner (`herder_turns`). */
   recordTurn(role: HerderTurnRole, text: string, taskId?: string): void;

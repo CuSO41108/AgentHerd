@@ -123,6 +123,12 @@ export {
   testModel,
 } from "./models.ts";
 export {
+  PLUGIN_REPLY_MAX,
+  PLUGIN_TOOL_NAMES,
+  pluginReplyText,
+  pluginTools,
+} from "./plugin-tools.ts";
+export {
   ANSWER_TEXT_MAX,
   CONTEXT_LABEL,
   composeTaskPrompt,
