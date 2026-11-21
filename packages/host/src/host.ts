@@ -11,8 +11,6 @@ import {
   FEED_SOURCES,
   type GhRun,
   Herd,
-  type HerderContextReport,
-  type HerderRequestRecord,
   isSubscription,
   type JsonRpcMessage,
   type MemoryStore,
@@ -67,8 +65,9 @@ import type {
   FeedSource,
   FeedView,
   HerderActivityView,
+  HerderContextSame,
   HerderContextView,
-  HerderUsage,
+  HerderMessageView,
   HostApi,
   HostEvent,
   HostStatus,
@@ -126,6 +125,7 @@ import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts
 import { Danjuan, type DanjuanBrowser } from "./danjuan.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
+import { foldText, herderContextView, herderMessages } from "./herder-context-view.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
@@ -197,8 +197,6 @@ export interface HostOptions {
 
 /** Turns 主管 › 行动记录 shows by default. */
 const HERDER_ACTIVITY_TURNS = 200;
-/** Requests on the 上下文 tab's trend chart (ADR 0093). */
-export const HERDER_TREND_POINTS = 160;
 /** Herder audit rows looked at for incidents. */
 const HERDER_INCIDENTS_MAX = 2000;
 /** Herder audit kinds the turns already show. */
@@ -213,6 +211,8 @@ export class Host implements HostApi {
   private readonly opts: HostOptions;
   private readonly listeners = new Set<(event: HostEvent) => void>();
   private herd: Herd | undefined;
+  /** The 上下文 tab as last built, by its key (ADR 0095). */
+  private contextView: HerderContextView | undefined;
   /** Background memory jobs of the running herd (ADR 0038). */
   private memoryWorker: MemoryWorker | undefined;
   /** Local vector model for memory search, made once and kept across herd restarts. */
@@ -1060,48 +1060,26 @@ export class Host implements HostApi {
     return { turns, incidents, total: all.length };
   }
 
-  herderContext(): HerderContextView {
-    const herder = this.herd?.herderPort();
-    let report: HerderContextReport = { folds: [] };
-    try {
-      report = herder?.contextReport?.() ?? report;
-    } catch {
-      // The tab still shows the token counts.
-    }
+  herderContext(known?: string): HerderContextView | HerderContextSame {
     const store = this.herd?.store;
-    const now = new Date();
-    const days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6 + i);
-      return { start: d, day: localDay(d) };
-    });
-    const weekStart = (days[0] as { start: Date }).start.toISOString();
-    const week = store?.herderRequests(weekStart) ?? [];
-    const byDay = new Map(days.map((d) => [d.day, [] as HerderRequestRecord[]]));
-    for (const r of week) byDay.get(localDay(new Date(r.at)))?.push(r);
-    const trend = (store?.herderRequests("", HERDER_TREND_POINTS) ?? []).map((r) => ({
-      at: r.at,
-      model: r.model,
-      tokens: r.tokens,
-      parts: r.parts,
-      input: r.input,
-      output: r.output,
-      cacheRead: r.cacheRead,
-    }));
-    return {
-      on: herder !== undefined,
-      ...(report.snapshot === undefined ? {} : { snapshot: report.snapshot }),
-      folds: report.folds,
-      today: usageOf(byDay.get(localDay(now)) ?? []),
-      week: usageOf(week),
-      days: days.map((d) => ({ day: d.day, ...usageOf(byDay.get(d.day) ?? []) })),
-      trend,
-    };
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    const on = this.herd?.herderPort() !== undefined;
+    const key = `${on ? 1 : 0}|${store.herder.version()}`;
+    if (known === key) return { key, unchanged: true };
+    if (this.contextView?.key !== key) this.contextView = herderContextView(store, on, key);
+    return this.contextView;
+  }
+
+  herderMessages(from: number, to: number): HerderMessageView[] {
+    const store = this.herd?.store;
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    return herderMessages(store, from, to);
   }
 
   herderContextFold(blockId: string): string {
-    const herder = this.herd?.herderPort();
-    if (herder?.contextFold === undefined) throw new Error("the Herder is not running");
-    return herder.contextFold(blockId);
+    const store = this.herd?.store;
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    return foldText(store, blockId);
   }
 
   memories(): MemoryView {
@@ -1702,22 +1680,4 @@ function petSettings(config: CliConfig): PetSettings {
     overFullscreen: flag("overFullscreen"),
     suggest: flag("suggest"),
   };
-}
-
-function localDay(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-/** Sums token counts; the hit rate is cache reads over all input the provider read. */
-export function usageOf(records: readonly HerderRequestRecord[]): HerderUsage {
-  const sum = { requests: records.length, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  for (const r of records) {
-    sum.input += r.input;
-    sum.output += r.output;
-    sum.cacheRead += r.cacheRead;
-    sum.cacheWrite += r.cacheWrite;
-  }
-  const read = sum.input + sum.cacheRead + sum.cacheWrite;
-  return { ...sum, hitRate: read === 0 ? 0 : sum.cacheRead / read };
 }

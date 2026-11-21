@@ -273,24 +273,6 @@ export interface HerderContextSnapshot {
   items: HerderContextItem[];
 }
 
-/** A folded part of the conversation. */
-export interface HerderContextFold {
-  blockId: string;
-  topic?: string;
-  summary: string;
-  /** Tokens of the messages it replaced. */
-  tokens: number;
-  messages: number;
-  at: string;
-  /** Folded by AgentHerd because the context was nearly full, not by the Herder. */
-  forced: boolean;
-}
-
-export interface HerderContextReport {
-  snapshot?: HerderContextSnapshot;
-  folds: HerderContextFold[];
-}
-
 /**
  * One request to the Herder's model: what the provider counted, and what we sent (ADR 0093). The
  * only place usage is kept (ADR 0095); requests from before were filled in from the saved replies.
@@ -405,10 +387,6 @@ export interface HerderPort {
    * Called once AgentHerd is up, and after the Herder is replaced.
    */
   resume?(): void;
-  /** What the last request was made of and what is folded (ADR 0093). */
-  contextReport?(): HerderContextReport;
-  /** The original messages of a folded part, as text. */
-  contextFold?(blockId: string): string;
   stop(): Promise<void>;
 }
 

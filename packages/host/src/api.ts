@@ -5,9 +5,10 @@
 
 import type {
   CustomApi,
-  HerderContextFold,
+  HerderContextItem,
   HerderContextParts,
-  HerderContextSnapshot,
+  HerderFoldBy,
+  HerderFoldState,
   MemoryRow,
   ModelRef,
   ModelRole,
@@ -29,11 +30,11 @@ import type {
 } from "@agentherd/protocol";
 
 export type {
-  HerderContextFold,
   HerderContextItem,
   HerderContextPart,
   HerderContextParts,
-  HerderContextSnapshot,
+  HerderFoldBy,
+  HerderFoldState,
 } from "@agentherd/core";
 
 export const API_VERSION = 1;
@@ -184,7 +185,6 @@ export interface HerderIncident {
   data: Record<string, unknown>;
 }
 
-/** 主管 › 行动记录: the Herder's turns and incidents, newest first. */
 /** Token counts of a span of the Herder's requests (ADR 0093). */
 export interface HerderUsage {
   requests: number;
@@ -194,6 +194,8 @@ export interface HerderUsage {
   cacheWrite: number;
   /** Share of the input the provider read from its cache, 0–1; 0 without requests. */
   hitRate: number;
+  /** Dollars, as the providers said; 0 when they did not say. */
+  cost: number;
 }
 
 export interface HerderUsageDay extends HerderUsage {
@@ -201,33 +203,163 @@ export interface HerderUsageDay extends HerderUsage {
   day: string;
 }
 
-/** One request, for the trend chart. */
-export interface HerderTrendPoint {
+/** One request the Herder made (ADR 0095). */
+export interface HerderRequestView {
   at: string;
   model: string;
-  /** Our estimate of the request and its parts. */
+  /** Size of the prompt as the provider counted it (else our estimate). */
   tokens: number;
-  /** Missing for requests backfilled from replies (ADR 0095). */
-  parts?: HerderContextParts;
   input: number;
   output: number;
   cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  /** Where its reply sits, and the round it belongs to. */
+  seq?: number;
+  round?: number;
+  /** Our estimate of its parts; only for requests since ADR 0093. */
+  parts?: HerderContextParts;
+  failed?: boolean;
 }
 
-/** The 上下文 tab of the 主管 page (ADR 0093). */
+/** What the next request would send, rebuilt from herd.db (ADR 0095). */
+export interface HerderContextNow {
+  tokens: number;
+  /** The working window (the model's, at most 128K) and where AgentHerd folds by itself. */
+  window: number;
+  foldAt: number;
+  parts: HerderContextParts;
+  /** Each piece, its text cut short; `herderMessages` gives the whole of a message. */
+  items: (HerderContextItem & { seq?: number })[];
+  /** No system prompt kept yet (before the Herder's first request on this version). */
+  noPrompt?: boolean;
+}
+
+/** A stretch of the conversation as the model sees it: one fold, or messages as they were. */
+export type HerderContextSegment =
+  | {
+      kind: "fold";
+      blockId: string;
+      startSeq: number;
+      endSeq: number;
+      messages: number;
+      tokensBefore: number;
+      tokensAfter: number;
+    }
+  | { kind: "raw"; startSeq: number; endSeq: number; messages: number; tokens: number };
+
+/** A fold with what the tab needs to place it (ADR 0095). */
+export interface HerderFoldView {
+  blockId: string;
+  parent?: string;
+  /** Folds directly inside it. */
+  children: string[];
+  level: number;
+  state: HerderFoldState;
+  by: HerderFoldBy;
+  topic?: string;
+  summary: string;
+  startSeq: number;
+  endSeq: number;
+  messages: number;
+  rounds: number;
+  /** Messages of each kind (owner, task, reply, call, result…). */
+  kinds: Record<string, number>;
+  /** Times of its first and last message. */
+  startAt: string;
+  endAt: string;
+  callSeq?: number;
+  /**
+   * Where the model reads its summary: in its compress call (still in view), as a note in its
+   * place, inside the fold that took it in, or nowhere (opened).
+   */
+  summaryAt: "call" | "note" | "parent" | "none";
+  tokensBefore: number;
+  tokensAfter: number;
+  createdAt: string;
+  /** Not made yet: the next request would fold this by itself (90 % full). */
+  pending?: boolean;
+}
+
+/** A round: the Herder woken once, by the owner, a task, an event or a schedule. */
+export interface HerderRoundView {
+  seq: number;
+  endSeq: number;
+  at: string;
+  kind: string;
+  title: string;
+  messages: number;
+  tokens: number;
+  /** The innermost fold it sits in; none when the model reads it as it was. */
+  fold?: string;
+}
+
+/** One message of the conversation, for the tree and the browser. */
+export interface HerderMessageView {
+  seq: number;
+  at: string;
+  role: string;
+  kind: string;
+  tool?: string;
+  round: number;
+  tokens: number;
+  /** Its text, cut to 2,000 characters; `more` says how much was left out. */
+  text: string;
+  more: number;
+}
+
+export interface HerderEventView {
+  at: string;
+  kind: string;
+  round?: number;
+  data: Record<string, unknown>;
+}
+
+/** The 上下文 tab of the 主管 page, read from herd.db alone (ADR 0093, ADR 0095). */
 export interface HerderContextView {
-  /** Whether a Herder is running now; its last request is gone after a restart until the next. */
+  /** Changes whenever anything shown changes; pass it back to get `unchanged`. */
+  key: string;
+  /** Whether a Herder is running now. */
   on: boolean;
-  snapshot?: HerderContextSnapshot;
-  folds: HerderContextFold[];
-  today: HerderUsage;
-  week: HerderUsage;
-  /** The last seven days, oldest first, today last. */
-  days: HerderUsageDay[];
+  now?: HerderContextNow;
+  /** Why `now` could not be rebuilt. */
+  problem?: string;
+  facts: {
+    messages: number;
+    /** Size of every message as it was. */
+    tokens: number;
+    rounds: number;
+    activeFolds: number;
+    folds: number;
+    /** Tokens the active folds save. */
+    saved: number;
+    /** Messages the model reads as they were. */
+    shown: number;
+    /** Cache hits of the last request, 0–1. */
+    lastHitRate?: number;
+  };
+  /** The model's view in order: folds and stretches of messages as they were. */
+  segments: HerderContextSegment[];
+  /** Every fold ever made, oldest first. */
+  folds: HerderFoldView[];
+  /** The newest rounds, oldest first. */
+  rounds: HerderRoundView[];
   /** The newest requests, oldest first. */
-  trend: HerderTrendPoint[];
+  requests: HerderRequestView[];
+  /** Days with requests, oldest first. */
+  days: HerderUsageDay[];
+  total: HerderUsage;
+  /** The newest events, oldest first. */
+  events: HerderEventView[];
 }
 
+/** Returned instead of the view when nothing changed since `known`. */
+export interface HerderContextSame {
+  key: string;
+  unchanged: true;
+}
+
+/** 主管 › 行动记录: the Herder's turns and incidents, newest first. */
 export interface HerderActivityView {
   turns: HerderActivityTurn[];
   incidents: HerderIncident[];
@@ -813,8 +945,14 @@ export interface HostApi {
   transcript(taskId: string): TranscriptView;
   /** What the Herder did, newest turn first: at most `limit` turns (default 200). */
   herderActivity(limit?: number): HerderActivityView;
-  /** What the Herder's requests are made of, its folds and its token use (ADR 0093). */
-  herderContext(): HerderContextView;
+  /**
+   * What the Herder's next request is made of, how its folds nest, its rounds, requests and token
+   * use, all from herd.db (ADR 0093, ADR 0095). With the `key` of the last answer: only whether
+   * it changed.
+   */
+  herderContext(known?: string): HerderContextView | HerderContextSame;
+  /** Messages `from`–`to` of the Herder's conversation, at most 200, each cut to 2,000 characters. */
+  herderMessages(from: number, to: number): HerderMessageView[];
   /** The original messages of one fold, as text. */
   herderContextFold(blockId: string): string;
   memories(): MemoryView;
@@ -944,6 +1082,7 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "transcript",
   "herderActivity",
   "herderContext",
+  "herderMessages",
   "herderContextFold",
   "memories",
   "editMemory",

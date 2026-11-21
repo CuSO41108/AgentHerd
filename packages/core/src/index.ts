@@ -47,11 +47,9 @@ export type {
   FeedItem,
   FeedQuery,
   FeedSource,
-  HerderContextFold,
   HerderContextItem,
   HerderContextPart,
   HerderContextParts,
-  HerderContextReport,
   HerderContextSnapshot,
   HerderEvent,
   HerderEventRecord,
@@ -81,6 +79,7 @@ export {
   type HerderMessageRow,
   type HerderRoundRow,
   HerderStore,
+  type HerderUsageRow,
 } from "./herder-store.ts";
 export type { Answerable, InboxOptions, OwnerAnswer } from "./inbox.ts";
 export { BODY_MAX_LINES, DEFAULT_REMIND_MINUTES, Inbox, itemBody, itemView } from "./inbox.ts";

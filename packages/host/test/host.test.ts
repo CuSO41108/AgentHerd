@@ -374,6 +374,32 @@ describe("Host", () => {
     expect(newest.total).toBe(2);
   });
 
+  it("builds the 上下文 tab from herd.db and answers 'unchanged' until something is written (ADR 0095)", async () => {
+    const t = makeHost(true);
+    expect(() => t.host.herderContext()).toThrow(/not running/);
+    await t.host.start();
+    const herd = (t.host as unknown as { herd: Herd }).herd;
+    herd.store.writeHerderLog(0, [
+      {
+        role: "user",
+        content: [{ type: "text", text: "[Owner's message]\n你好" }],
+        timestamp: Date.parse("2026-11-16T01:00:00Z"),
+      },
+    ]);
+    const first = t.host.herderContext();
+    if ("unchanged" in first) throw new Error("expected a view");
+    expect(first.facts).toMatchObject({ messages: 1, rounds: 1, activeFolds: 0 });
+    expect(first.segments).toEqual([
+      { kind: "raw", startSeq: 0, endSeq: 0, messages: 1, tokens: first.facts.tokens },
+    ]);
+    expect(t.host.herderContext(first.key)).toEqual({ key: first.key, unchanged: true });
+    expect(t.host.herderMessages(0, 5).map((m) => m.text)).toEqual(["[Owner's message]\n你好"]);
+    herd.store.addHerderEvent("start", { messages: 1 });
+    const next = t.host.herderContext(first.key);
+    expect("unchanged" in next).toBe(false);
+    expect(() => t.host.herderContextFold("b1")).toThrow("no fold b1");
+  });
+
   it("keeps Codex out of new tasks after it fails to start one", async () => {
     const t = makeHost(true, ["pi", "codex"]);
     await t.host.start();
@@ -514,39 +540,5 @@ describe("the owner's profile card (ADR 0091)", () => {
     expect(t.host.setProfile("在做", "AgentHerd")).toEqual({ 称呼: "火哥", 在做: "AgentHerd" });
     expect(t.host.setProfile("称呼", "")).toEqual({ 在做: "AgentHerd" });
     expect(t.host.memories().deleted.map((e) => e.abstract)).toContain("称呼：火哥");
-  });
-});
-
-describe("the Herder's token use (ADR 0093)", () => {
-  it("adds up requests and counts the cache hit rate over everything read", async () => {
-    const { usageOf } = await import("../src/host.ts");
-    const parts = { system: 1, memory: 0, tools: 0, owner: 0, herder: 0, results: 0, folds: 0 };
-    const r = (input: number, cacheRead: number, cacheWrite = 0) => ({
-      at: "2026-11-21T06:00:00.000Z",
-      model: "x/y",
-      input,
-      output: 10,
-      cacheRead,
-      cacheWrite,
-      tokens: 1,
-      parts,
-    });
-    expect(usageOf([])).toEqual({
-      requests: 0,
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      hitRate: 0,
-    });
-    const u = usageOf([r(100, 900), r(50, 850, 100)]);
-    expect(u).toMatchObject({
-      requests: 2,
-      input: 150,
-      output: 20,
-      cacheRead: 1750,
-      cacheWrite: 100,
-    });
-    expect(u.hitRate).toBeCloseTo(1750 / 2000);
   });
 });

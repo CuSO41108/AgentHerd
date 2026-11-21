@@ -1,6 +1,6 @@
 # 0093. The 主管 page shows what the Herder's context is made of
 
-- Status: Accepted
+- Status: Accepted; what the tab shows and where it reads it changed by [0096](0096-the-context-tab-reads-herd-db-and-shows-the-folds-as-a-tree.md)
 - Date: 2026-11-21
 - Changes: [0045](0045-herder-context-folded-by-the-model.md) (the folds become visible), [0065](0065-one-herder-voice-and-a-trail-only-herder-page.md) (the 主管 page gets a second tab)
 

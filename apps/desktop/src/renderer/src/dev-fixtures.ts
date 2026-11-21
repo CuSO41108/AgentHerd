@@ -6,6 +6,7 @@ import type {
   FeedView,
   HerderActivityView,
   HerderContextView,
+  HerderMessageView,
   LarkView,
   MemoryView,
   ModelsView,
@@ -643,18 +644,21 @@ export function sampleHerderActivity(): HerderActivityView {
   };
 }
 
-/** A Herder that has talked a while and folded once (ADR 0093). */
+/** A Herder that has talked a week, folded three times and once folded two folds into one. */
 export function sampleHerderContext(): HerderContextView {
   const now = Date.now();
-  const iso = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+  const HOUR = 3_600_000;
+  const start = now - 6 * 24 * HOUR;
+  /** Message `seq` is spread over the six days. */
+  const atOf = (seq: number) => new Date(start + (seq / 300) * 6 * 24 * HOUR).toISOString();
   const parts = {
-    system: 14_200,
-    memory: 900,
-    tools: 9_800,
-    folds: 1_600,
-    owner: 2_400,
-    herder: 6_900,
-    results: 21_300,
+    system: 9_000,
+    tools: 7_500,
+    memory: 300,
+    folds: 6_300,
+    owner: 9_800,
+    herder: 18_600,
+    results: 26_400,
   };
   const item = (part: keyof typeof parts, label: string, tokens: number, text: string) => ({
     part,
@@ -663,68 +667,157 @@ export function sampleHerderContext(): HerderContextView {
     text,
     more: 0,
   });
-  const trend = Array.from({ length: 60 }, (_, i) => {
-    const grow = i < 38 ? i : i - 30;
-    const scale = 0.35 + grow / 45;
-    const p = Object.fromEntries(
-      Object.entries(parts).map(([k, v]) => [
-        k,
-        k === "system" || k === "tools" ? v : Math.round(v * scale),
-      ]),
-    ) as typeof parts;
-    const tokens = Object.values(p).reduce((a, b) => a + b, 0);
+  const fold = (
+    blockId: string,
+    startSeq: number,
+    endSeq: number,
+    extra: Partial<HerderContextView["folds"][number]>,
+  ): HerderContextView["folds"][number] => ({
+    blockId,
+    children: [],
+    level: 1,
+    state: "active",
+    by: "herder",
+    summary:
+      "- 主人让我整理 PI-Desktop 的 issue，挑了 8 个能做的\n- 小红书面馆那件事已经办完\n- 没有要跟进的",
+    startSeq,
+    endSeq,
+    messages: endSeq - startSeq + 1,
+    rounds: Math.round((endSeq - startSeq + 1) / 5),
+    kinds: { owner: 12, task: 3, reply: 20, call: 18, result: 18 },
+    startAt: atOf(startSeq),
+    endAt: atOf(endSeq),
+    summaryAt: "note",
+    tokensBefore: (endSeq - startSeq + 1) * 360,
+    tokensAfter: 2_400,
+    createdAt: atOf(endSeq + 6),
+    ...extra,
+  });
+  const folds = [
+    fold("b1", 0, 80, {
+      topic: "早期杂务：PI-Desktop issue、小红书面馆",
+      state: "merged",
+      parent: "b4",
+      summaryAt: "parent",
+    }),
+    fold("b2", 81, 150, {
+      topic: "飞书邮箱授权和 GitHub Trending",
+      state: "merged",
+      parent: "b4",
+      summaryAt: "parent",
+      by: "forced",
+    }),
+    fold("b4", 0, 150, {
+      topic: "11 月上半的事",
+      level: 2,
+      children: ["b1", "b2"],
+      tokensBefore: 54_000,
+      tokensAfter: 3_100,
+      callSeq: 212,
+      summaryAt: "call",
+      createdAt: atOf(213),
+    }),
+    fold("b3", 151, 190, {
+      topic: "调研 Agent 搜索方案",
+      callSeq: 231,
+      summaryAt: "call",
+      createdAt: atOf(232),
+    }),
+  ];
+  const ROUND_KINDS = ["owner", "owner", "task", "owner", "event"];
+  const TITLES = [
+    "整理三月的发票",
+    "看看今天腾讯和快手",
+    "「查最近的未读邮件」做完了",
+    "小红书面馆再找几家",
+    "新邮件 2 封",
+  ];
+  const rounds = Array.from({ length: 60 }, (_, i) => {
+    const seq = i * 5;
+    const inner = folds
+      .filter((f) => f.state !== "opened" && seq >= f.startSeq && seq <= f.endSeq)
+      .sort((a, b) => a.level - b.level)[0];
     return {
-      at: iso((60 - i) * 6),
-      model: "deepseek/deepseek-flash",
-      tokens,
-      parts: p,
-      input: Math.round(tokens * 0.12),
-      output: 300 + (i % 7) * 90,
-      cacheRead: Math.round(tokens * 0.9),
+      seq,
+      endSeq: seq + 4,
+      at: atOf(seq),
+      kind: ROUND_KINDS[i % 5] ?? "owner",
+      title: TITLES[i % 5] ?? "",
+      messages: 5,
+      tokens: 1_200 + (i % 7) * 400,
+      ...(inner === undefined ? {} : { fold: inner.blockId }),
     };
   });
-  const day = (offset: number, requests: number) => {
-    const d = new Date(now - offset * 86_400_000);
-    const pad = (n: number) => String(n).padStart(2, "0");
+  const requests = Array.from({ length: 140 }, (_, i) => {
+    const seq = Math.round((i / 140) * 300);
+    const grown = seq < 213 ? 20_000 + seq * 300 : 30_000 + (seq - 213) * 600;
+    const at = atOf(seq);
     return {
-      day: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-      requests,
-      input: requests * 5_200,
-      output: requests * 420,
-      cacheRead: requests * 41_000,
+      at,
+      model: "deepseek/deepseek-flash",
+      tokens: grown,
+      input: Math.round(grown * (i % 9 === 0 ? 0.6 : 0.08)),
+      output: 300 + (i % 7) * 90,
+      cacheRead: Math.round(grown * (i % 9 === 0 ? 0.4 : 0.92)),
       cacheWrite: 0,
-      hitRate: 41_000 / 46_200,
+      cost: grown * 0.00000003,
+      seq,
+      round: seq - (seq % 5),
+      ...(i === 77 ? { failed: true } : {}),
     };
-  };
-  const days = [day(6, 12), day(5, 0), day(4, 31), day(3, 18), day(2, 44), day(1, 27), day(0, 36)];
-  const sum = (list: typeof days) => {
-    const t = list.reduce(
-      (a, d) => ({
-        requests: a.requests + d.requests,
-        input: a.input + d.input,
-        output: a.output + d.output,
-        cacheRead: a.cacheRead + d.cacheRead,
-        cacheWrite: 0,
-      }),
-      { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    );
-    return { ...t, hitRate: t.cacheRead / Math.max(1, t.input + t.cacheRead) };
-  };
+  });
+  const byDay = new Map<string, HerderContextView["days"][number]>();
+  for (const r of requests) {
+    const d = new Date(r.at);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const o = byDay.get(day) ?? {
+      day,
+      requests: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0,
+      hitRate: 0,
+    };
+    o.requests++;
+    o.input += r.input;
+    o.output += r.output;
+    o.cacheRead += r.cacheRead;
+    o.cost += r.cost;
+    o.hitRate = o.cacheRead / (o.input + o.cacheRead);
+    byDay.set(day, o);
+  }
+  const days = [...byDay.values()];
+  const total = days.reduce(
+    (a, d) => ({
+      requests: a.requests + d.requests,
+      input: a.input + d.input,
+      output: a.output + d.output,
+      cacheRead: a.cacheRead + d.cacheRead,
+      cacheWrite: 0,
+      cost: a.cost + d.cost,
+      hitRate: 0,
+    }),
+    { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, hitRate: 0 },
+  );
+  total.hitRate = total.cacheRead / (total.input + total.cacheRead);
   const tokens = Object.values(parts).reduce((a, b) => a + b, 0);
   return {
+    key: "sample",
     on: true,
-    snapshot: {
-      at: iso(2),
+    now: {
       tokens,
       window: 128_000,
       foldAt: 115_200,
       parts,
       items: [
-        item("system", "系统提示词", 14_200, "你是 AgentHerd 的主管……"),
+        item("system", "系统提示词", 9_000, "你是 AgentHerd 的主管……"),
         item(
           "memory",
           "记忆",
-          900,
+          300,
           "[记忆 · 主人画像 — 用量 41/600 字]\n- 称呼：火哥\n- 作息：常写代码到半夜",
         ),
         item("tools", "session_start", 1_400, '{ "name": "session_start", … }'),
@@ -732,57 +825,120 @@ export function sampleHerderContext(): HerderContextView {
         item("tools", "memory", 980, '{ "name": "memory", … }'),
         item(
           "folds",
-          "11-19 晚上：调研 Agent 搜索方案",
-          1_200,
-          "[Compressed conversation section] — 搜索方案讨论……",
+          "b4 · 11 月上半的事",
+          3_100,
+          "[Compressed conversation section] — 11 月上半的事……",
         ),
-        item("folds", "提示", 400, "上下文快到一半了，可以把做完的部分折叠起来。"),
+        item(
+          "folds",
+          "b3 · 调研 Agent 搜索方案",
+          2_400,
+          "[Compressed conversation section] — 搜索方案……",
+        ),
         item(
           "owner",
           "今天腾讯和快手哪个跌得多？",
           60,
           "[Owner's message]\n今天腾讯和快手哪个跌得多？",
         ),
-        item(
-          "owner",
-          "把 /tmp/lark-mail-auth.png 这张图给我看一下",
-          70,
-          "[Owner's message]\n把 /tmp/lark-mail-auth.png 这张图给我看一下",
-        ),
         item("herder", "调用 stock_quote", 120, 'stock_quote({"symbols":["00700","01024"]})'),
-        item(
-          "herder",
-          "腾讯跌得多：腾讯 -6.55%，快手 -4.16%",
-          180,
-          "腾讯跌得多：腾讯 -6.55%，快手 -4.16%",
-        ),
         item("results", "web_read", 9_800, "# Hermes web-search-plus\n……"),
-        item("results", "session_list", 2_100, "1. 小红书：西岸智塔附近面馆 — 做完了……"),
       ],
     },
-    folds: [
+    facts: {
+      messages: 300,
+      tokens: 128_400,
+      rounds: 60,
+      activeFolds: 2,
+      folds: 4,
+      saved: 54_000 - 3_100 + 40 * 360 - 2_400,
+      shown: 109,
+      lastHitRate: 0.92,
+    },
+    segments: [
       {
+        kind: "fold",
+        blockId: "b4",
+        startSeq: 0,
+        endSeq: 150,
+        messages: 151,
+        tokensBefore: 54_000,
+        tokensAfter: 3_100,
+      },
+      {
+        kind: "fold",
         blockId: "b3",
-        topic: "调研 Agent 搜索方案",
-        summary:
-          "- 主人想要调研类问题多搜几个来源\n- 测了 DuckDuckGo / Bing / GitHub / HN 的速度\n- 定下 research 模式：三路一起搜，8 秒封顶",
-        tokens: 18_400,
-        messages: 42,
-        at: iso(300),
-        forced: false,
+        startSeq: 151,
+        endSeq: 190,
+        messages: 40,
+        tokensBefore: 14_400,
+        tokensAfter: 2_400,
       },
-      {
-        blockId: "b1",
-        summary: "Folded without a summary because the context was nearly full.",
-        tokens: 52_000,
-        messages: 120,
-        at: iso(2_000),
-        forced: true,
-      },
+      { kind: "raw", startSeq: 191, endSeq: 299, messages: 109, tokens: 58_200 },
     ],
-    today: sum(days.slice(-1)),
-    week: sum(days),
+    folds,
+    rounds,
+    requests,
     days,
-    trend,
+    total,
+    events: [
+      { at: atOf(240), kind: "start", data: { messages: 240, folds: 4, repaired: ["b3"] } },
+      { at: atOf(240), kind: "fold.repaired", data: { blockId: "b3", startSeq: 151, endSeq: 190 } },
+    ],
   };
+}
+
+/** Messages `from`–`to` of the sample conversation. */
+export function sampleHerderMessages(from: number, to: number): HerderMessageView[] {
+  const start = Date.now() - 6 * 24 * 3_600_000;
+  return Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => {
+    const seq = from + i;
+    const at = new Date(start + (seq / 300) * 6 * 24 * 3_600_000).toISOString();
+    const n = seq % 5;
+    if (n === 0)
+      return {
+        seq,
+        at,
+        role: "user",
+        kind: "owner",
+        round: seq,
+        tokens: 60,
+        text: "[Now: 2026-11-20 14:02, Friday]\n[Owner's message]\n看看今天腾讯和快手哪个跌得多",
+        more: 0,
+      };
+    if (n === 1 || n === 3)
+      return {
+        seq,
+        at,
+        role: "assistant",
+        kind: "call",
+        tool: "stock_quote",
+        round: seq - n,
+        tokens: 80,
+        text: 'stock_quote({"symbols":["00700","01024"]})',
+        more: 0,
+      };
+    if (n === 2)
+      return {
+        seq,
+        at,
+        role: "toolResult",
+        kind: "result",
+        tool: "stock_quote",
+        round: seq - n,
+        tokens: 900,
+        text: "00700 腾讯控股 -6.55%\n01024 快手 -4.16%",
+        more: 0,
+      };
+    return {
+      seq,
+      at,
+      role: "assistant",
+      kind: "reply",
+      round: seq - n,
+      tokens: 120,
+      text: "腾讯跌得多：腾讯 -6.55%，快手 -4.16%",
+      more: 0,
+    };
+  });
 }
