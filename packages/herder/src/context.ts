@@ -42,7 +42,8 @@ import { bool, int, obj, opt, str } from "@earendil-works/pi-schema";
 import { OWNER_LABEL } from "./prompt.ts";
 
 /** Where the memory starts in the system prompt (`memorySnapshot`). */
-const MEMORY_START = "[记忆 ·";
+/** The first resident memory block (`[记忆 · <kind> — … 用量 N/cap 字]`), not a mention of one in the rules. */
+const MEMORY_START = /^\[记忆 · [^\]\n]* — [^\]\n]*用量 /m;
 const FOLD_START = "[Compressed conversation section]";
 
 /** Where the folds and refs are saved; the messages themselves are in `herder_log`. */
@@ -382,7 +383,7 @@ export function measureContext(
   for (const m of messages) {
     if (m.role === "system") {
       const text = typeof m.content === "string" ? m.content : textOf(m.content as Content);
-      const at = text.indexOf(MEMORY_START);
+      const at = text.search(MEMORY_START);
       if (at < 0) add("system", "系统提示词", text);
       else {
         add("system", "系统提示词", text.slice(0, at).trimEnd());
