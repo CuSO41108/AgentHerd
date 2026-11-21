@@ -100,9 +100,5 @@ describe("what the Herder's requests are made of (ADR 0093)", () => {
     expect(records[1]?.parts?.results).toBeGreaterThan(0);
     expect(records.map((r) => r.round)).toEqual([0, 0]);
     expect(records.map((r) => r.seq)).toEqual([1, 3]);
-    const report = herder.contextReport();
-    // The size kept is what the provider counted; the snapshot is our estimate of the same request.
-    expect(report.snapshot?.parts).toEqual(records[1]?.parts);
-    expect(report.folds).toEqual([]);
   });
 });

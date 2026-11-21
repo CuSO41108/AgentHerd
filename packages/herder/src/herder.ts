@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { CompressionState } from "@agentherd/context-kernel";
 import type {
-  HerderContextReport,
   HerderContextSnapshot,
   HerderEvent,
   HerderHost,
@@ -928,16 +927,6 @@ export class Herder implements HerderPort {
       }
     });
     this.sent = [];
-  }
-
-  /** What the last request was made of and what is folded (ADR 0093). */
-  contextReport(): HerderContextReport {
-    return this.context.report();
-  }
-
-  /** The original messages of a folded part, as text. */
-  contextFold(blockId: string): string {
-    return this.context.foldText(blockId);
   }
 
   /** Guard list on every tool call (docs/spec/06-security.md). A hit blocks the call and tells the owner. */

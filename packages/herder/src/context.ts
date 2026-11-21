@@ -32,11 +32,9 @@ import {
 import {
   HERDER_CONTEXT_ITEM_TEXT_MAX,
   HERDER_CONTEXT_PARTS,
-  type HerderContextFold,
   type HerderContextItem,
   type HerderContextPart,
   type HerderContextParts,
-  type HerderContextReport,
   type HerderContextSnapshot,
   type HerderFoldBy,
   type HerderFoldRecord,
@@ -805,33 +803,6 @@ export class HerderContext {
     }
     if (turn.statusLine !== undefined) out.push(note(turn.statusLine));
     return out;
-  }
-
-  /** What the last request was made of and the folds that are active, for the 上下文 tab. */
-  report(): HerderContextReport {
-    const folds: HerderContextFold[] = this.state.blocks
-      .filter((b) => b.active)
-      .map((b) => ({
-        blockId: b.blockId,
-        ...(b.topic === undefined ? {} : { topic: b.topic }),
-        summary: b.summary,
-        tokens: b.compressedTokens,
-        messages: b.effectiveMessageIds.length,
-        at: new Date(b.createdAt).toISOString(),
-        forced: b.summary.includes("Folded without a summary"),
-      }))
-      .sort((a, b) => (a.at < b.at ? 1 : -1));
-    return { ...(this.snapshot === undefined ? {} : { snapshot: this.snapshot }), folds };
-  }
-
-  /** The original messages of a folded part, as text; throws for an unknown block. */
-  foldText(blockId: string): string {
-    const block = this.state.blocks.find((b) => b.blockId === parseBlockIdArg(blockId));
-    if (block === undefined) throw new Error(`no block ${blockId}`);
-    const { text } = collectBlockContent(this.state, block, toCore(this.log()), { full: true });
-    return text.length > DECOMPRESS_MAX_CHARS
-      ? `${text.slice(0, DECOMPRESS_MAX_CHARS)}\n…（后面还有 ${text.length - DECOMPRESS_MAX_CHARS} 字）`
-      : text;
   }
 
   /**

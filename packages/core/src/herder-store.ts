@@ -29,6 +29,17 @@ export interface HerderMessageRow {
   chars: number;
 }
 
+/** Token use of a day (`day` is "" for the total). */
+export interface HerderUsageRow {
+  day: string;
+  requests: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+}
+
 /** A round: the message that started it and what came of it. */
 export interface HerderRoundRow {
   seq: number;
@@ -167,6 +178,41 @@ export class HerderStore {
         r.prompt ?? null,
         r.failed === true ? 1 : 0,
       );
+  }
+
+  /** Token use per local day, oldest first; `total` sums them all. */
+  requestDays(): { days: HerderUsageRow[]; total: HerderUsageRow } {
+    const sums =
+      "COUNT(*) AS n, COALESCE(SUM(input), 0) AS i, COALESCE(SUM(output), 0) AS o, COALESCE(SUM(cache_read), 0) AS r, COALESCE(SUM(cache_write), 0) AS w, COALESCE(SUM(cost), 0) AS c";
+    const row = (r: Record<string, unknown>, day: string): HerderUsageRow => ({
+      day,
+      requests: Number(r.n),
+      input: Number(r.i),
+      output: Number(r.o),
+      cacheRead: Number(r.r),
+      cacheWrite: Number(r.w),
+      cost: Number(r.c),
+    });
+    const days = this.db
+      .prepare(
+        `SELECT date(at, 'localtime') AS day, ${sums} FROM herder_requests GROUP BY day ORDER BY day`,
+      )
+      .all()
+      .map((r) => row(r, String(r.day)));
+    const total = this.db.prepare(`SELECT ${sums} FROM herder_requests`).get() ?? {};
+    return { days, total: row(total, "") };
+  }
+
+  /** Changes whenever a message, fold, request, event or prompt is written. */
+  version(): string {
+    const one = (sql: string) => Object.values(this.db.prepare(sql).get() ?? {}).join(",");
+    return [
+      one("SELECT COUNT(*), MAX(seq), MAX(at), SUM(chars) FROM herder_messages"),
+      one("SELECT COUNT(*), MAX(updated_at) FROM herder_folds"),
+      one("SELECT MAX(id) FROM herder_requests"),
+      one("SELECT MAX(id) FROM herder_events"),
+      one("SELECT hash FROM herder_prompts ORDER BY at DESC, rowid DESC LIMIT 1"),
+    ].join("|");
   }
 
   /** Requests since `since` (an ISO time), oldest first, at most `limit` of the newest. */

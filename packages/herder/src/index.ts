@@ -25,6 +25,8 @@ export {
   FORCED_FOLD_AT,
   FORCED_FOLD_TO,
   HerderContext,
+  measureContext,
+  promptMessage,
   withoutContextMarks,
 } from "./context.ts";
 export {
