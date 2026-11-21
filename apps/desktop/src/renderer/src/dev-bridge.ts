@@ -51,6 +51,7 @@ import type {
 import { DEFAULT_PET } from "@agentherd/host/api";
 import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/herd-ui";
 import type { Bridge } from "../../shared/bridge";
+import type { Theme } from "../../shared/theme";
 import {
   hoursFromNow,
   PLACEHOLDER_QR,
@@ -85,6 +86,7 @@ function simulation(): Sim {
 function installFakeBridge(): void {
   const sim = simulation();
   const herderChosen = sim !== "fresh" && sim !== "bound" && sim !== "network";
+  let devTheme: Theme = "system";
   const eventListeners = new Set<Listener<HostEvent>>();
   const connectionListeners = new Set<Listener<boolean>>();
   const keys = new Map<string, string>([["deepseek", "sk-fake"]]);
@@ -1372,6 +1374,13 @@ function installFakeBridge(): void {
       state: async () => ({ talk: "ok", approve: "ok" }),
       onState: () => () => {},
       pause: () => {},
+    },
+    // The browser cannot change prefers-color-scheme; the choice is only kept here.
+    theme: {
+      get: async () => devTheme,
+      set: async (theme) => {
+        devTheme = theme;
+      },
     },
     onEvent: (listener) => {
       eventListeners.add(listener);
