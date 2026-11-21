@@ -20,7 +20,10 @@ after ADR 0095 put the conversation, the requests and the folds into tables, the
    the conversation from `herder_messages`, the kernel's bookkeeping and the fold rows, through
    the same `HerderContext.project`. So the tab works with the Herder off and right after a
    restart, and shows the same thing the Herder will send. A fold the next request would make by
-   itself (90 % full) shows as 「下次请求时才折」.
+   itself (90 % full) shows as 「下次请求时才折」. A compress call carries its fold's summary, so it
+   and its receipt count as 折叠摘要, not as the Herder's replies, and a fold's summary is said to be
+   read in its call whenever the rebuilt request still carries that call (even when the call sits
+   inside a later fold).
 2. **One call, cached by a key.** `herderContext(known?)` returns the whole view with a key made
    of the tables' counts and newest ids; passing the key back returns `{unchanged: true}` while
    nothing was written, so polling every 5 s costs one small query. Messages are read a round at a

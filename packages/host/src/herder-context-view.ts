@@ -141,6 +141,8 @@ export function foldViews(
   rows: readonly HerderMessageRow[],
   folds: readonly HerderFoldRecord[],
   pending: ReadonlySet<string>,
+  /** Ids of the compress calls the next request carries; the model reads those folds' summaries there. */
+  shownCalls?: ReadonlySet<string>,
 ): HerderFoldView[] {
   const active = folds.filter((f) => f.state === "active");
   const inActive = (seq: number) => active.some((f) => seq >= f.startSeq && seq <= f.endSeq);
@@ -163,9 +165,13 @@ export function foldViews(
         ? "none"
         : f.state === "merged"
           ? "parent"
-          : f.callSeq !== undefined && !inActive(f.callSeq)
-            ? "call"
-            : "note";
+          : shownCalls !== undefined
+            ? shownCalls.has((f.block as { compressCallId?: string }).compressCallId ?? "")
+              ? "call"
+              : "note"
+            : f.callSeq !== undefined && !inActive(f.callSeq)
+              ? "call"
+              : "note";
     return {
       blockId: f.blockId,
       ...(f.parent === undefined ? {} : { parent: f.parent }),
@@ -228,7 +234,7 @@ function rebuild(
   store: Store,
   log: readonly Message[],
   window: number,
-): { now: HerderContextNow; folds: HerderFoldRecord[] } {
+): { now: HerderContextNow; folds: HerderFoldRecord[]; shownCalls: Set<string> } {
   const saved = store.herderFolds();
   const prompt = store.herder.prompt();
   const messages = prompt === undefined ? [...log] : [promptMessage(prompt) as Message, ...log];
@@ -252,7 +258,12 @@ function rebuild(
     })),
     ...(prompt === undefined ? { noPrompt: true } : {}),
   };
-  return { now, folds: context.folds(log as Message[]) };
+  const shownCalls = new Set<string>();
+  for (const m of view)
+    if (m.role === "assistant")
+      for (const c of m.content)
+        if (c.type === "toolCall" && c.name === "compress") shownCalls.add(c.id);
+  return { now, folds: context.folds(log as Message[]), shownCalls };
 }
 
 /** Everything on the tab; `problem` says why the next request could not be rebuilt. */
@@ -265,10 +276,12 @@ export function herderContextView(store: Store, on: boolean, key: string): Herde
   let now: HerderContextNow | undefined;
   let folds = store.herderFolds();
   let problem: string | undefined;
+  let shownCalls: Set<string> | undefined;
   try {
     const built = rebuild(store, store.herderLog() as Message[], window);
     now = built.now;
     folds = built.folds;
+    shownCalls = built.shownCalls;
   } catch (error) {
     problem = (error as Error).message;
   }
@@ -293,7 +306,7 @@ export function herderContextView(store: Store, on: boolean, key: string): Herde
       ...(lastHit === undefined ? {} : { lastHitRate: lastHit }),
     },
     segments,
-    folds: foldViews(rows, folds, pending),
+    folds: foldViews(rows, folds, pending, shownCalls),
     rounds: roundViews(store, rows, folds),
     requests: requests.map(requestView),
     days: days.map((d): HerderUsageDay => ({ day: d.day, ...usageFrom(d) })),
