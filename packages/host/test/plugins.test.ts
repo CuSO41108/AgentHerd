@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import type { SecretStore } from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CliConfig } from "../src/config.ts";
@@ -337,7 +337,7 @@ describe("installing a plugin (ADR 0094)", () => {
     const server = t.started[0];
     expect(server).toMatchObject({ kind: "stdio", command: "node" });
     if (server?.kind !== "stdio") throw new Error("not stdio");
-    expect(server.args[0]).toBe(join(t.home, "plugins", "notes", "server.js"));
+    expect(normalize(server.args[0] ?? "")).toBe(join(t.home, "plugins", "notes", "server.js"));
     expect(server.env.NOTES_TOKEN).toBe("k1");
     expect(server.env.MODE).toBe("fast");
     const info = await apps.describe(["NOTES__find", "NOTES__write"]);
