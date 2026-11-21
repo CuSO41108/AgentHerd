@@ -516,3 +516,37 @@ describe("the owner's profile card (ADR 0091)", () => {
     expect(t.host.memories().deleted.map((e) => e.abstract)).toContain("称呼：火哥");
   });
 });
+
+describe("the Herder's token use (ADR 0093)", () => {
+  it("adds up requests and counts the cache hit rate over everything read", async () => {
+    const { usageOf } = await import("../src/host.ts");
+    const parts = { system: 1, memory: 0, tools: 0, owner: 0, herder: 0, results: 0, folds: 0 };
+    const r = (input: number, cacheRead: number, cacheWrite = 0) => ({
+      at: "2026-11-21T06:00:00.000Z",
+      model: "x/y",
+      input,
+      output: 10,
+      cacheRead,
+      cacheWrite,
+      tokens: 1,
+      parts,
+    });
+    expect(usageOf([])).toEqual({
+      requests: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      hitRate: 0,
+    });
+    const u = usageOf([r(100, 900), r(50, 850, 100)]);
+    expect(u).toMatchObject({
+      requests: 2,
+      input: 150,
+      output: 20,
+      cacheRead: 1750,
+      cacheWrite: 100,
+    });
+    expect(u.hitRate).toBeCloseTo(1750 / 2000);
+  });
+});

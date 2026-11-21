@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Decision, Item, ReportView, Rule } from "@agentherd/protocol";
 import { describe, expect, it } from "vitest";
 import type { SessionRow } from "../src/index.ts";
-import { OWNER_CARDS_KEEP, Store } from "../src/index.ts";
+import { HERDER_REQUESTS_KEEP, OWNER_CARDS_KEEP, Store } from "../src/index.ts";
 
 const NOW = "2026-11-04T00:00:00.000Z";
 const REDACTED = "«redacted»";
@@ -537,6 +537,55 @@ describe("Store (owner_cards, ADR 0072)", () => {
     const migrated = Store.open(dbPath);
     migrated.putOwnerCard("f:1", report("ok"));
     expect(migrated.ownerCards()).toHaveLength(1);
+    migrated.close();
+  });
+});
+
+describe("Store (herder_requests, ADR 0093)", () => {
+  const parts = { system: 10, memory: 1, tools: 5, owner: 2, herder: 3, results: 4, folds: 0 };
+  const req = (at: string, input = 100) => ({
+    at,
+    model: "deepseek/deepseek-flash",
+    input,
+    output: 20,
+    cacheRead: 900,
+    cacheWrite: 0,
+    tokens: 25,
+    parts,
+  });
+
+  it("keeps each request's numbers and gives those since a time, oldest first", () => {
+    const store = Store.open(":memory:");
+    store.addHerderRequest(req("2026-11-20T10:00:00.000Z", 1));
+    store.addHerderRequest(req("2026-11-21T10:00:00.000Z", 2));
+    store.addHerderRequest(req("2026-11-21T11:00:00.000Z", 3));
+    const since = store.herderRequests("2026-11-21T00:00:00.000Z");
+    expect(since.map((r) => r.input)).toEqual([2, 3]);
+    expect(since[0]).toEqual(req("2026-11-21T10:00:00.000Z", 2));
+    expect(store.herderRequests("2026-11-01T00:00:00.000Z", 1).map((r) => r.input)).toEqual([3]);
+    store.close();
+  });
+
+  it(`keeps only the newest ${HERDER_REQUESTS_KEEP} requests`, () => {
+    const store = Store.open(":memory:");
+    for (let i = 0; i < HERDER_REQUESTS_KEEP + 100; i++) store.addHerderRequest(req(NOW, i));
+    const all = store.herderRequests("2026-01-01T00:00:00.000Z", HERDER_REQUESTS_KEEP * 2);
+    expect(all).toHaveLength(HERDER_REQUESTS_KEEP);
+    expect(all[0]?.input).toBe(100);
+    store.close();
+  });
+
+  it("adds the table to a version-15 database", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentherd-core-"));
+    const dbPath = join(dir, "herd.db");
+    Store.open(dbPath).close();
+    const raw = new DatabaseSync(dbPath);
+    raw.exec("DROP TABLE herder_requests");
+    raw.exec("UPDATE schema_version SET version = 15");
+    raw.close();
+    const migrated = Store.open(dbPath);
+    migrated.addHerderRequest(req(NOW));
+    expect(migrated.herderRequests(NOW)).toHaveLength(1);
     migrated.close();
   });
 });

@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Decision, Item, MessageRef, Rule, View } from "@agentherd/protocol";
 import { redact } from "@agentherd/rules";
 import { headTail } from "./cut-text.ts";
-import type { HerderTurnRole } from "./herder-port.ts";
+import type { HerderContextParts, HerderRequestRecord, HerderTurnRole } from "./herder-port.ts";
 import { ftsQuery, MEMORY_TABLES_SQL, MemoryStore } from "./memory-store.ts";
 import type { Schedule } from "./schedules.ts";
 import {
@@ -21,6 +21,7 @@ import {
 } from "./store-rows.ts";
 import {
   HERDER_LOG_TABLE_SQL,
+  HERDER_REQUESTS_TABLE_SQL,
   HERDER_TURNS_TABLE_SQL,
   INTAKE_WATCHES_TABLE_SQL,
   LATEST_SCHEMA_VERSION,
@@ -168,6 +169,10 @@ export class Store {
       if (version < 15) {
         this.db.exec(OWNER_CARDS_TABLE_SQL);
         this.db.prepare("UPDATE schema_version SET version = ?").run(15);
+      }
+      if (version < 16) {
+        this.db.exec(HERDER_REQUESTS_TABLE_SQL);
+        this.db.prepare("UPDATE schema_version SET version = ?").run(16);
       }
     }
 
@@ -474,6 +479,47 @@ export class Store {
       updatedAt: String(r.updated_at),
       ...(r.task_id === null ? {} : { taskId: String(r.task_id) }),
       view: JSON.parse(String(r.view_json)) as View,
+    }));
+  }
+
+  /** Keeps one request to the Herder's model; only the newest {@link HERDER_REQUESTS_KEEP} stay. */
+  addHerderRequest(r: HerderRequestRecord): void {
+    const info = this.db
+      .prepare(
+        "INSERT INTO herder_requests(at, model, input, output, cache_read, cache_write, tokens, parts_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        r.at,
+        r.model,
+        r.input,
+        r.output,
+        r.cacheRead,
+        r.cacheWrite,
+        r.tokens,
+        JSON.stringify(r.parts),
+      );
+    const id = Number(info.lastInsertRowid);
+    if (id % 100 === 0) {
+      this.db.prepare("DELETE FROM herder_requests WHERE id <= ?").run(id - HERDER_REQUESTS_KEEP);
+    }
+  }
+
+  /** Requests since `since` (an ISO time), oldest first, at most `limit` of the newest. */
+  herderRequests(since: string, limit = HERDER_REQUESTS_KEEP): HerderRequestRecord[] {
+    const rows = this.db
+      .prepare(
+        "SELECT at, model, input, output, cache_read, cache_write, tokens, parts_json FROM herder_requests WHERE at >= ? ORDER BY id DESC LIMIT ?",
+      )
+      .all(since, limit);
+    return rows.reverse().map((r) => ({
+      at: String(r.at),
+      model: String(r.model),
+      input: Number(r.input),
+      output: Number(r.output),
+      cacheRead: Number(r.cache_read),
+      cacheWrite: Number(r.cache_write),
+      tokens: Number(r.tokens),
+      parts: JSON.parse(String(r.parts_json)) as HerderContextParts,
     }));
   }
 
@@ -886,6 +932,8 @@ function toStoredTask(r: Record<string, unknown>): StoredTask {
 
 /** Cards kept for the desktop pet (ADR 0072); older ones are deleted. */
 export const OWNER_CARDS_KEEP = 500;
+/** Requests to the Herder's model kept for the 上下文 tab (ADR 0093). */
+export const HERDER_REQUESTS_KEEP = 5000;
 
 /** A card sent to the owner, in its latest form (ADR 0072). */
 export interface OwnerCard {

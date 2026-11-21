@@ -55,6 +55,7 @@ import {
   SAMPLE_SUBSCRIPTIONS,
   sampleFeeds,
   sampleHerderActivity,
+  sampleHerderContext,
   sampleLark,
   sampleMemory,
   sampleSchedules,
@@ -953,6 +954,11 @@ function installFakeBridge(): void {
     tasks: () => delay(tasks),
     transcript: (taskId) => delay(sampleTranscript(taskId)),
     herderActivity: () => delay(sampleHerderActivity()),
+    herderContext: () => delay(sampleHerderContext()),
+    herderContextFold: (blockId: string) =>
+      delay(
+        `${blockId} 原文\n\n[Owner's message]\n帮我看看别人的搜索方案\n\n主管：Codex 和 Claude Code 都只有一个 web_search……`,
+      ),
     memories: () => delay(memory),
     schedules: () => delay(schedules),
     setSchedulePaused: (id, paused) => {

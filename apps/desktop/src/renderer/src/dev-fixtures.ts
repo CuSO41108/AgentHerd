@@ -5,6 +5,7 @@
 import type {
   FeedView,
   HerderActivityView,
+  HerderContextView,
   LarkView,
   MemoryView,
   ModelsView,
@@ -639,5 +640,149 @@ export function sampleHerderActivity(): HerderActivityView {
         data: { kind: "owner", message: "Connection error.", delay: 2000 },
       },
     ],
+  };
+}
+
+/** A Herder that has talked a while and folded once (ADR 0093). */
+export function sampleHerderContext(): HerderContextView {
+  const now = Date.now();
+  const iso = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
+  const parts = {
+    system: 14_200,
+    memory: 900,
+    tools: 9_800,
+    folds: 1_600,
+    owner: 2_400,
+    herder: 6_900,
+    results: 21_300,
+  };
+  const item = (part: keyof typeof parts, label: string, tokens: number, text: string) => ({
+    part,
+    label,
+    tokens,
+    text,
+    more: 0,
+  });
+  const trend = Array.from({ length: 60 }, (_, i) => {
+    const grow = i < 38 ? i : i - 30;
+    const scale = 0.35 + grow / 45;
+    const p = Object.fromEntries(
+      Object.entries(parts).map(([k, v]) => [
+        k,
+        k === "system" || k === "tools" ? v : Math.round(v * scale),
+      ]),
+    ) as typeof parts;
+    const tokens = Object.values(p).reduce((a, b) => a + b, 0);
+    return {
+      at: iso((60 - i) * 6),
+      model: "deepseek/deepseek-flash",
+      tokens,
+      parts: p,
+      input: Math.round(tokens * 0.12),
+      output: 300 + (i % 7) * 90,
+      cacheRead: Math.round(tokens * 0.9),
+    };
+  });
+  const day = (offset: number, requests: number) => {
+    const d = new Date(now - offset * 86_400_000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return {
+      day: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      requests,
+      input: requests * 5_200,
+      output: requests * 420,
+      cacheRead: requests * 41_000,
+      cacheWrite: 0,
+      hitRate: 41_000 / 46_200,
+    };
+  };
+  const days = [day(6, 12), day(5, 0), day(4, 31), day(3, 18), day(2, 44), day(1, 27), day(0, 36)];
+  const sum = (list: typeof days) => {
+    const t = list.reduce(
+      (a, d) => ({
+        requests: a.requests + d.requests,
+        input: a.input + d.input,
+        output: a.output + d.output,
+        cacheRead: a.cacheRead + d.cacheRead,
+        cacheWrite: 0,
+      }),
+      { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    );
+    return { ...t, hitRate: t.cacheRead / Math.max(1, t.input + t.cacheRead) };
+  };
+  const tokens = Object.values(parts).reduce((a, b) => a + b, 0);
+  return {
+    on: true,
+    snapshot: {
+      at: iso(2),
+      tokens,
+      window: 128_000,
+      foldAt: 115_200,
+      parts,
+      items: [
+        item("system", "系统提示词", 14_200, "你是 AgentHerd 的主管……"),
+        item(
+          "memory",
+          "记忆",
+          900,
+          "[记忆 · 主人画像 — 用量 41/600 字]\n- 称呼：火哥\n- 作息：常写代码到半夜",
+        ),
+        item("tools", "session_start", 1_400, '{ "name": "session_start", … }'),
+        item("tools", "web_search", 1_100, '{ "name": "web_search", … }'),
+        item("tools", "memory", 980, '{ "name": "memory", … }'),
+        item(
+          "folds",
+          "11-19 晚上：调研 Agent 搜索方案",
+          1_200,
+          "[Compressed conversation section] — 搜索方案讨论……",
+        ),
+        item("folds", "提示", 400, "上下文快到一半了，可以把做完的部分折叠起来。"),
+        item(
+          "owner",
+          "今天腾讯和快手哪个跌得多？",
+          60,
+          "[Owner's message]\n今天腾讯和快手哪个跌得多？",
+        ),
+        item(
+          "owner",
+          "把 /tmp/lark-mail-auth.png 这张图给我看一下",
+          70,
+          "[Owner's message]\n把 /tmp/lark-mail-auth.png 这张图给我看一下",
+        ),
+        item("herder", "调用 stock_quote", 120, 'stock_quote({"symbols":["00700","01024"]})'),
+        item(
+          "herder",
+          "腾讯跌得多：腾讯 -6.55%，快手 -4.16%",
+          180,
+          "腾讯跌得多：腾讯 -6.55%，快手 -4.16%",
+        ),
+        item("results", "web_read", 9_800, "# Hermes web-search-plus\n……"),
+        item("results", "session_list", 2_100, "1. 小红书：西岸智塔附近面馆 — 做完了……"),
+      ],
+    },
+    folds: [
+      {
+        blockId: "b3",
+        topic: "调研 Agent 搜索方案",
+        summary:
+          "- 主人想要调研类问题多搜几个来源\n- 测了 DuckDuckGo / Bing / GitHub / HN 的速度\n- 定下 research 模式：三路一起搜，8 秒封顶",
+        tokens: 18_400,
+        messages: 42,
+        at: iso(300),
+        forced: false,
+      },
+      {
+        blockId: "b1",
+        summary: "Folded without a summary because the context was nearly full.",
+        tokens: 52_000,
+        messages: 120,
+        at: iso(2_000),
+        forced: true,
+      },
+    ],
+    today: sum(days.slice(-1)),
+    week: sum(days),
+    days,
+    trend,
   };
 }

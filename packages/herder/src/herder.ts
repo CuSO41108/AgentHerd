@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { CompressionState } from "@agentherd/context-kernel";
 import type {
+  HerderContextReport,
+  HerderContextSnapshot,
   HerderEvent,
   HerderHost,
   HerderPort,
@@ -166,6 +168,8 @@ export class Herder implements HerderPort {
   private readonly ownKey: HerderOptions["getApiKey"];
   /** The last request as sent: how many messages went in, and the folded view the model saw. */
   private lastView: { input: number; view: AgentMessage[] } | undefined;
+  /** What each request of the current try was made of, in order (ADR 0093). */
+  private sent: HerderContextSnapshot[] = [];
   /** Counts suggestion runs; a newer turn makes an older one stale (ADR 0084). */
   private suggestSeq = 0;
   private suggestAbort: AbortController | undefined;
@@ -200,6 +204,7 @@ export class Herder implements HerderPort {
       transformContext: async (messages) => {
         const view = await this.context.project(messages);
         this.lastView = { input: messages.length, view };
+        if (this.context.snapshot !== undefined) this.sent.push(this.context.snapshot);
         return view;
       },
       initialState: {
@@ -785,6 +790,7 @@ export class Herder implements HerderPort {
   /** One try. A failed try leaves no trace in the session. */
   private async attempt(prompt: string, images: OwnerImage[]): Promise<Attempt> {
     const before = this.agent.state.messages.length;
+    this.sent = [];
     let message: string | undefined;
     let overflow = false;
     try {
@@ -807,6 +813,7 @@ export class Herder implements HerderPort {
     } catch (error) {
       message = (error as Error).message;
     }
+    this.recordRequests(this.agent.state.messages.slice(before));
     if (message === undefined) return { ok: true };
     const added = this.agent.state.messages.slice(before);
     // Folding or reading the conversation changed nothing outside it, so the turn may run again.
@@ -824,6 +831,46 @@ export class Herder implements HerderPort {
     this.context.rollback(before - lead);
     this.save();
     return { ok: false, message, acted, overflow };
+  }
+
+  /**
+   * Keeps what the provider counted for each request of a try, with what we sent (ADR 0093). Every
+   * assistant message answers one request, in the order the snapshots were taken.
+   */
+  private recordRequests(added: readonly AgentMessage[]): void {
+    const record = this.host.recordRequest;
+    if (record === undefined) return;
+    const replies = added.filter((m) => m.role === "assistant");
+    replies.forEach((m, i) => {
+      const snapshot = this.sent[i];
+      if (snapshot === undefined || m.role !== "assistant") return;
+      const usage = m.usage;
+      try {
+        record({
+          at: new Date(this.now()).toISOString(),
+          model: `${m.provider}/${m.model}`,
+          input: usage?.input ?? 0,
+          output: usage?.output ?? 0,
+          cacheRead: usage?.cacheRead ?? 0,
+          cacheWrite: usage?.cacheWrite ?? 0,
+          tokens: snapshot.tokens,
+          parts: snapshot.parts,
+        });
+      } catch {
+        // Keeping numbers for the 上下文 tab must never break a turn.
+      }
+    });
+    this.sent = [];
+  }
+
+  /** What the last request was made of and what is folded (ADR 0093). */
+  contextReport(): HerderContextReport {
+    return this.context.report();
+  }
+
+  /** The original messages of a folded part, as text. */
+  contextFold(blockId: string): string {
+    return this.context.foldText(blockId);
   }
 
   /** Guard list on every tool call (docs/spec/06-security.md). A hit blocks the call and tells the owner. */
