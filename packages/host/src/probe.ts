@@ -3,6 +3,7 @@
 // `{ data: [{ id, ... }] }`; Ollama-style servers answer `{ models: [{ name }] }`.
 
 import type { CustomApi } from "@agentherd/core";
+import { modelFetch } from "@agentherd/herder";
 import type { ModelProbe } from "./api.ts";
 
 export const PROBE_TIMEOUT_MS = 15_000;
@@ -40,7 +41,7 @@ export async function probeModels(opts: ProbeOptions): Promise<ModelProbe> {
         ? [base]
         : [base, `${base}/v1`];
 
-  const doFetch = opts.fetch ?? fetch;
+  const doFetch = opts.fetch ?? modelFetch();
   const headers: Record<string, string> = { accept: "application/json" };
   const key = opts.key?.trim();
   if (key !== undefined && key !== "") {
