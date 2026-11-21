@@ -74,6 +74,36 @@ describe("what the Herder's requests are made of (ADR 0093)", () => {
     expect(snapshot.items.find((i) => i.part === "system")?.text).toContain("是主人的画像卡");
   });
 
+  it("counts a compress call and its receipt as a fold, since the model reads the summary there (ADR 0096)", () => {
+    const summary = "m00002–m00040 三月发票\n- 发票都整理好了，存在 ~/发票/三月";
+    const snapshot = measureContext(
+      [
+        {
+          role: "assistant",
+          content: [
+            { type: "toolCall", id: "k1", name: "compress", arguments: { content: summary } },
+          ],
+          timestamp: 6,
+        } as never,
+        {
+          role: "toolResult",
+          toolName: "compress",
+          toolCallId: "k1",
+          content: [{ type: "text", text: "Compressed 1 block(s), about 9000 tokens folded." }],
+          timestamp: 7,
+        } as never,
+      ],
+      128_000,
+    );
+    expect(snapshot.parts.herder).toBe(0);
+    expect(snapshot.parts.results).toBe(0);
+    expect(snapshot.parts.folds).toBe(snapshot.tokens);
+    expect(snapshot.items.map((i) => [i.part, i.label])).toEqual([
+      ["folds", "m00002–m00040 三月发票"],
+      ["folds", "折叠回执"],
+    ]);
+  });
+
   it("keeps the numbers the model counted for each request, with what was sent", async () => {
     const registration = registerFauxProvider();
     faux.push(registration);

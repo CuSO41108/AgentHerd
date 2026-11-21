@@ -370,6 +370,15 @@ function firstLine(text: string, max = 60): string {
   return line.length > max ? `${line.slice(0, max)}…` : line;
 }
 
+/** The first range line of a compress call, e.g. 「m00001–m00243 早期杂务」. */
+function foldTopic(content: unknown): string {
+  for (const c of content as { type: string; name?: string; arguments?: { content?: unknown } }[]) {
+    if (c.type === "toolCall" && c.name === "compress" && typeof c.arguments?.content === "string")
+      return firstLine(c.arguments.content);
+  }
+  return "";
+}
+
 /**
  * What a request is made of, by part (ADR 0093): the system prompt with the memory split off, the
  * tool schemas, the owner's messages, the Herder's replies and calls, tool results, and the folded
@@ -423,14 +432,21 @@ export function measureContext(
           texts.push(`${c.name}(${JSON.stringify(c.arguments ?? {})})`);
         }
       }
+      // A compress call carries the summary the model reads in its place: it counts as a fold.
+      const folding = calls.length > 0 && calls.every((n) => n === "compress");
       const said = firstLine(
         texts.find((t) => t.trim() !== "" && !calls.some((n) => t.startsWith(`${n}(`))) ?? "",
       );
-      const label = calls.length > 0 ? `调用 ${calls.join("、")}` : said || "回复";
-      add("herder", label, texts.join("\n\n"));
+      if (folding) add("folds", foldTopic(m.content) || "折叠摘要", texts.join("\n\n"));
+      else {
+        const label = calls.length > 0 ? `调用 ${calls.join("、")}` : said || "回复";
+        add("herder", label, texts.join("\n\n"));
+      }
     } else if (m.role === "toolResult") {
       const r = m as { toolName?: string; content: Content };
-      add("results", r.toolName ?? "工具结果", textOf(r.content).replace(LEADING_TAG, ""));
+      const text = textOf(r.content).replace(LEADING_TAG, "");
+      if (r.toolName === "compress") add("folds", "折叠回执", text);
+      else add("results", r.toolName ?? "工具结果", text);
     }
   }
   const tokens = Object.values(parts).reduce((a, b) => a + b, 0);
