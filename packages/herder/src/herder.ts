@@ -32,6 +32,7 @@ import { herdUiFixPrompt, herdUiPrompt } from "./herd-ui-prompt.ts";
 import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts";
 import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
+import { PLUGIN_TOOL_NAMES, pluginTools } from "./plugin-tools.ts";
 import {
   accountsPrompt,
   eventsPrompt,
@@ -218,6 +219,7 @@ export class Herder implements HerderPort {
               ? []
               : memoryTools(this.host.memory, () => this.turn, this.host.embedder)),
             ...(opts.lookup === false ? [] : lookupTools(opts.lookup)),
+            ...pluginTools(this.host),
           ].map(withoutMarksInArgs),
           ...this.context.tools(),
         ],
@@ -753,6 +755,7 @@ export class Herder implements HerderPort {
       return accountsPrompt({
         socials: (this.host.socialWatches?.() ?? []).map((s) => ({ name: s.name, ready: s.ready })),
         apps: this.host.apps?.() ?? [],
+        ...(this.host.plugins === undefined ? {} : { plugins: this.host.plugins.list() }),
       });
     } catch {
       return accountsPrompt({ socials: [], apps: [] });
@@ -823,6 +826,8 @@ export class Herder implements HerderPort {
         m.role === "toolResult" &&
         !CONTEXT_TOOL_NAMES.has(m.toolName) &&
         !LOOKUP_TOOL_NAMES.has(m.toolName) &&
+        // The Herder's plugin tools are read-only (ADR 0094).
+        !PLUGIN_TOOL_NAMES.has(m.toolName) &&
         m.toolName !== "stock_quote" &&
         m.toolName !== "fund_holdings",
     );

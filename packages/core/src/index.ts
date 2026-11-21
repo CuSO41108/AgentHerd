@@ -48,6 +48,7 @@ export type {
   HerderEvent,
   HerderFactory,
   HerderHost,
+  HerderPlugins,
   HerderPort,
   HerderRequestRecord,
   HerderSuggestion,

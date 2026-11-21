@@ -384,6 +384,7 @@ export class Herd {
         this.opts.herderTurnAdded?.();
       },
       ...(this.opts.suggestion === undefined ? {} : { suggestion: this.opts.suggestion }),
+      ...(this.opts.plugins === undefined ? {} : { plugins: this.opts.plugins }),
       memory: this.store.memory,
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(this.opts.memoryComplete === undefined
