@@ -507,6 +507,12 @@ A source that stops answering is told once ([ADR 0050](../adr/0050-tell-the-owne
 - The host passes the system proxy to `gh` as `HTTPS_PROXY`/`HTTP_PROXY` (Windows registry
   Internet Settings, macOS `scutil --proxy`) unless the environment has one
   (`packages/host/src/proxy.ts`).
+- The host's own model requests use the same proxy, carried by the request rather than by the
+  environment (ADR 0098): the Herder's and its tasks' streams, 模型 → 测试 and listing a custom
+  service's models go through `EnvHttpProxyAgent` (`packages/herder/src/model-fetch.ts`), and
+  `NO_PROXY` defaults to keeping `api.deepseek.com` direct. Model requests always bypass a valid
+  proxy for `localhost`, `127.0.0.1` and `[::1]`. Invalid proxy settings return a model or probe
+  error without exposing the proxy URL or retrying the request directly.
 
 ### Message length
 

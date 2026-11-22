@@ -89,6 +89,7 @@ export {
   REVIEW_TURNS,
   WORKER_POLL_MS,
 } from "./memory-jobs.ts";
+export { createModelFetch, modelFetch, type ProxyEnv } from "./model-fetch.ts";
 export {
   type ModelTiers,
   placeModels,
