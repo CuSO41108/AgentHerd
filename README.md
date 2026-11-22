@@ -73,9 +73,9 @@ English · [简体中文](README.zh-CN.md)
   ⇧⌘Space opens her to type from any app, ⇧⌘Y twice allows the oldest approval, and she can
   tuck at a screen edge or float on top only when she has something for you.
 - **Local only.** No AgentHerd server. Keys and sign-ins stay in `~/.agentherd/secrets.json`
-  (`%USERPROFILE%\.agentherd\secrets.json` on Windows), readable only by you. With 防止休眠 on,
-  agents keep running while a task runs: with the lid closed on macOS, and without idle sleep on
-  Windows.
+  (`%USERPROFILE%\.agentherd\secrets.json` on Windows). On Windows, access depends on the data
+  directory's permissions. Keep it in a private folder. Turn on 防止休眠 to ask the system to
+  prevent idle sleep while AgentHerd is open.
 
 ## How it works
 
@@ -114,10 +114,14 @@ in Feishu.
 
 ```bash
 node packages/cli/bin/agentherd.ts setup feishu                          # scan the QR code with Feishu
-node packages/cli/bin/agentherd.ts model add deepseek --models deepseek-flash   # key from stdin (Ctrl-D on macOS, Ctrl-Z + Enter on Windows)
+node packages/cli/bin/agentherd.ts model add deepseek --models deepseek-flash   # reads the key from stdin
 node packages/cli/bin/agentherd.ts model use herder deepseek/deepseek-flash
 node packages/cli/bin/agentherd.ts start
 ```
+
+On Windows, you can add the model service and its key in desktop settings instead of using
+`model add`. For CLI-only setup, pipe the key from your password manager into `model add`;
+keep the key itself out of your command history.
 
 Run one task directly with `run --profile pi /tmp/demo "Create out.txt containing hello"`
 (`C:\temp\demo` on Windows), and see recent decisions with `status`.
