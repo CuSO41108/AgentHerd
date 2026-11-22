@@ -226,12 +226,16 @@ A turn that failed is rolled back out of `herder_messages` (ADR 0037), so it sho
 
 ### Desktop pet edge grip
 
-After an outward push and release at either side of a display, Claude slides into
-the edge grip over 300 ms. Both hands meet the same edge. A pointer already on
+After an outward push and release at either side of a display, the pet slides into
+the edge grip over 300 ms. Claude uses its own grip art. Every other figure shows
+its idle frame tilted 14 degrees with its face past the edge. Both hands meet the same edge. A pointer already on
 the figure must leave and enter again to reveal the full figure. Leaving starts
 a 600 ms return timer. Entering cancels it. Both poses share a window anchor,
 and blank margins pass clicks through in both poses. The grip accepts clicks on
 its opaque pixels and the visible task dots and pending badge. A task dot opens
 Tasks. The badge opens pending cards, or chat when it only counts unread messages.
-Opening the panel shows the full figure. Restoring a saved tuck shows the resting pose immediately.
-Other figures keep the edge strip described in ADR 0080.
+Opening the panel shows the full figure. Restoring a saved grip places the window
+at the edge before the page loads and shows the resting pose immediately.
+A folded pet keeps the edge strip described in ADR 0080. On macOS the window
+ignores clicks on transparent pixels only while it grips an edge; elsewhere it
+takes every click, as before.

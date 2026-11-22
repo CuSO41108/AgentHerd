@@ -83,6 +83,15 @@ import {
 const SCALE = 0.58;
 const W = Math.round(CELL.width * SCALE);
 const H = Math.round(CELL.height * SCALE);
+/**
+ * The edge grip of a figure without its own picture for it: its resting frame, pushed this share
+ * of its width past the screen edge and leaned this many degrees (CSS sense) about its corner
+ * there, so the head looks around the edge while the body stays behind it.
+ */
+const GRIP_SHIFT = 0.42;
+const GRIP_TILT = -14;
+/** The padding of `.pet-root` in pet.css: the gap between the figure and the window edge. */
+const ROOT_PAD = 8;
 /** The folded pet: the head of the current frame in a circle. */
 const DOT = 46;
 const DOT_SCALE = 0.5;
@@ -207,8 +216,9 @@ export function Pet() {
   const [space, setSpace] = useState<PetRoom>(screenSpace);
   const lastId = useRef<number | undefined>(undefined);
   const lastTurn = useRef<number | undefined>(undefined);
-  const edgeGrip =
-    figure === "claude" && !collapsed && !open && pose?.pose === "grip" ? pose : undefined;
+  const edgeGrip = !collapsed && !open && pose?.pose === "grip" ? pose : undefined;
+  /** Claude has a picture drawn for the edge grip; the others lean their resting frame. */
+  const ownGrip = figure === "claude";
   const folded = useRef(collapsed);
   const root = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; lastX: number; moved: boolean } | undefined>(
@@ -708,6 +718,7 @@ export function Pet() {
     reportSize,
     open,
     collapsed,
+    figure,
     pose,
     size.width,
     size.list,
@@ -717,7 +728,7 @@ export function Pet() {
   const quiet = quietLine(settings, new Date(now));
   // A figure tucked at a screen edge comes out while the cursor is on it or its panel is open,
   // and the pet floats above other windows while it has something for the owner (ADR 0080).
-  const canGrip = figure === "claude" && !collapsed;
+  const canGrip = !collapsed;
   const busyForOwner = shown || badge > 0 || arm?.kind === "arm";
   useEffect(() => {
     bridge.pet?.peek?.({ hover, panel: shown, grip: canGrip });
@@ -1081,7 +1092,7 @@ export function Pet() {
       {/* biome-ignore lint/a11y/noStaticElementInteractions: hovering only shows the fold button */}
       <div
         className="pet-stage"
-        data-docked={figure === "claude" && !open ? pose?.side : undefined}
+        data-docked={!open ? pose?.side : undefined}
         data-grip={edgeGrip?.side ?? undefined}
         data-enter={edgeGrip?.animate || undefined}
         style={{ width: W, height: H }}
@@ -1113,9 +1124,18 @@ export function Pet() {
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") setOpen((x) => !x);
           }}
+          data-art={edgeGrip ? (ownGrip ? "pose" : "frame") : undefined}
+          data-tilt={edgeGrip && !ownGrip ? GRIP_TILT : undefined}
           style={
             edgeGrip
-              ? undefined
+              ? ownGrip
+                ? undefined
+                : {
+                    width: W,
+                    height: H,
+                    left:
+                      (Math.round(W * GRIP_SHIFT) + ROOT_PAD) * (edgeGrip.side === "left" ? -1 : 1),
+                  }
               : {
                   width: W,
                   height: H,
@@ -1124,7 +1144,22 @@ export function Pet() {
                 }
           }
         >
-          {edgeGrip && <img src={gripArt} onLoad={reportSize} alt="" draggable={false} />}
+          {edgeGrip &&
+            (ownGrip ? (
+              <img src={gripArt} onLoad={reportSize} alt="" draggable={false} />
+            ) : (
+              <span className="pet-grip-frame" style={{ rotate: `${GRIP_TILT}deg` }}>
+                <img
+                  src={atlas}
+                  data-sw={CELL.width}
+                  data-sh={CELL.height}
+                  style={{ width: W * ATLAS.columns, height: H * ATLAS.rows }}
+                  onLoad={reportSize}
+                  alt=""
+                  draggable={false}
+                />
+              </span>
+            ))}
         </button>
         {badge > 0 && (
           <button

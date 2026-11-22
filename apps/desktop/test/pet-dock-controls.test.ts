@@ -1,16 +1,16 @@
-import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import react from "@vitejs/plugin-react";
 import { build } from "vite";
-import { it } from "vitest";
+import { expect, it } from "vitest";
+import { runSearchFixture, SearchFixtureStillRunning } from "./search-fixture.js";
 
-it("opens Tasks and Cards from the visible controls on either dock edge", async () => {
+it("opens Tasks and Cards from the visible controls on either dock edge, for every grip art", async () => {
   const fixture = join(import.meta.dirname, "fixtures/pet-dock");
   const out = mkdtempSync(join(tmpdir(), "herd-pet-controls-"));
+  let safeToRemove = true;
   try {
     await build({
       configFile: false,
@@ -24,11 +24,21 @@ it("opens Tasks and Cards from the visible controls on either dock edge", async 
     delete env.ELECTRON_RUN_AS_NODE;
     const electron: string =
       process.env.AGENTHERD_TEST_ELECTRON ?? createRequire(import.meta.url)("electron");
-    await promisify(execFile)(electron, [join(fixture, "run.cjs"), join(out, "index.html")], {
+    // The fixture stops on a deadline and reports why, so a stuck Electron shows its stderr.
+    const result = await runSearchFixture(
+      electron,
+      [join(fixture, "run.cjs"), join(out, "index.html")],
       env,
-      timeout: 15_000,
-    });
+      40_000,
+    );
+    expect(result).toHaveLength(8);
+  } catch (error) {
+    if (error instanceof SearchFixtureStillRunning) {
+      safeToRemove = false;
+      throw new Error(`${error.message}; retained fixture files at ${out}`, { cause: error });
+    }
+    throw error;
   } finally {
-    rmSync(out, { recursive: true, force: true });
+    if (safeToRemove) rmSync(out, { recursive: true, force: true });
   }
-}, 20_000);
+}, 90_000);

@@ -1,4 +1,4 @@
-﻿import { EventEmitter } from "node:events";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,13 +121,60 @@ it.each(["right", "left"] as const)(
     pose("full");
     pet.set(false);
     pet.set(true);
+    // Restarted in the grip: at the edge from the start, not first at the strip.
+    expect(window.bounds.x).toBe(side === "right" ? 1000 - 150 : 0);
     send("peek", { hover: false, panel: false, grip: true });
     pose("grip");
     pet.set(false);
   },
 );
 
-it("keeps a non-Claude pet on the cursor display and tucks to its usual strip", () => {
+it("on macOS takes over the mouse only while gripping an edge", () => {
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: "darwin" });
+  try {
+    vi.useFakeTimers();
+    directory = mkdtempSync(join(tmpdir(), "herd-pet-"));
+    const pet = new PetWindow({ preload: "", rendererDir: "", openApp: () => {} });
+    const send = (event: string, ...args: unknown[]) =>
+      ipc.emit(`pet:${event}`, { sender: window.webContents }, ...args);
+    pet.set(true);
+    send("resize", 150, 150, [{ x: 8, y: 8, width: 130, height: 130 }]);
+    send("peek", { hover: false, panel: false, grip: true });
+    cursor.x = 10;
+    cursor.y = 10;
+    vi.advanceTimersByTime(100);
+    // Away from the edges the window takes every click, as before the grip existed.
+    expect(window.setIgnoreMouseEvents).not.toHaveBeenCalled();
+    cursor.x = 870;
+    cursor.y = 700;
+    send("drag-start");
+    cursor.x = 999;
+    send("drag-move");
+    send("drag-end");
+    cursor.x = window.bounds.x + 2;
+    cursor.y = window.bounds.y + 2;
+    vi.advanceTimersByTime(25);
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true);
+    // Dragged off the edge: clicks are taken again and the polling stops.
+    cursor.x = window.bounds.x + 70;
+    cursor.y = window.bounds.y + 70;
+    send("drag-start");
+    cursor.x -= 300;
+    send("drag-move");
+    send("drag-end");
+    const calls = window.setIgnoreMouseEvents.mock.calls.length;
+    expect(window.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false);
+    cursor.x = 0;
+    vi.advanceTimersByTime(100);
+    expect(window.setIgnoreMouseEvents.mock.calls.length).toBe(calls);
+    pet.set(false);
+  } finally {
+    if (platform) Object.defineProperty(process, "platform", platform);
+  }
+});
+
+it("keeps a folded pet on the cursor display and tucks to its usual strip", () => {
   vi.useFakeTimers();
   directory = mkdtempSync(join(tmpdir(), "herd-pet-"));
   const pet = new PetWindow({ preload: "", rendererDir: "", openApp: () => {} });

@@ -32,6 +32,11 @@ interface Corner {
   bottom: number;
   /** Tucked at this screen edge: dropped there with a third of it past the edge. */
   edge?: Edge;
+  /**
+   * Tucked in the edge grip rather than as a strip: kept so a restart places it there at once
+   * instead of showing the strip until the pet reports its figure.
+   */
+  grip?: true;
 }
 
 /** Where the pet floats (ADR 0080): from the settings. */
@@ -103,6 +108,8 @@ export class PetWindow {
   /** The screen edge the figure is tucked at; it peeks out while the cursor is on it. */
   private edge: Edge | undefined;
   private grip = false;
+  /** The pose was told since the pet opened. */
+  private posed = false;
   private hover = false;
   private panel = false;
   private releaseCursor?: { x: number; y: number };
@@ -154,12 +161,10 @@ export class PetWindow {
           this.releaseCursor = this.hover ? screen.getCursorScreenPoint() : undefined;
           this.peeking = this.panel;
         }
-        this.saveCorner({
-          ...this.anchor,
-          ...(this.edge === undefined ? {} : { edge: this.edge }),
-        });
+        this.saveCorner(this.anchor);
         this.place(w);
       }
+      this.syncHitPolling(w);
       if (this.pendingSize !== undefined) {
         const { width, height, regions } = this.pendingSize;
         this.pendingSize = undefined;
@@ -221,14 +226,14 @@ export class PetWindow {
       this.setPeek(w, this.panel || (on && !this.releaseCursor));
       if (panelChanged && this.grip) this.place(w);
       if (changed) {
-        if (process.platform !== "win32") {
-          this.stopHitTimer();
-          if (this.grip) this.hitTimer = setInterval(() => this.updateHitTest(), 25);
-          else this.setIgnore(w, false);
-        }
+        this.syncHitPolling(w);
+        // Tucked already: the next start shows the same tuck at once.
+        if (this.edge !== undefined && this.anchor !== undefined) this.saveCorner(this.anchor);
         this.place(w);
         this.tellPose(w);
-      }
+      } else if (!this.posed) this.tellPose(w);
+      // The first report shows the renderer listens: a pose sent before it could be lost.
+      this.posed = true;
     });
     // Something waits for the owner, or the panel is open: float above other windows.
     ipcMain.on("pet:float", (e, on: unknown) => {
@@ -442,8 +447,31 @@ export class PetWindow {
     }
   }
 
+  /** Holding a screen edge in the grip pose. */
+  private gripping(): boolean {
+    return this.grip && this.edge !== undefined;
+  }
+
+  /**
+   * Off Windows the window takes every click, except in the edge grip: there its clear margins
+   * must pass clicks through, so the hit test polls as it does on Windows. Only while gripping,
+   * so a figure away from the edges keeps the plain behaviour.
+   */
+  private syncHitPolling(w: BrowserWindow): void {
+    if (process.platform === "win32") return;
+    const want = this.gripping();
+    if (want === (this.hitTimer !== undefined)) return;
+    if (want) {
+      this.hitTimer = setInterval(() => this.updateHitTest(), 25);
+      this.updateHitTest();
+    } else {
+      this.stopHitTimer();
+      if (!w.isDestroyed()) this.setIgnore(w, false);
+    }
+  }
+
   private updateHitTest(): void {
-    if (process.platform !== "win32" && !this.grip) return;
+    if (process.platform !== "win32" && !this.gripping()) return;
     const w = this.win;
     if (w === undefined || w.isDestroyed()) return;
     if (this.dragFrom !== undefined || this.interacting) {
@@ -489,6 +517,7 @@ export class PetWindow {
     if (!d.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
     if (!d.moved && this.edge !== undefined) {
       this.edge = undefined;
+      this.syncHitPolling(w);
       this.tellPose(w);
     }
     d.moved = true;
@@ -550,18 +579,31 @@ export class PetWindow {
     this.anchor = { right: corner.right, bottom: corner.bottom };
     this.gripHits = undefined;
     this.edge = corner.edge;
-    this.grip = this.hover = this.panel = false;
+    // A pet left in the edge grip starts in it; the renderer corrects this if it cannot grip.
+    this.grip = corner.grip === true && corner.edge !== undefined;
+    this.hover = this.panel = this.posed = false;
     this.releaseCursor = undefined;
     this.peeking = false;
     this.wantTop = false;
     this.size = { ...START };
-    this.lastPlaced = { x: corner.right - START.width, y: corner.bottom - START.height };
     this.regions = undefined;
     this.interacting = false;
     this.ignoringMouse = undefined;
-    const created = new BrowserWindow({
-      x: corner.right - START.width,
+    const area = screen.getDisplayNearestPoint({
+      x: corner.right - 1,
+      y: corner.bottom - 1,
+    }).workArea;
+    const start = {
+      x: !this.gripping()
+        ? corner.right - START.width
+        : this.edge === "right"
+          ? area.x + area.width - START.width
+          : area.x,
       y: corner.bottom - START.height,
+    };
+    this.lastPlaced = start;
+    const created = new BrowserWindow({
+      ...start,
       ...START,
       show: false,
       frame: false,
@@ -590,7 +632,7 @@ export class PetWindow {
     if (process.platform === "win32") {
       this.setIgnore(created, true);
       this.hitTimer = setInterval(() => this.updateHitTest(), 25);
-    }
+    } else this.syncHitPolling(created);
     created.on("blur", () => {
       if (this.dragFrom === undefined) {
         this.interacting = false;
@@ -637,6 +679,8 @@ export class PetWindow {
     created.webContents.on("did-finish-load", () => {
       this.lastRoom = undefined;
       this.tellRoom(created);
+      // A reloaded pet forgot its pose: tell it again on its first report.
+      this.posed = false;
     });
     if (this.opts.devUrl !== undefined)
       void created.loadURL(new URL("pet.html", this.opts.devUrl).href);
@@ -683,6 +727,7 @@ export class PetWindow {
             right: saved.right,
             bottom: saved.bottom,
             ...(edge === undefined ? {} : { edge }),
+            ...(edge !== undefined && saved.grip === true ? { grip: true as const } : {}),
           };
       }
     } catch {
@@ -692,7 +737,14 @@ export class PetWindow {
     return { right: area.x + area.width - MARGIN, bottom: area.y + area.height - MARGIN };
   }
 
-  private saveCorner(corner: Corner): void {
+  /** Saves the corner with the current tuck. */
+  private saveCorner(anchor: Corner): void {
+    const corner: Corner = {
+      right: anchor.right,
+      bottom: anchor.bottom,
+      ...(this.edge === undefined ? {} : { edge: this.edge }),
+      ...(this.gripping() ? { grip: true as const } : {}),
+    };
     try {
       const file = this.file();
       if (!existsSync(dirname(file))) mkdirSync(dirname(file), { recursive: true });
