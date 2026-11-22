@@ -290,8 +290,15 @@ export function Pet() {
     });
     const offConnection = bridge.onConnection(setOnline);
     const offRoom = bridge.pet?.onRoom?.(setSpace);
-    // A notification or the menu bar was clicked: the panel opens on that page (ADR 0079).
-    const offShow = bridge.pet?.onShow?.((next) => {
+    // The menu and notifications open a page; only the talk shortcut toggles it.
+    const offShow = bridge.pet?.onShow?.((next, toggle) => {
+      if (toggle && openRef.current && !folded.current && tabRef.current === next) {
+        openRef.current = false;
+        setOpen(false);
+        return;
+      }
+      openRef.current = true;
+      tabRef.current = next;
       setCollapsed(false);
       folded.current = false;
       localStorage.setItem(COLLAPSED_KEY, "0");
@@ -299,6 +306,7 @@ export function Pet() {
       localStorage.setItem(TAB_KEY, next);
       if (next === "chat") setChatUnread(0);
       setOpen(true);
+      if (toggle) bridge.pet?.focus?.();
       if (next === "chat") setTimeout(() => inputEl.current?.focus(), 60);
     });
     const tick = setInterval(() => setNow(Date.now()), 1000);

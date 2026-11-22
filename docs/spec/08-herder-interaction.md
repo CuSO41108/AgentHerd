@@ -207,6 +207,16 @@ ADR 0045, ADR 0095), and errors, retries, model switches, guard hits and folds f
 
 A turn that failed is rolled back out of `herder_messages` (ADR 0037), so it shows only as its error row.
 
+## 7. The desktop pet's talk shortcut
+
+From any app, press 「和主管说话」 (Ctrl+Shift+Space on Windows, Shift+Command+Space on macOS)
+to open the pet's conversation and focus its input. If the pet is on another page, the shortcut
+switches to the conversation. Press it again while the conversation is open to close the panel;
+the pet stays visible, keeps any unsent draft, and does not take focus from another app when
+closing. The tray menu still opens the conversation without toggling it. If the pet is off,
+the shortcut opens the main window
+([ADR 0080](../adr/0080-pet-shortcuts-and-where-it-floats.md)).
+
 ## Order of work
 
 1. `project_find`, `session_start` folder check, `herder_turns`.

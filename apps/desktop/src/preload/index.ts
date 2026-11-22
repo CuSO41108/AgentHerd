@@ -32,12 +32,14 @@ const bridge: Bridge = {
       ipcRenderer.on("pet:mouse-leave", handler);
       return () => ipcRenderer.removeListener("pet:mouse-leave", handler);
     },
+    focus: () => ipcRenderer.send("pet:focus"),
     openApp: (taskId) => ipcRenderer.send("pet:open-app", taskId),
     openFile: (path) => ipcRenderer.send("pet:open-file", path),
     readImage: (path) => ipcRenderer.invoke("pet:read-image", path),
     pathOf: (file) => webUtils.getPathForFile(file),
     onShow(listener) {
-      const handler = (_e: unknown, tab: "chat" | "tasks" | "cards") => listener(tab);
+      const handler = (_e: unknown, tab: "chat" | "tasks" | "cards", toggle = false) =>
+        listener(tab, toggle);
       ipcRenderer.on("pet:show", handler);
       return () => ipcRenderer.removeListener("pet:show", handler);
     },
