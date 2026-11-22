@@ -21,6 +21,7 @@ import {
   PawPrint,
   Pin,
   Rocket,
+  SunMoon,
   Type,
   Volume2,
   Zap,
@@ -28,7 +29,9 @@ import {
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { isQuiet, quietLine, snoozeUntil } from "../../../shared/pet-notify";
 import { type ShortcutState, shortcutLabel, shortcutOf } from "../../../shared/pet-shortcuts";
+import { THEMES, type Theme } from "../../../shared/theme";
 import { FeishuSection } from "../components/FeishuSection";
+import { FigurePicker } from "../components/FigurePicker";
 import {
   Button,
   Group,
@@ -40,14 +43,8 @@ import {
   Switch,
 } from "../components/ui";
 import { FONT_SCALES, setFontScale, useFontScale } from "../font-scale";
-import { FIGURE_CREDIT, FIGURES } from "../pet/figures";
 import { isMac } from "../platform";
 import { call, type Mode, useApp } from "../store";
-
-const PET_FIGURE_OPTIONS = (Object.keys(FIGURES) as PetFigure[]).map((value) => ({
-  value,
-  label: FIGURES[value].name,
-}));
 
 const MODES: { mode: Mode; title: string; hint: string; icon: typeof Eye }[] = [
   {
@@ -119,6 +116,7 @@ export function SettingsPage() {
 
       <Section title="外观">
         <Group>
+          <ThemeRow />
           <Row
             icon={
               <IconTile>
@@ -165,16 +163,15 @@ export function SettingsPage() {
               </IconTile>
             }
             title="形象"
-            description={FIGURE_CREDIT}
-            trailing={
-              <Segmented
-                label="形象"
-                options={PET_FIGURE_OPTIONS}
-                value={status.pet?.figure ?? "deepseek"}
-                onChange={(figure) => void update({ pet: { figure } })}
-              />
-            }
+            description="点一个换上；下面写着它是谁画的、从哪来"
           />
+          <div className="px-4 pt-1 pb-4">
+            <FigurePicker
+              figure={status.pet?.figure ?? "deepseek"}
+              disabled={busy || status.pet === undefined}
+              pick={(figure: PetFigure) => void update({ pet: { figure } })}
+            />
+          </div>
           {status.pet?.suggest !== undefined && (
             <Row
               icon={
@@ -583,5 +580,37 @@ function PetKeys({
         </IconTile>,
       )}
     </Group>
+  );
+}
+
+/** 颜色: light, dark or the system's, applied by main to every window (shared/theme.ts). */
+function ThemeRow() {
+  const bridge = window.agentherd.theme;
+  const [theme, setTheme] = useState<Theme | undefined>();
+  useEffect(() => {
+    void bridge?.get().then(setTheme);
+  }, [bridge]);
+  if (bridge === undefined || theme === undefined) return null;
+  return (
+    <Row
+      icon={
+        <IconTile>
+          <SunMoon size={15} strokeWidth={1.75} />
+        </IconTile>
+      }
+      title="颜色"
+      description="浅色或深色；跟随系统时，系统切换它也跟着换。桌宠一起变"
+      trailing={
+        <Segmented
+          label="颜色"
+          options={THEMES}
+          value={theme}
+          onChange={(next) => {
+            setTheme(next);
+            void bridge.set(next);
+          }}
+        />
+      }
+    />
   );
 }

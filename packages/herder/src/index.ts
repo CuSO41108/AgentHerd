@@ -20,12 +20,16 @@ export {
 } from "./agent-models.ts";
 export {
   CONTEXT_STATE_KEY,
+  CONTEXT_WINDOW_CHOICES,
   CONTEXT_WINDOW_MAX,
   type ContextHooks,
   FORCED_FOLD_AT,
   FORCED_FOLD_TO,
   HerderContext,
+  measureContext,
+  promptMessage,
   withoutContextMarks,
+  workingWindow,
 } from "./context.ts";
 export {
   Herder,
@@ -103,8 +107,12 @@ export {
   type HerderChoice,
   herderFallbacks,
   herderFromSettings,
+  MEMORY_MODEL_DOWN_MS,
+  MEMORY_TRY_MS,
   type MemoryModel,
+  MemoryModelChain,
   memoryModel,
+  memoryModels,
   notReadyReason,
   PI_KEY_ENV,
   PI_MODEL_ENV,
@@ -118,6 +126,12 @@ export {
   type TestResult,
   testModel,
 } from "./models.ts";
+export {
+  PLUGIN_REPLY_MAX,
+  PLUGIN_TOOL_NAMES,
+  pluginReplyText,
+  pluginTools,
+} from "./plugin-tools.ts";
 export {
   ANSWER_TEXT_MAX,
   CONTEXT_LABEL,
@@ -133,7 +147,7 @@ export {
   VOICE_REPLY_MAX,
   voicePrompt,
 } from "./prompt.ts";
-export { STYLE_SOURCE, stylePrompt } from "./style.ts";
+export { STYLE_SOURCE, stylePrompt, withoutEndPeriods } from "./style.ts";
 export {
   filterSuggestion,
   SUGGEST_MAX_CHARS,

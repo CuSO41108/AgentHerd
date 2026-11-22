@@ -13,11 +13,14 @@ import {
   Herd,
   isSubscription,
   type JsonRpcMessage,
+  type MemoryStore,
   type ModelRef,
   type ModelRole,
   type ModelService,
   type ModelSettings,
+  modelFor,
   modelKeyAccount,
+  profileField,
   putService,
   RESIDENT_CAPS,
   removeService,
@@ -33,8 +36,9 @@ import {
   herderFromSettings,
   LOGIN_FIELD,
   loginsFor,
+  MemoryModelChain,
   MemoryWorker,
-  memoryModel,
+  memoryModels,
   modelChoices,
   modelLaunchFor,
   PI_MODEL_ENV,
@@ -62,6 +66,9 @@ import type {
   FeedSource,
   FeedView,
   HerderActivityView,
+  HerderContextSame,
+  HerderContextView,
+  HerderMessageView,
   HostApi,
   HostEvent,
   HostStatus,
@@ -74,11 +81,17 @@ import type {
   ModelsView,
   ModelTest,
   ModelTiersView,
+  OwnerProfile,
   PetFigure,
   PetOnTop,
   PetSettings,
   PetView,
+  PluginCatalogEntry,
+  PluginPatch,
+  PluginPreview,
+  PluginView,
   ProbeTarget,
+  ProfileFieldName,
   ProviderView,
   SchedulesView,
   SettingsPatch,
@@ -96,7 +109,17 @@ import type {
   WestockTest,
   WestockView,
 } from "./api.ts";
-import { DEFAULT_PET, isPetShortcut, PET_FIGURES, PET_ON_TOP, QUIET_HOURS } from "./api.ts";
+import {
+  DEFAULT_HERDER_WINDOW,
+  DEFAULT_PET,
+  HERDER_WINDOWS,
+  isPetShortcut,
+  PET_FIGURES,
+  PET_ON_TOP,
+  PROFILE_FIELD_NAMES,
+  PROFILE_VALUE_MAX,
+  QUIET_HOURS,
+} from "./api.ts";
 import { Apps, newComposioUserId } from "./apps.ts";
 import type { AgentDef, Fetchers } from "./catalog.ts";
 import { withClaudeHome } from "./claude-home.ts";
@@ -105,11 +128,14 @@ import { type CliConfig, readConfig, secretFile, writeConfig } from "./config.ts
 import { Danjuan, type DanjuanBrowser } from "./danjuan.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
+import { foldText, herderContextView, herderMessages } from "./herder-context-view.ts";
 import { Lark } from "./lark.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
 import { PET_CARDS_MAX, PET_HISTORY_MAX, PetFeed, petConversation } from "./pet.ts";
 import { droppedFiles } from "./pet-drop.ts";
+import type { McpClient } from "./plugin-mcp.ts";
+import { PluginStore, type RunningServer } from "./plugins.ts";
 import { probeModels } from "./probe.ts";
 import { availableProfiles } from "./profiles.ts";
 import { withSystemProxy } from "./proxy.ts";
@@ -155,6 +181,9 @@ export interface HostOptions {
   fetchers?: Fetchers;
   /** HTTP for probeModels (tests). Default: global fetch. */
   fetch?: typeof fetch;
+  /** Plugins (ADR 0094): how a downloaded .tar.gz is unpacked and how a server is reached; tests fake them. */
+  pluginExtract?: (file: string, dir: string) => Promise<void>;
+  pluginClient?: (server: RunningServer) => McpClient;
   /** Runs `gh` for following pull requests tasks open (tests replace it). */
   gh?: GhRun;
   target?: string;
@@ -185,6 +214,8 @@ export class Host implements HostApi {
   private readonly opts: HostOptions;
   private readonly listeners = new Set<(event: HostEvent) => void>();
   private herd: Herd | undefined;
+  /** The 上下文 tab as last built, by its key (ADR 0095). */
+  private contextView: HerderContextView | undefined;
   /** Background memory jobs of the running herd (ADR 0038). */
   private memoryWorker: MemoryWorker | undefined;
   /** Local vector model for memory search, made once and kept across herd restarts. */
@@ -221,6 +252,8 @@ export class Host implements HostApi {
   private readonly danjuanCli: Danjuan;
   /** What the desktop pet sees of the chat (ADR 0070). */
   private readonly petFeed: PetFeed;
+  /** Installed plugins (ADR 0094). */
+  private readonly pluginList: PluginStore;
   /** The Herder's guess at the owner's next message, and when it came (ADR 0084). */
   private petSuggestion: { text: string; at: string } | undefined;
 
@@ -272,6 +305,24 @@ export class Host implements HostApi {
       },
     });
     this.feedList = new Feeds({ home: opts.home, off: () => this.config().feedsOff ?? [] });
+    this.pluginList = new PluginStore({
+      home: opts.home,
+      secrets: opts.secrets,
+      config: () => this.config(),
+      save: (change) => writeConfig(this.opts.home, change(this.config())),
+      changed: () => this.emit({ topic: "plugins", data: this.plugins() }),
+      env: () => {
+        const base: Record<string, string> = {};
+        for (const [k, v] of Object.entries(this.opts.env ?? process.env)) {
+          if (v !== undefined) base[k] = v;
+        }
+        return this.withToolPath(base);
+      },
+      ...(opts.fetch === undefined ? {} : { fetchFn: opts.fetch }),
+      ...(opts.pluginExtract === undefined ? {} : { extract: opts.pluginExtract }),
+      ...(opts.pluginClient === undefined ? {} : { client: opts.pluginClient }),
+      log: (line) => this.log(line),
+    });
     this.westockCli = new Westock({
       home: opts.home,
       enabled: () => !(this.config().westockOff ?? false),
@@ -390,6 +441,8 @@ export class Host implements HostApi {
     if (westock !== undefined) notes.push(westock);
     const danjuan = this.danjuanCli.note();
     if (danjuan !== undefined) notes.push(danjuan);
+    const plugins = this.pluginList.note();
+    if (plugins !== undefined) notes.push(plugins);
     const vault = this.config().obsidianVault;
     if (vault !== undefined && vault !== "") {
       notes.push(
@@ -404,6 +457,32 @@ export class Host implements HostApi {
     this.herd?.socials?.schedule();
     this.emit({ topic: "socials", data: this.socials() });
     this.emit({ topic: "watches", data: this.watches() });
+  }
+
+  // ---- Plugins (ADR 0094) ----
+
+  pluginCatalog(): Promise<PluginCatalogEntry[]> {
+    return this.pluginList.catalog();
+  }
+
+  plugins(): PluginView[] {
+    return this.pluginList.views();
+  }
+
+  previewPlugin(source: string): Promise<PluginPreview> {
+    return this.pluginList.preview(source);
+  }
+
+  installPlugin(source: string, keys: Record<string, string> = {}): Promise<PluginView[]> {
+    return this.pluginList.install(source, keys);
+  }
+
+  setPlugin(id: string, patch: PluginPatch): Promise<PluginView[]> {
+    return this.pluginList.set(id, patch);
+  }
+
+  removePlugin(id: string): Promise<PluginView[]> {
+    return this.pluginList.remove(id);
   }
 
   socials(): SocialView[] {
@@ -562,6 +641,7 @@ export class Host implements HostApi {
     this.socialList.stop();
     this.westockCli.stop();
     this.danjuanCli.stop();
+    this.pluginList.stopAll();
     this.setupRun++;
     await this.stopHerd();
   }
@@ -638,6 +718,11 @@ export class Host implements HostApi {
           this.emit({ topic: "pet", data: this.pet() });
         },
       },
+      plugins: {
+        list: () => this.pluginList.herderList(),
+        call: (name, args) => this.pluginList.herderCall(name, args),
+        skill: (name) => this.pluginList.skillText(name),
+      },
       ...(herder === undefined ? {} : { herder }),
       ...(this.opts.mcpSocket === undefined
         ? {}
@@ -649,6 +734,7 @@ export class Host implements HostApi {
                 this.feedList.tools(),
                 this.westockCli.tools(),
                 this.danjuanCli.tools(),
+                this.pluginList.tools(),
               ]),
             appNames: () => this.appList.connectedNames(),
           }),
@@ -686,6 +772,7 @@ export class Host implements HostApi {
     try {
       await herd.start();
       this.herd = herd;
+      this.writeWaitingProfile();
       this.startMemoryWorker(herd);
       this.connected = true;
       this.channelError = undefined;
@@ -710,10 +797,14 @@ export class Host implements HostApi {
     return this.embedder;
   }
 
-  private async memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
-    const model = memoryModel(this.settings(), this.opts.secrets, this.placement(), this.opts.env);
-    if (model === undefined) throw new Error("no model for memory");
-    return model.complete(system, user, signal);
+  /** Memory jobs try the cheap models in turn, then the Herder's (ADR 0090). */
+  private readonly memoryChain = new MemoryModelChain(
+    () => memoryModels(this.settings(), this.opts.secrets, this.placement(), this.opts.env),
+    (line) => this.log(line),
+  );
+
+  private memoryComplete(system: string, user: string, signal: AbortSignal): Promise<string> {
+    return this.memoryChain.complete(system, user, signal);
   }
 
   private startMemoryWorker(herd: Herd): void {
@@ -721,7 +812,7 @@ export class Host implements HostApi {
     const worker = new MemoryWorker({
       memory: herd.store.memory,
       transcript: (taskId) => herd.store.transcript(taskId),
-      herderTurns: (limit) => herd.store.herderTurns(limit),
+      herderTurnsAfter: (afterId, limit) => herd.store.herderTurnsAfter(afterId, limit),
       complete: (system, user, signal) => this.memoryComplete(system, user, signal),
       embedder: this.memoryEmbedder(),
       log: (line) => this.log(line),
@@ -816,6 +907,7 @@ export class Host implements HostApi {
       () => this.placement(),
       // The owner's own GitHub sign-in, when there is one, lifts GitHub's limit (ADR 0071).
       { githubToken: () => gh(["auth", "token"]) },
+      () => this.herderWindow(),
     );
     return "factory" in choice ? choice.factory : undefined;
   }
@@ -878,7 +970,27 @@ export class Host implements HostApi {
       ...(config.obsidianVault ? { obsidianVault: config.obsidianVault } : {}),
       profiles: this.profileList.map((p) => p.id),
       pet: petSettings(config),
+      herderWindow: this.herderWindow(),
     };
+  }
+
+  /** The Herder's working window the owner picked (ADR 0097); 0 is the model's whole window. */
+  private herderWindow(): number {
+    const w = this.config().herderWindow;
+    return (HERDER_WINDOWS as readonly number[]).includes(w ?? -1)
+      ? (w as number)
+      : DEFAULT_HERDER_WINDOW;
+  }
+
+  /** The Herder's model's own context window, 0 when unknown. */
+  private herderModelWindow(): number {
+    const choice = modelFor(this.settings(), "herder");
+    if (choice === undefined) return 0;
+    try {
+      return resolveModel(choice.service, choice.model).contextWindow ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   pet(): PetView {
@@ -972,13 +1084,38 @@ export class Host implements HostApi {
     return { turns, incidents, total: all.length };
   }
 
+  herderContext(known?: string): HerderContextView | HerderContextSame {
+    const store = this.herd?.store;
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    const on = this.herd?.herderPort() !== undefined;
+    const windows = { model: this.herderModelWindow(), choice: this.herderWindow() };
+    const key = `${on ? 1 : 0}|${windows.model}|${windows.choice}|${store.herder.version()}`;
+    if (known === key) return { key, unchanged: true };
+    if (this.contextView?.key !== key) {
+      this.contextView = herderContextView(store, on, key, windows);
+    }
+    return this.contextView;
+  }
+
+  herderMessages(from: number, to: number): HerderMessageView[] {
+    const store = this.herd?.store;
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    return herderMessages(store, from, to);
+  }
+
+  herderContextFold(blockId: string): string {
+    const store = this.herd?.store;
+    if (store === undefined) throw new Error("AgentHerd is not running yet");
+    return foldText(store, blockId);
+  }
+
   memories(): MemoryView {
     const memory = this.herd?.store.memory;
     if (memory === undefined) {
       return {
         entries: [],
         deleted: [],
-        used: { owner: 0, decision: 0, note: 0 },
+        used: { profile: 0, owner: 0, decision: 0, note: 0 },
         caps: { ...RESIDENT_CAPS },
         ready: false,
       };
@@ -987,6 +1124,7 @@ export class Host implements HostApi {
       entries: memory.list(),
       deleted: memory.list({ status: "deleted" }).slice(0, MEMORY_DELETED_SHOWN),
       used: {
+        profile: memory.used("profile"),
         owner: memory.used("owner"),
         decision: memory.used("decision"),
         note: memory.used("note"),
@@ -1038,6 +1176,58 @@ export class Host implements HostApi {
     const herd = this.herd;
     if (herd === undefined) throw new Error("AgentHerd is not running; connect Feishu first");
     return herd.schedules;
+  }
+
+  ownerProfile(): OwnerProfile {
+    const out: OwnerProfile = {};
+    for (const r of this.herd?.store.memory.list({ kinds: ["profile"] }) ?? []) {
+      const field = profileField(r.abstract);
+      if (field !== undefined) out[field] = profileValue(r.abstract);
+    }
+    for (const [field, value] of Object.entries(this.config().profileWaiting ?? {})) {
+      if (!isProfileField(field) || value === undefined) continue;
+      if (value === "") delete out[field];
+      else out[field] = value;
+    }
+    return out;
+  }
+
+  setProfile(field: ProfileFieldName, value: string): OwnerProfile {
+    if (!isProfileField(field)) {
+      throw new Error(`field must be one of ${PROFILE_FIELD_NAMES.join(", ")}`);
+    }
+    const text = value.replace(/\s+/g, " ").trim();
+    if (text.length > PROFILE_VALUE_MAX) {
+      throw new Error(`${field} must be at most ${PROFILE_VALUE_MAX} characters`);
+    }
+    const memory = this.herd?.store.memory;
+    if (memory === undefined) {
+      const config = this.config();
+      writeConfig(this.opts.home, {
+        ...config,
+        profileWaiting: { ...config.profileWaiting, [field]: text },
+      });
+      return this.ownerProfile();
+    }
+    writeProfileField(memory, field, text);
+    return this.ownerProfile();
+  }
+
+  /** Writes the profile fields set while AgentHerd was not running (ADR 0091). */
+  private writeWaitingProfile(): void {
+    const memory = this.herd?.store.memory;
+    const config = this.config();
+    const waiting = config.profileWaiting;
+    if (memory === undefined || waiting === undefined) return;
+    try {
+      for (const [field, value] of Object.entries(waiting)) {
+        if (isProfileField(field) && value !== undefined) writeProfileField(memory, field, value);
+      }
+      const { profileWaiting: _written, ...rest } = config;
+      writeConfig(this.opts.home, rest);
+    } catch (error) {
+      this.log(`[memory] could not write the profile: ${(error as Error).message}`);
+    }
   }
 
   private ownMemory() {
@@ -1300,6 +1490,12 @@ export class Host implements HostApi {
       this.herd?.setMode(patch.mode);
     }
     if (patch.keepAwake !== undefined) next.keepAwake = patch.keepAwake;
+    if (patch.herderWindow !== undefined) {
+      if (!(HERDER_WINDOWS as readonly number[]).includes(patch.herderWindow)) {
+        throw new Error(`herderWindow must be one of ${HERDER_WINDOWS.join(", ")}`);
+      }
+      next.herderWindow = patch.herderWindow;
+    }
     if (patch.pet !== undefined) {
       const pet: PetSettings = { ...petSettings(config), ...patch.pet };
       for (const key of ["on", "notify", "sound", "overFullscreen", "suggest"] as const) {
@@ -1461,6 +1657,26 @@ function cleanService(s: ModelService): ModelService {
 }
 
 /** The pet settings with defaults filled in; an unknown figure falls back to the default. */
+function isProfileField(field: string): field is ProfileFieldName {
+  return (PROFILE_FIELD_NAMES as readonly string[]).includes(field);
+}
+
+/** 「称呼：火哥」 → 「火哥」. */
+function profileValue(abstract: string): string {
+  return abstract.slice(abstract.search(/[：:]/) + 1).trim();
+}
+
+/** Sets or clears one field of the owner's profile card as the owner's own edit (ADR 0091). */
+function writeProfileField(memory: MemoryStore, field: ProfileFieldName, value: string): void {
+  const meta = { actor: "owner", source: "owner_edit" } as const;
+  if (value === "") {
+    const old = memory.list({ kinds: ["profile"] }).find((r) => profileField(r.abstract) === field);
+    if (old !== undefined) memory.write([{ op: "remove", id: old.id }], meta);
+    return;
+  }
+  memory.write([{ op: "add", kind: "profile", abstract: `${field}：${value}` }], meta);
+}
+
 function petSettings(config: CliConfig): PetSettings {
   const saved = config.pet ?? {};
   const figure: PetFigure = PET_FIGURES.includes(saved.figure as PetFigure)

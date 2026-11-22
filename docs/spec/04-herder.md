@@ -139,17 +139,27 @@ later task gets and which counts as the owner allowing that step.
   dropped ([ADR 0062](../adr/0062-restarts-lose-nothing-and-wake-ups-stop-at-three.md)).
 - The session holds the conversation with the owner and short notes. Task state is read from
   `herd.db` with the read tools; after a fold the Herder must re-read it.
-- The whole conversation is kept in `herd.db` (`herder_log`) and reloaded after a restart; nothing
-  is cut. Before each request it goes through billion-context's kernel (`packages/context-kernel`):
+- The whole conversation is kept in `herd.db` (`herder_messages`, each message with its kind, round
+  and size, [ADR 0095](../adr/0095-the-herders-conversation-in-tables-and-folds-that-nest.md))
+  and reloaded after a restart; nothing is cut. Before each request it goes through billion-context's kernel (`packages/context-kernel`):
   each message gets a ref (the owner's messages and tool results only; the Herder's own replies go
   without one, and a line it writes that begins like a ref tag never reaches the owner,
   [ADR 0073](../adr/0073-the-pets-conversation-looks-like-a-chat.md)), and parts the Herder folded
   with `compress` show as its summary. Summaries
   keep unresolved owner instructions verbatim; `search_context` and `decompress` bring folded parts
-  back. The window is the model's, at most 128,000 tokens. At 90 % of it AgentHerd folds the oldest
+  back. The working window is the owner's pick on the 上下文 tab (64K, 128K by default, 256K or the
+  model's whole window), never more than the model's own
+  ([ADR 0097](../adr/0097-the-owner-picks-the-herders-working-window.md)). At 90 % of it AgentHerd folds the oldest
   whole turns itself (never the current one); a "context too long" error folds about half and
   retries once
-  ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)).
+  ([ADR 0045](../adr/0045-herder-context-folded-by-the-model.md)). Each fold is a row of
+  `herder_folds` (who made it, what it covers, its parent once a bigger fold takes it in), and
+  folds nest: a `compress` range that cuts into a fold is refused with how to take the fold in or
+  leave it out (ADR 0095).
+- The 主管 page's 上下文 tab shows the last request split into system prompt, memory, tools, folds,
+  the owner, the Herder and tool results against the window, each request's token use and cache
+  hits (`herder_requests`), a trend, every item, and the folds with their originals
+  ([ADR 0093](../adr/0093-the-herders-context-panel.md)).
 - No single input fills it: the owner's message goes in up to 8,000 characters (the whole is saved
   under `attachments` and the message says where), a task's reply up to 12,000, a report, event or
   new-work item up to 4,000; each cut says how much was left out. Files dropped on the pet come as
@@ -426,6 +436,9 @@ New GitHub work is offered only when the owner asks for it ([ADR 0052](../adr/00
   likes, saves and new followers are never told. `social_watch` turns this off or on when the
   owner asks; `session_list` shows platforms. Agents use the account through `XIAOHONGSHU_` and
   `ZHIHU_` tools; writes ask (ADR 0056).
+  The Herder's system prompt ends with the connected accounts (signed in or not) and apps, rebuilt
+  on the next turn after one changes; a 小红书 or 知乎 link starts a read-only task at once when
+  that account is signed in (ADR 0089).
 - **News and this Mac's tools** (ADR 0059, ADR 0076, ADR 0077). `feed_read` reads GitHub Trending, Hacker News or
   arXiv; with `told: true` (a digest, often a schedule) the items are recorded and later reads
   mark them `[told before]`, which the Herder leaves out. `stock_quote` reads live stock and index
@@ -505,6 +518,19 @@ not a number: the result in a sentence or two when that is all they want, every 
 ask for a list, the whole of it when it matters. No filler, no steps, no 「结论：」 lines; when
 there is far too much, what matters plus where the rest is. The style text no longer carries
 "say less" or "under three sentences".
+
+It cares about the owner ([ADR 0088](../adr/0088-the-herder-cares-and-writes-plain-chinese.md)): after the answer, one short
+line when there is a reason. From midnight to 5 a.m. the time line before each message ends with
+"late at night", and the first reply after midnight ends with a line telling the owner to get some
+sleep (once a night). Tired, ill, upset, hours at it or a failure they cared about get one line
+that shows the Herder noticed. Empty politeness (「好的！」「希望对你有帮助」) stays out. The owner
+found a bare time at 01:55 cold (「这里其实我希望能回复一个早点睡」, 2026-11-20). Its Chinese reads
+like a person wrote it: no 「不是……而是……」 when nothing is compared, no opening or closing
+summary, no jargon (落地、对齐、钉死), full two-character words, no plan in front of the answer,
+nothing about what was ruled out, no trace of a corrected mistake, no remarks on how much work
+something is.
+Like a text message, no line of a reply ends with 「。」: AgentHerd drops it before the reply is
+said or kept (code and herd-ui blocks untouched); the owner: 「不要加句号」 (2026-11-20).
 
 It is written for a phone: several things with details of their own (repositories, options,
 files, findings) go one per line starting with "- ", never run together in one paragraph; a
