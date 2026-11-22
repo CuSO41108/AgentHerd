@@ -119,10 +119,6 @@ node packages/cli/bin/agentherd.ts model use herder deepseek/deepseek-flash
 node packages/cli/bin/agentherd.ts start
 ```
 
-On Windows, you can add the model service and its key in desktop settings instead of using
-`model add`. For CLI-only setup, pipe the key from your password manager into `model add`;
-keep the key itself out of your command history.
-
 Run one task directly with `run --profile pi /tmp/demo "Create out.txt containing hello"`
 (`C:\temp\demo` on Windows), and see recent decisions with `status`.
 

@@ -77,8 +77,6 @@ node packages/cli/bin/agentherd.ts model use herder deepseek/deepseek-flash
 node packages/cli/bin/agentherd.ts start
 ```
 
-Windows 用户可以在桌面设置中添加模型服务并填写 Key，跳过 `model add`。只用命令行时，可以用管道把密码管理器输出的 Key 传给 `model add`，不要把 Key 本身写进命令历史。
-
 直接跑一个任务：`run --profile pi /tmp/demo "Create out.txt containing hello"`（Windows 把路径换成 `C:\temp\demo`）；看最近的决定：`status`。
 
 </details>
