@@ -144,6 +144,7 @@ export {
   HERDER_LABEL,
   OWNER_LABEL,
   QUIET,
+  quietReply,
   quoteAgent,
   systemPrompt,
   VOICE_REPLY_MAX,

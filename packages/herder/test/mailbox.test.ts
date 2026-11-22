@@ -11,7 +11,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { Herder } from "../src/herder.ts";
 import { actFrom, sourceConfig } from "../src/mailbox-tools.ts";
-import { lettersLine, lettersPrompt, systemPrompt } from "../src/prompt.ts";
+import { lettersLine, lettersPrompt, quietReply, systemPrompt } from "../src/prompt.ts";
 import { fakeHost } from "./helpers.ts";
 
 const faux: { unregister(): void }[] = [];
@@ -141,6 +141,19 @@ describe("letters in the Herder (ADR 0099)", () => {
     expect(filed.map((l) => l.fate)).toEqual(["digest", "noted"]);
     expect(rec.said).toEqual([]);
     expect(rec.audits.map((a) => a.type)).toContain("mailbox.quiet");
+    await herder.stop();
+  });
+
+  it("keeps quiet when the model translated the marker, as seen live (「[安静]」)", async () => {
+    const { herder, rec, faux: f } = setup();
+    f.setResponses([fauxAssistantMessage("[安静]")]);
+    herder.letters(delivery);
+    await herder.idle();
+    expect(rec.said).toEqual([]);
+    expect(rec.audits.map((a) => a.type)).toContain("mailbox.quiet");
+    expect(quietReply("【静默】")).toBe(true);
+    expect(quietReply("今天没什么新东西\n[quiet]")).toBe(true);
+    expect(quietReply("这个 issue 的标题里写着 [安静] 模式坏了")).toBe(false);
     await herder.stop();
   });
 

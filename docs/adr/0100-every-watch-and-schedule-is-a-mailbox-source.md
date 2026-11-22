@@ -97,6 +97,11 @@ pauses or resumes that platform's social source.
 - A social source needs a signed-in account; while signed out it is skipped without failing.
 - Existing Herder conversations still mention the old tool names; the new system prompt names only
   the mailbox tools.
+- Found in the live test of 0099 (2026-11-22): sorting real openai/codex letters, the Herder filed
+  all four as digest with sound reasons but answered 「[安静]」 instead of `[quiet]`, and that reached
+  the owner as a message twice. A translated marker on a line of its own (「[安静]」「【静默】」) now
+  counts as quiet for letters, timers, resumed turns and voice, the prompt says the marker is
+  written in English, and the pet hides such old lines.
 
 ## Tests
 
