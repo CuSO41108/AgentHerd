@@ -20,12 +20,16 @@ export {
 } from "./agent-models.ts";
 export {
   CONTEXT_STATE_KEY,
+  CONTEXT_WINDOW_CHOICES,
   CONTEXT_WINDOW_MAX,
   type ContextHooks,
   FORCED_FOLD_AT,
   FORCED_FOLD_TO,
   HerderContext,
+  measureContext,
+  promptMessage,
   withoutContextMarks,
+  workingWindow,
 } from "./context.ts";
 export {
   Herder,
@@ -84,6 +88,7 @@ export {
   REVIEW_TURNS,
   WORKER_POLL_MS,
 } from "./memory-jobs.ts";
+export { createModelFetch, modelFetch, type ProxyEnv } from "./model-fetch.ts";
 export {
   type ModelTiers,
   placeModels,
@@ -122,6 +127,12 @@ export {
   type TestResult,
   testModel,
 } from "./models.ts";
+export {
+  PLUGIN_REPLY_MAX,
+  PLUGIN_TOOL_NAMES,
+  pluginReplyText,
+  pluginTools,
+} from "./plugin-tools.ts";
 export {
   ANSWER_TEXT_MAX,
   CONTEXT_LABEL,

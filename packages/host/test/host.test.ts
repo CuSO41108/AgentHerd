@@ -188,6 +188,14 @@ describe("Host", () => {
       figure: "claude",
     });
     expect(readConfig(t.home).pet).toMatchObject({ on: false, figure: "claude" });
+    // The Herder's working window (ADR 0097).
+    expect(t.host.status().herderWindow).toBe(128_000);
+    expect(t.host.updateSettings({ herderWindow: 256_000 }).herderWindow).toBe(256_000);
+    expect(readConfig(t.home).herderWindow).toBe(256_000);
+    expect(t.host.updateSettings({ herderWindow: 0 }).herderWindow).toBe(0);
+    expect(() => t.host.updateSettings({ herderWindow: 100 })).toThrow(
+      "herderWindow must be one of 64000, 128000, 256000, 0",
+    );
     expect(() => t.host.updateSettings({ pet: { figure: "cat" as never } })).toThrow(
       /deepseek, claude, frieren/,
     );
@@ -372,6 +380,32 @@ describe("Host", () => {
     const newest = t.host.herderActivity(1);
     expect(newest.turns.map((x) => x.text)).toEqual(["二"]);
     expect(newest.total).toBe(2);
+  });
+
+  it("builds the 上下文 tab from herd.db and answers 'unchanged' until something is written (ADR 0095)", async () => {
+    const t = makeHost(true);
+    expect(() => t.host.herderContext()).toThrow(/not running/);
+    await t.host.start();
+    const herd = (t.host as unknown as { herd: Herd }).herd;
+    herd.store.writeHerderLog(0, [
+      {
+        role: "user",
+        content: [{ type: "text", text: "[Owner's message]\n你好" }],
+        timestamp: Date.parse("2026-11-16T01:00:00Z"),
+      },
+    ]);
+    const first = t.host.herderContext();
+    if ("unchanged" in first) throw new Error("expected a view");
+    expect(first.facts).toMatchObject({ messages: 1, rounds: 1, activeFolds: 0 });
+    expect(first.segments).toEqual([
+      { kind: "raw", startSeq: 0, endSeq: 0, messages: 1, tokens: first.facts.tokens },
+    ]);
+    expect(t.host.herderContext(first.key)).toEqual({ key: first.key, unchanged: true });
+    expect(t.host.herderMessages(0, 5).map((m) => m.text)).toEqual(["[Owner's message]\n你好"]);
+    herd.store.addHerderEvent("start", { messages: 1 });
+    const next = t.host.herderContext(first.key);
+    expect("unchanged" in next).toBe(false);
+    expect(() => t.host.herderContextFold("b1")).toThrow("no fold b1");
   });
 
   it("keeps Codex out of new tasks after it fails to start one", async () => {

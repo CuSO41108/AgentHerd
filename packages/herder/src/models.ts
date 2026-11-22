@@ -14,6 +14,7 @@ import {
 import { Herder, type HerderModel } from "./herder.ts";
 import { LOGIN_FIELD, loginStream, loginsFor, subscriptionModel } from "./logins.ts";
 import type { LookupOptions } from "./lookup.ts";
+import { modelFetch } from "./model-fetch.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import { fallbackOrder } from "./tools.ts";
 
@@ -167,7 +168,11 @@ export async function testModel(
         { role: "user" as const, content: "Reply with the word OK.", timestamp: Date.now() },
       ],
     };
-    const options = { apiKey: key ?? "none", signal: AbortSignal.timeout(timeoutMs) };
+    const options = {
+      apiKey: key ?? "none",
+      signal: AbortSignal.timeout(timeoutMs),
+      fetch: modelFetch(),
+    };
     const reply =
       stream === undefined
         ? await completeSimple(model, context, options)
@@ -198,6 +203,8 @@ export function herderFromSettings(
   env?: Record<string, string>,
   modelTiers?: () => TierPlacement,
   lookup?: LookupOptions,
+  /** The working window the owner picked (ADR 0097), read on each request. */
+  contextCap?: () => number,
 ): HerderChoice | { reason: string } {
   const choice = modelFor(settings, "herder");
   if (choice === undefined) return { reason: "no model chosen for the Herder" };
@@ -223,6 +230,7 @@ export function herderFromSettings(
         fallbacks: () => herderFallbacks(settings, secrets, ref, modelTiers?.(), env),
         ...(modelTiers === undefined ? {} : { modelTiers }),
         ...(lookup === undefined ? {} : { lookup }),
+        ...(contextCap === undefined ? {} : { contextCap }),
       }),
   };
 }
