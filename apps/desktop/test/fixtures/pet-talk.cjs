@@ -37,29 +37,31 @@ app.whenReady().then(async () => {
       'document.querySelector(".pet-tab.on")?.textContent === "对话" && document.activeElement.matches(".pet-input:enabled")';
     const closed = '!document.querySelector("[role=tablist]")';
     const pressTalk = () => pet.show("chat", true);
-    await until("the figure", 'document.querySelector(".pet-figure")');
-    pet.show("cards");
-    await until("the cards tab", 'document.querySelector(".pet-tab.on")?.textContent === "卡片"');
-    pressTalk();
-    await until("the focused input", focused);
-    await js(`(() => {
-      const input = document.querySelector(".pet-input");
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "unfinished message");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    })()`);
-    await until("the edited draft", '!document.querySelector(".pet-send").disabled');
     let focusRequests = 0;
     const focus = win.focus.bind(win);
     win.focus = () => {
       focusRequests++;
       focus();
     };
+    await until("the figure", 'document.querySelector(".pet-figure")');
+    pet.show("cards");
+    await until("the cards tab", 'document.querySelector(".pet-tab.on")?.textContent === "卡片"');
+    pressTalk();
+    await until("the focused input", focused);
+    if (focusRequests !== 2) throw new Error("Switching to the conversation did not focus the pet");
+    await js(`(() => {
+      const input = document.querySelector(".pet-input");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "unfinished message");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await until("the edited draft", '!document.querySelector(".pet-send").disabled');
     pressTalk();
     await until("the conversation to close on the second press", closed);
-    if (focusRequests !== 0) throw new Error("Closing the conversation requested window focus");
+    if (focusRequests !== 2) throw new Error("Closing the conversation requested window focus");
     const figureVisible = win.isVisible() && (await js('!!document.querySelector(".pet-figure")'));
     pressTalk();
     await until("the reopened, focused input", focused);
+    if (focusRequests !== 3) throw new Error("Reopening the conversation did not focus the pet");
     const draft = await js('document.querySelector(".pet-input").value');
     // The ordinary menu and notification route must still only open or focus the chat.
     await js('document.querySelector(".pet-input").blur()');
