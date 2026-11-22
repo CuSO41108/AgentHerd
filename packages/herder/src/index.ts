@@ -34,9 +34,8 @@ export {
 export {
   Herder,
   type HerderOptions,
-  MEMORY_REFRESH_MS,
-  REVIEW_EVERY_TURNS,
   REVIEW_IDLE_MS,
+  REVIEW_TOKENS,
 } from "./herder.ts";
 export {
   failedStream,
@@ -67,15 +66,17 @@ export {
   LESSONS_MAX,
   lessonsText,
   MAX_OPS,
-  memorySnapshot,
   memoryTools,
   opProblem,
   pastLessons,
   RECALL_KINDS,
   RECALL_MAX_CHARS,
   RECALL_MAX_HITS,
-  recallBlock,
+  RECALL_MIN_SCORE,
+  RECALL_QUERY_CHARS,
   type ToolOp,
+  TURN_MEMORY_HEADING,
+  turnMemory,
 } from "./memory.ts";
 export {
   CASE_INPUT_CHARS,

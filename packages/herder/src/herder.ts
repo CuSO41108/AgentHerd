@@ -13,7 +13,7 @@ import type {
   Schedule,
   VoiceRequest,
 } from "@agentherd/core";
-import { REVIEW_JOB } from "@agentherd/core";
+import { countTokens, REVIEW_JOB } from "@agentherd/core";
 import { Agent, type AgentMessage, type AgentTool, type StreamFn } from "@agentherd/herder-loop";
 import { checkHerdUi, herdUiChoices } from "@agentherd/protocol/herd-ui";
 import { guardCheck } from "@agentherd/rules";
@@ -31,7 +31,7 @@ import {
 import { errorKind, HELD_RETRY_MS, RETRY_DELAYS_MS, shortError } from "./errors.ts";
 import { herdUiFixPrompt, herdUiPrompt } from "./herd-ui-prompt.ts";
 import { LOOKUP_TOOL_NAMES, type LookupOptions, lookupTools } from "./lookup.ts";
-import { memorySnapshot, memoryTools, recallBlock } from "./memory.ts";
+import { memoryTools, TURN_MEMORY_HEADING, turnMemory } from "./memory.ts";
 import type { TierPlacement } from "./model-guide.ts";
 import { PLUGIN_TOOL_NAMES, pluginTools } from "./plugin-tools.ts";
 import {
@@ -119,13 +119,16 @@ export type PendingMessage = { id: string; at: string; recorded?: boolean } & (
 
 type Attempt = { ok: true } | { ok: false; message: string; acted: boolean; overflow: boolean };
 
-/** A pause after which the memory in the system prompt is rebuilt. */
-export const MEMORY_REFRESH_MS = 60 * 60_000;
+/**
+ * The conversation is reviewed for things worth keeping once this many tokens of it have come in
+ * since the last review (ADR 0101; OpenViking commits a session at about half its budget)…
+ */
+export const REVIEW_TOKENS = 20_000;
+/** …or after this long without a turn, or when the conversation is folded. */
+export const REVIEW_IDLE_MS = 10 * 60_000;
 
-/** A review of the conversation for lasting things runs after this many owner messages… */
-export const REVIEW_EVERY_TURNS = 6;
-/** …or after this long without one. */
-export const REVIEW_IDLE_MS = 2 * 60_000;
+/** Where a turn's memory starts in its message; it is taken out again after the turn (ADR 0101). */
+const TURN_MEMORY_MARK = `\n\n${TURN_MEMORY_HEADING} · `;
 
 /** Events kept for the next owner turn; older ones are dropped. */
 export const MAX_HELD_EVENTS = 10;
@@ -164,9 +167,8 @@ export class Herder implements HerderPort {
   private held: Job | undefined;
   private heldTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly now: () => number;
-  /** When the last turn ran; after a long pause the memory in the system prompt is rebuilt. */
-  private lastTurnAt = 0;
-  private ownerTurnsSinceReview = 0;
+  /** Tokens of conversation since the last review was queued (ADR 0101). */
+  private reviewTokens = 0;
   private reviewTimer: ReturnType<typeof setTimeout> | undefined;
   /** Pending messages this Herder already queued, so a resume does not queue them twice. */
   private readonly queuedPending = new Set<string>();
@@ -265,6 +267,8 @@ export class Herder implements HerderPort {
     } catch {
       // The event log is for the 上下文 tab; it never stops the Herder.
     }
+    // A fold is a natural point to look back for what to keep (ADR 0101).
+    if (kind === "fold") this.queueReview();
   }
 
   /** Keeps the system prompt and tools once per change; @returns their hash. */
@@ -480,11 +484,6 @@ export class Herder implements HerderPort {
       };
       if (!job.recorded) this.host.recordTurn("owner", job.text);
       prompt = ownerMessagePrompt(job.text, images, this.host.texts);
-      const recall =
-        this.host.memory === undefined
-          ? ""
-          : await recallBlock(this.host.memory, job.text, this.host.embedder);
-      if (recall !== "") prompt = `${prompt}\n\n${recall}`;
     } else if (job.kind === "voice") {
       // Nothing the owner said: the turn may look things up but change nothing.
       this.turn = {
@@ -577,10 +576,13 @@ export class Herder implements HerderPort {
     }
     // In the message, not the system prompt, so the cached prefix stays the same.
     prompt = `${nowLine(this.now())}\n${prompt}`;
+    // What memory has on this turn's subject, for this turn only (ADR 0101).
+    const memory = await this.memoryFor(job);
+    if (memory !== "") prompt = `${prompt}\n\n${memory}`;
     this.refreshSystemPrompt();
     this.host.audit("herder.turn", { kind: job.kind });
     const done = await this.runWithRetries(job, prompt, images);
-    if (job.kind === "owner") this.countForReview();
+    this.countForReview(prompt, done ? this.lastReply() : "");
     if (!done) {
       if (job.kind === "voice") job.done(undefined);
       return;
@@ -815,13 +817,31 @@ export class Herder implements HerderPort {
     return false;
   }
 
-  /** Queues a background review every few owner messages or after a quiet spell (ADR 0038). */
-  private countForReview(): void {
+  /**
+   * The memory for one turn (ADR 0101): what the turn is about, looked up in memory. The owner's
+   * words, a timer's job, the letters, a task's result or a question and its answer.
+   */
+  private async memoryFor(job: Job): Promise<string> {
+    const memory = this.host.memory;
+    if (memory === undefined) return "";
+    try {
+      return await turnMemory(memory, turnSubject(job, this.lastOwnerText), this.host.embedder);
+    } catch (err) {
+      this.host.audit("memory.recall.error", { message: String(err) });
+      return "";
+    }
+  }
+
+  /**
+   * Counts what came in and queues a background review once enough has (ADR 0101), or after a
+   * quiet spell.
+   */
+  private countForReview(prompt: string, reply: string): void {
     if (this.host.memory === undefined) return;
-    this.ownerTurnsSinceReview++;
+    this.reviewTokens += countTokens(withoutTurnMemoryText(prompt)) + countTokens(reply);
     if (this.reviewTimer !== undefined) clearTimeout(this.reviewTimer);
     this.reviewTimer = undefined;
-    if (this.ownerTurnsSinceReview >= REVIEW_EVERY_TURNS) {
+    if (this.reviewTokens >= REVIEW_TOKENS) {
       this.queueReview();
       return;
     }
@@ -831,8 +851,8 @@ export class Herder implements HerderPort {
 
   private queueReview(): void {
     const memory = this.host.memory;
-    if (memory === undefined || this.ownerTurnsSinceReview === 0 || this.stopped) return;
-    this.ownerTurnsSinceReview = 0;
+    if (memory === undefined || this.reviewTokens === 0 || this.stopped) return;
+    this.reviewTokens = 0;
     const waiting = memory
       .jobs(20)
       .some((j) => j.kind === REVIEW_JOB && (j.state === "pending" || j.state === "running"));
@@ -855,26 +875,22 @@ export class Herder implements HerderPort {
     }
   }
 
+  /** Rules and connected accounts; no memory, which comes with each turn instead (ADR 0101). */
   private fullSystemPrompt(): string {
-    const base = `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}\n\n${herdUiPrompt()}\n\n${this.accounts()}`;
-    const snapshot = this.host.memory === undefined ? "" : memorySnapshot(this.host.memory);
-    return snapshot === "" ? base : `${base}\n\n${snapshot}`;
+    return `${systemPrompt(this.host.locale)}\n\n${stylePrompt()}\n\n${this.context.systemPrompt()}\n\n${herdUiPrompt()}\n\n${this.accounts()}`;
   }
 
   /**
-   * The system prompt keeps the memory as it was when the conversation started, so the prompt
-   * cache holds. After {@link MEMORY_REFRESH_MS} without a turn it is rebuilt with what was learnt.
+   * The system prompt stays the same so the prompt cache holds; only a connected or disconnected
+   * account changes it (ADR 0089). Old prompts that still carry memory are rebuilt once.
    */
   private refreshSystemPrompt(): void {
-    const now = this.now();
-    const stale = this.lastTurnAt !== 0 && now - this.lastTurnAt >= MEMORY_REFRESH_MS;
-    this.lastTurnAt = now;
     const first = this.agent.state.messages[0];
     if (first?.role !== "system") return;
-    // A connected or disconnected account changes the prompt at once (ADR 0089).
     const accountsChanged =
       typeof first.content === "string" && !first.content.includes(this.accounts());
-    if (!accountsChanged && (!stale || this.host.memory === undefined)) return;
+    const oldMemory = typeof first.content === "string" && first.content.includes("\n\n[记忆 · ");
+    if (!accountsChanged && !oldMemory) return;
     const prompt = this.fullSystemPrompt();
     if (first.content === prompt) return;
     this.agent.state.messages = [
@@ -1008,7 +1024,9 @@ export class Herder implements HerderPort {
   private save(): void {
     // Images are seen once; the text keeps where they are saved. Base64 in every later turn
     // would cost far more than it helps.
-    this.agent.state.messages = this.agent.state.messages.map(withoutImages);
+    this.agent.state.messages = this.agent.state.messages.map((m) =>
+      withoutTurnMemory(withoutImages(m)),
+    );
     const messages = this.agent.state.messages;
     const log = messages.slice(leadingSystem(messages));
     const from = changedFrom(this.saved, log);
@@ -1076,6 +1094,55 @@ export function beforeToolMarkup(text: string): string {
     .slice(0, at)
     .replace(/<acp\b[^>]*>?[^<]*$/, "")
     .trim();
+}
+
+/** A turn's prompt without the memory that came with it. */
+function withoutTurnMemoryText(text: string): string {
+  const at = text.lastIndexOf(TURN_MEMORY_MARK);
+  return at < 0 ? text : text.slice(0, at);
+}
+
+/**
+ * A turn's memory is taken out of its message once the turn is over (ADR 0101): it is never saved,
+ * and later turns do not carry it, only their own.
+ */
+function withoutTurnMemory(m: AgentMessage): AgentMessage {
+  if (m.role !== "user") return m;
+  if (typeof m.content === "string") {
+    const text = withoutTurnMemoryText(m.content);
+    return text === m.content ? m : { ...m, content: text };
+  }
+  if (!m.content.some((c) => c.type === "text" && c.text.includes(TURN_MEMORY_MARK))) return m;
+  return {
+    ...m,
+    content: m.content.map((c) =>
+      c.type === "text" ? { ...c, text: withoutTurnMemoryText(c.text) } : c,
+    ),
+  };
+}
+
+/** What a turn is about, to look up in memory (ADR 0101). */
+function turnSubject(job: Job, lastOwnerText: string): string {
+  switch (job.kind) {
+    case "owner":
+      return job.text;
+    case "answer":
+      return `${job.question}\n${job.answer}\n${lastOwnerText}`;
+    case "scheduled":
+      return `${job.schedule.about}\n${job.schedule.prompt}`;
+    case "letters":
+      return lettersSubject(job.delivery);
+    case "intake":
+      return job.text;
+    case "voice":
+      return `${job.request.title}\n${job.request.reply.slice(0, 1000)}`;
+  }
+}
+
+function lettersSubject(delivery: LetterDelivery): string {
+  return delivery.groups
+    .map((g) => [g.name, g.note, ...g.letters.map((l) => l.title)].join("\n"))
+    .join("\n");
 }
 
 /** Images of a message kept across a restart, read again from where they were saved. */

@@ -60,9 +60,10 @@ English · [简体中文](README.zh-CN.md)
   digest, and the 信箱 page shows what it did with each letter and why.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
   itself. It keeps a profile card of you (what to call you, what you work on, your hours and
-  likes), from things you say in passing; you see and edit it on the Memory page, and the first
-  run asks what to call you. It learns a lesson only when a task went wrong, and finds past results
-  in task records.
+  likes), from things you say in passing, and lessons from what you correct; each turn brings only
+  the memory that fits it, so the system prompt never changes and the prompt cache holds. You see
+  and edit it all on the Memory page, and the first run asks what to call you. Past results are in
+  task records.
 - **A desktop pet.** 大肥鱼 or Claude 娘 floats on your desktop (she reads while the Herder thinks, jumps when it answers and walks when you drag her), says what AgentHerd just told you
   in Feishu, cheers when a task is done, and waits with 同意 / 拒绝 when something needs you. Click
   her to talk to the Herder: replies in Markdown; tables, numbers, steps, links and choices to tap
