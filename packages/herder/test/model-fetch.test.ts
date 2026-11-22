@@ -10,10 +10,10 @@ afterEach(async () => {
 });
 
 /** A local HTTP server answering with what it was asked for. */
-async function serve(fn: (url: string) => string): Promise<number> {
+async function serve(fn: (url: string) => string, host = "127.0.0.1"): Promise<number> {
   const server = createHttpServer((req, res) => res.end(fn(req.url ?? "")));
   open.push(server);
-  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+  await new Promise<void>((done, reject) => server.once("error", reject).listen(0, host, done));
   return (server.address() as AddressInfo).port;
 }
 
@@ -40,6 +40,16 @@ describe("model requests and the system proxy (ADR 0098)", () => {
     const doFetch = createModelFetch({ HTTP_PROXY: `http://127.0.0.1:${proxy}` });
     await expect(doFetch("http://model.invalid/v1/models")).rejects.toThrow();
     expect(tunnels).toEqual(["model.invalid:80"]);
+  });
+
+  it("keeps an IPv6 loopback model direct even without NO_PROXY", async () => {
+    const tunnels: string[] = [];
+    const proxy = await proxyRecording(tunnels);
+    const port = await serve((url) => `direct ${url}`, "::1");
+    const doFetch = createModelFetch({ HTTP_PROXY: `http://127.0.0.1:${proxy}` });
+    const res = await doFetch(`http://[::1]:${port}/v1/models`);
+    expect(await res.text()).toBe("direct /v1/models");
+    expect(tunnels).toEqual([]);
   });
 
   it("keeps what NO_PROXY names direct", async () => {

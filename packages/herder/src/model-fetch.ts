@@ -25,11 +25,17 @@ export function createModelFetch(env: ProxyEnv): typeof fetch {
   const httpProxy = proxyValue(env, "http_proxy") ?? proxyValue(env, "HTTP_PROXY");
   const httpsProxy = proxyValue(env, "https_proxy") ?? proxyValue(env, "HTTPS_PROXY");
   if (httpProxy === undefined && httpsProxy === undefined) return fetch;
-  const dispatcher = new EnvHttpProxyAgent({
-    ...(httpProxy === undefined ? {} : { httpProxy }),
-    ...(httpsProxy === undefined ? {} : { httpsProxy }),
-    noProxy: direct(proxyValue(env, "no_proxy") ?? proxyValue(env, "NO_PROXY")),
-  });
+  let dispatcher: EnvHttpProxyAgent;
+  try {
+    dispatcher = new EnvHttpProxyAgent({
+      ...(httpProxy === undefined ? {} : { httpProxy }),
+      ...(httpsProxy === undefined ? {} : { httpsProxy }),
+      noProxy: direct(proxyValue(env, "no_proxy") ?? proxyValue(env, "NO_PROXY")),
+    });
+  } catch {
+    // A URL parser error can carry the raw proxy URL, including credentials.
+    throw new Error("Invalid model proxy configuration. Check HTTP_PROXY and HTTPS_PROXY.");
+  }
   return ((input: string | URL | Request, init?: RequestInit) =>
     proxyFetch(input as never, { ...init, dispatcher } as never)) as typeof fetch;
 }
@@ -40,7 +46,8 @@ function proxyValue(env: ProxyEnv, key: string): string | undefined {
 }
 
 /** The addresses this computer answers itself; they never go through a proxy. */
-const LOOPBACK = ["localhost", "127.0.0.1", "::1"];
+// Undici matches against the URL hostname, including brackets for IPv6.
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
 
 /** `noProxy` with this computer's own addresses added, so a model served here stays direct. */
 function direct(noProxy: string | undefined): string {

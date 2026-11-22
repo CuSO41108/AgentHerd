@@ -41,7 +41,12 @@ export async function probeModels(opts: ProbeOptions): Promise<ModelProbe> {
         ? [base]
         : [base, `${base}/v1`];
 
-  const doFetch = opts.fetch ?? modelFetch();
+  let doFetch: typeof fetch;
+  try {
+    doFetch = opts.fetch ?? modelFetch();
+  } catch (error) {
+    return { ok: false, message: (error as Error).message };
+  }
   const headers: Record<string, string> = { accept: "application/json" };
   const key = opts.key?.trim();
   if (key !== undefined && key !== "") {

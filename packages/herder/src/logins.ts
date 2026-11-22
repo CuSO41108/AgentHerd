@@ -273,7 +273,13 @@ export function loginStream(
   return async (model, context, options) => {
     // Every model request of the Herder and its tasks goes through the system proxy when there
     // is one (ADR 0098).
-    const requested = { ...options, fetch: options?.fetch ?? modelFetch() };
+    let doFetch: typeof fetch;
+    try {
+      doFetch = options?.fetch ?? modelFetch();
+    } catch (error) {
+      return failedStream(model, (error as Error).message);
+    }
+    const requested = { ...options, fetch: doFetch };
     const id = loginOf(model);
     if (id === undefined) return streamSimple(model, context, requested);
     const service = services().find((s) => s.id === id);

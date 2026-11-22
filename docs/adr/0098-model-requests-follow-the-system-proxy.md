@@ -40,7 +40,7 @@ Why the existing proxy code (ADR 0058) does not cover it:
    `packages/herder/src/models.ts`), and the model list of a custom service
    (`probeModels` in `packages/host/src/probe.ts`).
 3. **Domestic services and this computer stay direct.** `NO_PROXY_DEFAULT`
-   (`packages/host/src/proxy.ts`) is `localhost,127.0.0.1,::1,api.deepseek.com`, used when the
+   (`packages/host/src/proxy.ts`) is `localhost,127.0.0.1,::1,[::1],api.deepseek.com`, used when the
    environment has no `NO_PROXY`, and `modelFetch` always adds the loopback names, so a model
    served by Ollama or LM Studio on this machine is never sent to the proxy. A `NO_PROXY` the
    owner set is kept as it is.

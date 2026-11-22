@@ -24,7 +24,7 @@ const SETTINGS = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet S
  * Where this computer reaches a service without a proxy: the model gateway the owner uses is
  * abroad, deepseek and this machine are not (ADR 0098).
  */
-export const NO_PROXY_DEFAULT = "localhost,127.0.0.1,::1,api.deepseek.com";
+export const NO_PROXY_DEFAULT = "localhost,127.0.0.1,::1,[::1],api.deepseek.com";
 
 /** The proxy URL in `reg query <Internet Settings>` output, when it is on. */
 export function windowsProxy(output: string): string | undefined {
