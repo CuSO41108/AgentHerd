@@ -33,8 +33,6 @@ import {
   type OwnerImage,
 } from "./herder-port.ts";
 import { Inbox, type OwnerAnswer } from "./inbox.ts";
-import { Intake, type IntakeItem, type IntakeRequest, itemLine } from "./intake.ts";
-import { MailWatches } from "./mail-watch.ts";
 import { type LetterFate, Mailbox, type MailboxPatch, type MailboxSourceInput } from "./mailbox.ts";
 import { type JsonRpcMessage, McpGateway } from "./mcp-gateway.ts";
 import { noticeLevels, setNoticeLevel } from "./notices.ts";
@@ -42,8 +40,7 @@ import { Outbox } from "./outbox.ts";
 import { OwnerCommands } from "./owner-commands.ts";
 import { Registry } from "./registry.ts";
 import { Relay, type RelayState } from "./relay.ts";
-import { type ScheduleInput, type SchedulePatch, Schedules } from "./schedules.ts";
-import { type SocialKind, type SocialPlatform, SocialWatches } from "./social-watch.ts";
+import type { SocialPlatform } from "./social-watch.ts";
 import { SourceHealth, type SourceState } from "./source-health.ts";
 import { Store, type TranscriptEntry } from "./store.ts";
 import { applyReport, onAlarm, restage } from "./task-report.ts";
@@ -84,17 +81,13 @@ export class Herd {
   private started = false;
   private herder: HerderPort | undefined;
   private readonly github: GitHubWatch | undefined;
-  private readonly intake: Intake | undefined;
-  /** What the Herder does at set times (ADR 0055); the app lists, pauses and removes them. */
-  readonly schedules: Schedules;
-  /** The owner's mailbox sources, when the host can look at them (ADR 0099). */
+  /**
+   * The owner's mailbox: every outside source and every timer, when the host can look at them
+   * (ADR 0099, 0100).
+   */
   readonly mailbox: Mailbox | undefined;
   /** Asks about tasks that wait on the owner for long (ADR 0081). */
   readonly waits: WaitWatch;
-  /** Mail the owner asked to hear about; only with connected apps (ADR 0048). */
-  private readonly mail: MailWatches | undefined;
-  /** Notices on the owner's 小红书 and 知乎 accounts (ADR 0058). */
-  readonly socials: SocialWatches | undefined;
   /** Tasks cut off by the last stop or crash, asked about once the channel is up. */
   private interrupted: string[] = [];
   private mode: Mode;
@@ -167,7 +160,7 @@ export class Herd {
       herder: () => this.herder,
       mode: () => this.mode,
       github: () => this.github,
-      intake: () => this.intake,
+      mailbox: () => this.mailbox,
       waits: () => this.waits,
     };
     this.relays = new Relay(this.ctx);
@@ -186,34 +179,6 @@ export class Herd {
     this.interrupted = [...new Set([...stopped, ...crashed])].filter((id) =>
       this.ctx.following.has(id),
     );
-    this.mail =
-      opts.apps === undefined
-        ? undefined
-        : new MailWatches(this.ctx, {
-            apps: opts.apps,
-            ...(opts.mailPollMinutes === undefined ? {} : { pollMinutes: opts.mailPollMinutes }),
-          });
-    this.socials =
-      opts.socials === undefined
-        ? undefined
-        : new SocialWatches(this.ctx, {
-            sources: opts.socials,
-            ...(opts.socialPollMinutes === undefined
-              ? {}
-              : { pollMinutes: opts.socialPollMinutes }),
-            ...(opts.watchesChanged === undefined ? {} : { changed: opts.watchesChanged }),
-          });
-    this.intake =
-      opts.github === undefined
-        ? undefined
-        : new Intake(this.ctx, {
-            run: opts.github.run,
-            ...(opts.intakePollMinutes === undefined
-              ? {}
-              : { pollMinutes: opts.intakePollMinutes }),
-            start: (item, auto, trial) => this.startIntake(item, auto, trial),
-          });
-    this.schedules = new Schedules(this.ctx);
     this.mailbox =
       opts.mailbox === undefined
         ? undefined
@@ -319,35 +284,7 @@ export class Herd {
             fundHoldings: (query?: { days?: number; account?: string }) =>
               (this.opts.danjuan as NonNullable<HerdOptions["danjuan"]>).holdings(query),
           }),
-      ...(this.mail === undefined
-        ? {}
-        : {
-            mailWatches: () => this.mail?.list() ?? [],
-            watchMail: async (about: string, query: string) => {
-              if (this.mail === undefined) throw new Error("no connected apps");
-              return this.mail.add(about, query);
-            },
-            unwatchMail: (id: string) => this.mail?.remove(id) ?? false,
-          }),
-      ...(this.socials === undefined
-        ? {}
-        : {
-            socialWatches: () => this.socialWatchLines(),
-            setSocialWatch: (platform: SocialPlatform, kind: SocialKind, on: boolean) => {
-              if (this.socials === undefined) throw new Error("no platform is turned on");
-              this.socials.setWatch(platform, kind, on);
-            },
-          }),
-      ...(this.intake === undefined
-        ? {}
-        : {
-            intakeWatches: () => this.intake?.list() ?? [],
-            watchIntake: async (request: IntakeRequest) => {
-              if (this.intake === undefined) throw new Error("GitHub is not set up");
-              return this.intake.add(request);
-            },
-            unwatchIntake: (id: string) => this.intake?.remove(id) ?? false,
-          }),
+      ...(this.opts.socials === undefined ? {} : { socialWatches: () => this.socialWatchLines() }),
       ...(this.mailbox === undefined
         ? {}
         : {
@@ -360,10 +297,6 @@ export class Herd {
             fileLetters: (items: { id: number; fate: LetterFate; why: string }[]) =>
               this.needMailbox().file(items),
           }),
-      schedules: () => this.schedules.list(),
-      addSchedule: (input: ScheduleInput) => this.schedules.add(input),
-      changeSchedule: (id: string, patch: SchedulePatch) => this.schedules.change(id, patch),
-      removeSchedule: (id: string) => this.schedules.remove(id),
       sources: () => this.ctx.sources.list(),
       checkModel: async (ref) => this.opts.agentModels?.check?.(ref) ?? { ok: true },
       startTask: async (profileId, cwd, title, prompt, model, images, allowed) => {
@@ -467,10 +400,6 @@ export class Herd {
     // What the last run could not send goes out now.
     this.ctx.outbox.start();
     this.github?.start();
-    this.mail?.start();
-    this.socials?.start();
-    this.intake?.start();
-    this.schedules.start();
     this.mailbox?.start();
     // A one-off run beside a host leaves that host's tasks alone.
     if (this.opts.closeStaleTasks !== false) this.waits.start();
@@ -610,7 +539,6 @@ export class Herd {
     return this.waits.check();
   }
 
-  /** Looks at the new-work watches now (tests). */
   private needMailbox(): Mailbox {
     if (this.mailbox === undefined) throw new Error("there is no mailbox here");
     return this.mailbox;
@@ -621,47 +549,27 @@ export class Herd {
     return this.mailbox?.tick() ?? Promise.resolve();
   }
 
-  pollIntake(): Promise<void> {
-    return this.intake?.poll() ?? Promise.resolve();
-  }
-
   /**
-   * Work for an item goes through the Herder, which finds the project and starts the task. On a
-   * trial run it only says what it would have started (ADR 0064).
+   * Turned-on platforms for the Herder: whether each is signed in, and whether the mailbox tells
+   * the owner about its comments and mentions (ADR 0100).
    */
-  private startIntake(item: IntakeItem, auto: boolean, trial = false): boolean {
-    const herder = this.herder;
-    if (herder?.intake === undefined) return false;
-    if (trial) herder.intake(itemLine(item), auto, true);
-    else herder.intake(itemLine(item), auto);
-    return true;
-  }
-
-  /** Turned-on platforms and what each tells the owner about, for the Herder. */
   private socialWatchLines(): {
     platform: SocialPlatform;
     name: string;
     ready: boolean;
-    watch: Record<SocialKind, boolean>;
+    watch: { mentions: boolean };
   }[] {
-    const socials = this.socials;
-    if (socials === undefined) return [];
+    const sources = this.mailbox?.list() ?? [];
     return (this.opts.socials?.() ?? []).map((s) => ({
       platform: s.platform,
       name: s.name,
       ready: s.ready(),
-      watch: socials.watch(s.platform),
+      watch: {
+        mentions: sources.some(
+          (m) => m.kind === "social" && m.config.platform === s.platform && !m.paused,
+        ),
+      },
     }));
-  }
-
-  /** Looks at the owner's 小红书 and 知乎 now (tests). */
-  pollSocials(): Promise<void> {
-    return this.socials?.poll() ?? Promise.resolve();
-  }
-
-  /** Looks at the owner's mail watches now (tests). */
-  pollMail(): Promise<void> {
-    return this.mail?.poll() ?? Promise.resolve();
   }
 
   /** Puts the task's version of the files both it and the owner changed into the project. */
@@ -709,10 +617,6 @@ export class Herd {
     await this.ctx.inbox.stop();
     this.ctx.outbox.stop();
     this.github?.stop();
-    this.mail?.stop();
-    this.socials?.stop();
-    this.intake?.stop();
-    this.schedules.stop();
     this.mailbox?.stop();
     this.waits.stop();
     if (this.started) await this.opts.channel.stop();

@@ -43,7 +43,7 @@ import {
   nowLine,
   ownerAnswerPrompt,
   ownerMessagePrompt,
-  QUIET,
+  quietReply,
   resumedNote,
   scheduledPrompt,
   systemPrompt,
@@ -605,23 +605,23 @@ export class Herder implements HerderPort {
       );
       return;
     }
-    if (job.resumedAt !== undefined && text.includes(QUIET)) {
+    if (job.resumedAt !== undefined && quietReply(text)) {
       this.host.audit("herder.pending.quiet", { kind: job.kind });
       this.save();
       return;
     }
-    if (job.kind === "scheduled" && text.includes(QUIET)) {
+    if (job.kind === "scheduled" && quietReply(text)) {
       this.host.audit("schedule.quiet", { id: job.schedule.id });
       this.save();
       return;
     }
     if (job.kind === "letters") this.fileTheRest(job.delivery);
-    if (job.kind === "letters" && (text.includes(QUIET) || text === "")) {
+    if (job.kind === "letters" && (quietReply(text) || text === "")) {
       this.host.audit("mailbox.quiet", { kind: job.delivery.kind });
       this.save();
       return;
     }
-    if (job.kind === "voice" && text.includes(QUIET)) {
+    if (job.kind === "voice" && quietReply(text)) {
       this.save();
       job.done("");
       return;

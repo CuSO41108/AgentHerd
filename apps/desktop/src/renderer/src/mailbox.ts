@@ -1,31 +1,73 @@
-// What the 信箱 page shows (ADR 0099), kept apart from the components so it can be tested.
+// What the 信箱 page shows (ADR 0099, 0100), kept apart from the components so it can be tested.
 
 import type {
+  MailboxAct,
+  MailboxActChoice,
   MailboxDraft,
   MailboxKind,
   MailboxLetterView,
   MailboxSource,
+  MailboxSourceView,
   MailboxView,
+  ScheduleWhen,
 } from "@agentherd/host/api";
 import type { Tone } from "./components/ui";
+import { nextText, whenText as timerText } from "./schedule-text";
 
 export const KIND_LABELS: Record<MailboxKind, string> = {
   github: "GitHub 仓库",
+  work: "派给你的活",
+  mail: "邮件",
+  social: "小红书/知乎",
   rss: "RSS 订阅",
   hn: "Hacker News",
   script: "自己的脚本",
-  timer: "定时提醒",
+  timer: "定时",
 };
 
 export const KIND_HINTS: Record<MailboxKind, string> = {
   github: "仓库的新 issue、PR 和发布；用你登录的 gh 去看",
+  work: "GitHub 上派给你的 issue、请你评审的 PR；可以每件都问你，或者直接开任务",
+  mail: "Gmail 里符合搜索条件的新邮件；要先在「应用连接」里连上 Gmail",
+  social: "你账号下的新评论和 @；要先在「应用连接」里登录",
   rss: "博客、新闻站的 RSS 或 Atom 订阅",
   hn: "Hacker News 上带这些词的新帖子",
   script: "任何语言的命令：读进上次留下的状态，打印新信件和新状态",
-  timer: "到点给主管一封信，主管照你写的话去做",
+  timer: "到点主管照你写的话去做，比如每天早上看看有没有新 issue",
 };
 
-export const KIND_ORDER: readonly MailboxKind[] = ["github", "rss", "hn", "script", "timer"];
+export const KIND_ORDER: readonly MailboxKind[] = [
+  "github",
+  "work",
+  "mail",
+  "social",
+  "rss",
+  "hn",
+  "script",
+  "timer",
+];
+
+export const PLATFORM_LABELS: Record<string, string> = { xiaohongshu: "小红书", zhihu: "知乎" };
+
+/** What happens to a new letter, as the owner picks it. */
+export const ACT_CHOICES: readonly { value: MailboxActChoice; label: string; hint: string }[] = [
+  { value: "sort", label: "主管看着办", hint: "要紧的马上告诉你，别的留到早上汇总或只记下" },
+  { value: "offer", label: "每封都问我", hint: "每件新的都发给你，点「开任务」才开" },
+  { value: "auto", label: "直接开任务", hint: "先试跑：前几件只问你、主管说它本来会怎么做" },
+];
+
+/** The choice a source's act shows as (a trial run is 「直接开任务」 still on trial). */
+export function actChoice(act: MailboxAct): MailboxActChoice {
+  return act === "trial" ? "auto" : act;
+}
+
+/** 「每封都问你」「试跑中 · 已经 2 件」「直接开任务」; nothing for the default. */
+export function actText(s: Pick<MailboxSource, "act" | "trials">): string | undefined {
+  if (s.act === "offer") return "每封都问你";
+  if (s.act === "trial") return s.trials === 0 ? "试跑中" : `试跑中 · 已经 ${s.trials} 件`;
+  if (s.act === "auto") return "直接开任务";
+  return undefined;
+}
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
@@ -55,6 +97,23 @@ export function everyText(minutes: number): string {
 /** What the source looks at, in one short line. */
 export function whatText(s: MailboxSource): string {
   const c = s.config;
+  if (s.kind === "work") {
+    const what = Array.isArray(c.what) ? (c.what as string[]) : [];
+    const names = what.map(
+      (w) => ({ assigned: "派给你的 issue", reviews: "请你评审的 PR" })[w] ?? w,
+    );
+    const where = typeof c.repo === "string" && c.repo !== "" ? `${c.repo} 里` : "";
+    const label = typeof c.label === "string" && c.label !== "" ? `，标签「${c.label}」` : "";
+    return `${where}${names.join("、")}${label}`;
+  }
+  if (s.kind === "mail") return `Gmail 搜「${String(c.query ?? "")}」`;
+  if (s.kind === "social") {
+    return `${PLATFORM_LABELS[String(c.platform)] ?? String(c.platform)}的新评论和 @`;
+  }
+  if (s.kind === "timer") {
+    const when = c.when as ScheduleWhen | undefined;
+    return when === undefined ? s.note : timerText(when);
+  }
   const words = Array.isArray(c.words) ? (c.words as string[]).join("、") : "";
   if (s.kind === "github") {
     const what = Array.isArray(c.what) ? (c.what as string[]) : ["issues", "releases"];
@@ -86,8 +145,14 @@ export function sourceState(s: MailboxSource): SourceState {
   return { label: "正常", tone: "green" };
 }
 
-/** 「上次 今天 14:05 · 来了 3 封」 */
-export function sourceLine(s: MailboxSource, now: Date = new Date()): string {
+/** 「每 10 分钟 · 上次 今天 14:05 · 来了 3 封」; a timer: 「下次：11月23日 09:00 · 上次 …」. */
+export function sourceLine(s: MailboxSourceView, now: Date = new Date()): string {
+  if (s.kind === "timer") {
+    const parts = [nextText(s)];
+    if (s.lastRunAt !== undefined) parts.push(`上次 ${whenText(s.lastRunAt, now)}`);
+    if (s.by === "herder") parts.push("主管加的");
+    return parts.join(" · ");
+  }
   const parts = [everyText(s.everyMinutes)];
   if (s.lastRunAt !== undefined) parts.push(`上次 ${whenText(s.lastRunAt, now)}`);
   parts.push(s.letters === 0 ? "还没来过信" : `来了 ${s.letters} 封`);
@@ -156,6 +221,17 @@ export function draftProblem(d: MailboxDraft, view?: MailboxView): string | unde
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return "仓库写成 owner/name，比如 openai/codex";
     if (d.what !== undefined && d.what.length === 0) return "至少选一样：issue、PR 或发布";
   }
+  if (d.kind === "work") {
+    if (d.what === undefined || d.what.length === 0)
+      return "至少选一样：派给你的 issue 或请你评审的 PR";
+  }
+  if (d.kind === "mail" && (d.query ?? "").trim() === "")
+    return "填 Gmail 的搜索条件，比如 from:li@uni.edu";
+  if (d.kind === "social" && d.platform === undefined) return "选一个平台";
+  if (d.kind === "timer") {
+    const problem = whenProblem(d.when);
+    if (problem !== undefined) return problem;
+  }
   if (d.kind === "rss" && !/^https?:\/\/\S+$/.test((d.url ?? "").trim()))
     return "填订阅的地址（http 开头）";
   if (d.kind === "hn" && (d.words ?? "").trim() === "") return "填要搜的词";
@@ -185,5 +261,31 @@ export function suggestedName(d: MailboxDraft): string {
     }
   }
   if (d.kind === "hn") return (d.words ?? "").trim() === "" ? "" : `HN：${(d.words ?? "").trim()}`;
+  if (d.kind === "work") {
+    const what = d.what ?? [];
+    if (what.length === 0) return "";
+    return what.includes("reviews") && !what.includes("assigned") ? "等我评审的 PR" : "派给我的活";
+  }
+  if (d.kind === "social" && d.platform !== undefined) {
+    return `${PLATFORM_LABELS[d.platform] ?? d.platform}的评论和@`;
+  }
   return "";
+}
+
+/** Why a timer's time is not right yet; undefined when it is. */
+export function whenProblem(when: ScheduleWhen | undefined): string | undefined {
+  if (when === undefined) return "选好什么时候";
+  if (when.kind === "every") {
+    return Number.isInteger(when.hours) && when.hours >= 1 && when.hours <= 168
+      ? undefined
+      : "每隔 1 到 168 小时";
+  }
+  if (when.kind === "daily") {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(when.at)) return "时间写成 09:00 这样";
+    if (when.days !== undefined && when.days.length === 0) return "至少选一天";
+    return undefined;
+  }
+  return /^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/.test(when.at)
+    ? undefined
+    : "日期和时间写成 2026-11-23 09:00 这样";
 }

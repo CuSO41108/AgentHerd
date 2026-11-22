@@ -8,7 +8,7 @@
 // herd.db too (ADR 0072). It never writes text of its own and makes no model calls.
 
 import type { HerderTurn, OwnerCard } from "@agentherd/core";
-import { withoutContextMarks } from "@agentherd/herder";
+import { quietReply, withoutContextMarks } from "@agentherd/herder";
 import type {
   Channel,
   ChannelBinding,
@@ -213,6 +213,8 @@ export function historyOf(
     const words = said ? withoutContextMarks(turn.text) : turn.text;
     const text = cut(words, maxFor(words, PET_HISTORY_TEXT_MAX));
     if (text === "") continue;
+    // A "say nothing" reply that slipped through as 「[安静]」 is not shown (ADR 0099).
+    if (turn.role === "herder" && quietReply(text)) continue;
     const base = { id: turn.id, at: turn.at, text };
     if (turn.role === "owner" || turn.role === "answer") {
       lines.push({ ...base, kind: "owner" });

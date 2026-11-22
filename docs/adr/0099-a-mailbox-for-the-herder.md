@@ -1,6 +1,6 @@
 # 0099. A mailbox for the Herder: sources write letters, code decides what is new
 
-- Status: Accepted
+- Status: Accepted; changed by [0100](0100-every-watch-and-schedule-is-a-mailbox-source.md)
 - Date: 2026-11-22
 - Changes: [0052](0052-offer-new-github-work-when-asked.md) and [0055](0055-schedules-the-herder-makes.md) stay as they are for now; they move into the mailbox in a second step
 

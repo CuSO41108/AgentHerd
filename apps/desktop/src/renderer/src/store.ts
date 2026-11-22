@@ -42,7 +42,6 @@ export type Page =
   | "tasks"
   | "herders"
   | "memory"
-  | "schedules"
   | "mailbox"
   | "connections"
   | "agents"
@@ -103,7 +102,6 @@ const PAGES: readonly Page[] = [
   "tasks",
   "herders",
   "memory",
-  "schedules",
   "mailbox",
   "connections",
   "agents",
@@ -125,6 +123,8 @@ function firstRunDone(): boolean {
 /** A page named in the URL hash (e.g. "#models"), for previews and reloads. */
 function hashPage(): Page | undefined {
   const name = window.location.hash.slice(1);
+  // 定时任务 moved into the 信箱 (ADR 0100).
+  if (name === "schedules") return "mailbox";
   return PAGES.find((p) => p === name);
 }
 
