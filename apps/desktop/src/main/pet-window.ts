@@ -242,6 +242,10 @@ export class PetWindow {
       this.wantTop = on;
       this.applyPlacement(w);
     });
+    ipcMain.on("pet:focus", (e) => {
+      const w = this.own(e);
+      if (w !== undefined) this.focus(w);
+    });
     ipcMain.on("pet:open-app", (e, taskId: unknown) => {
       if (this.own(e) === undefined) return;
       this.opts.openApp(typeof taskId === "string" && taskId !== "" ? taskId : undefined);
@@ -273,18 +277,23 @@ export class PetWindow {
 
   /**
    * Opens the pet's panel on a page and gives it the keyboard: a notification or the menu bar
-   * asked (ADR 0079). False when the pet is not shown.
+   * asked (ADR 0079). The talk shortcut can also close the panel on that page.
+   * False when the pet is not shown.
    */
-  show(tab: "chat" | "tasks" | "cards"): boolean {
+  show(tab: "chat" | "tasks" | "cards", toggle = false): boolean {
     const w = this.win;
     if (w === undefined || w.isDestroyed()) return false;
-    const tell = () => w.webContents.send("pet:show", tab);
+    const tell = () => w.webContents.send("pet:show", tab, toggle);
     if (w.webContents.isLoading()) w.webContents.once("did-finish-load", tell);
     else tell();
+    if (!toggle) this.focus(w);
+    return true;
+  }
+
+  private focus(w: BrowserWindow): void {
     w.show();
     w.focus();
     if (process.platform === "darwin") app.focus({ steal: true });
-    return true;
   }
 
   /** On top always or only while busy, and over full-screen apps or not (ADR 0080). */

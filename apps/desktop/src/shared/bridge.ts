@@ -48,6 +48,8 @@ export interface PetBridge {
   interacting(active: boolean): void;
   /** Called when the cursor leaves the pet's interactive regions on Windows. */
   onMouseLeave(listener: () => void): () => void;
+  /** Gives the pet the keyboard after a shortcut opens its panel. */
+  focus?(): void;
   /** Brings up the main window, at a task when one is named (ADR 0072). */
   openApp(taskId?: string): void;
   /** Opens a file a message names, or shows it in Finder when it is not a document (ADR 0073). */
@@ -61,9 +63,10 @@ export interface PetBridge {
   pathOf?(file: File): string;
   /**
    * Main asks the pet to open its panel on a page: a notification or the menu bar was clicked
-   * (ADR 0079). Returns an unsubscribe function. Missing in older builds.
+   * (ADR 0079). The talk shortcut can also close the panel on that page.
+   * Returns an unsubscribe function. Missing in older builds.
    */
-  onShow?(listener: (tab: "chat" | "tasks" | "cards") => void): () => void;
+  onShow?(listener: (tab: "chat" | "tasks" | "cards", toggle: boolean) => void): () => void;
   /** What the approve shortcut did: armed an approval, allowed it, or found none (ADR 0080). */
   onArm?(listener: (arm: PetArm) => void): () => void;
   /** The owner let the armed approval go (Esc): the next press picks it again. */
