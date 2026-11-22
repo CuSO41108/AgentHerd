@@ -5,6 +5,7 @@ import {
   Boxes,
   Brain,
   CalendarClock,
+  Inbox,
   ListTodo,
   Loader2,
   type LucideIcon,
@@ -21,6 +22,7 @@ import { FirstRun } from "./firstrun/FirstRun";
 import { AgentsPage } from "./pages/AgentsPage";
 import { ConnectionsPage } from "./pages/ConnectionsPage";
 import { HerdersPage } from "./pages/HerdersPage";
+import { MailboxPage } from "./pages/MailboxPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
@@ -34,6 +36,7 @@ const NAV: { page: Page; label: string; icon: LucideIcon }[] = [
   { page: "herders", label: "主管", icon: Bot },
   { page: "memory", label: "记忆", icon: Brain },
   { page: "schedules", label: "定时任务", icon: CalendarClock },
+  { page: "mailbox", label: "信箱", icon: Inbox },
   { page: "connections", label: "应用连接", icon: Plug },
   { page: "models", label: "模型", icon: Boxes },
   { page: "agents", label: "Agent", icon: SquareTerminal },
@@ -53,6 +56,10 @@ const HEADERS: Record<Page, { title: string; hint: string }> = {
   schedules: {
     title: "定时任务",
     hint: "主管按时去做的事和在盯的东西；在飞书里跟主管说就能加，这里可以暂停或删除",
+  },
+  mailbox: {
+    title: "信箱",
+    hint: "外面来的消息先到这里，主管看过再决定马上告诉你、早上汇总还是记下；跟主管说就能加来源",
   },
   connections: {
     title: "应用连接",
@@ -155,6 +162,8 @@ function PageBody({ page }: { page: Page }) {
       return <MemoryPage />;
     case "schedules":
       return <SchedulesPage />;
+    case "mailbox":
+      return <MailboxPage />;
     case "connections":
       return <ConnectionsPage />;
     case "agents":

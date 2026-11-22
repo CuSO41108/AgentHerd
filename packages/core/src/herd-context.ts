@@ -28,6 +28,7 @@ import type {
 } from "./herder-port.ts";
 import type { Inbox } from "./inbox.ts";
 import type { Intake } from "./intake.ts";
+import type { MailboxCheck } from "./mailbox.ts";
 import type { AppTools, HerdReport, McpGateway } from "./mcp-gateway.ts";
 import type { Completer, Embedder } from "./memory-store.ts";
 import type { Outbox } from "./outbox.ts";
@@ -133,6 +134,13 @@ export interface HerdOptions {
   suggestion?: HerderSuggestion;
   /** Plugins the owner let the Herder use (ADR 0094). */
   plugins?: HerderPlugins;
+  /**
+   * Looks at the owner's mailbox sources (ADR 0099): GitHub, feeds, Hacker News, scripts. Without
+   * it there is no mailbox.
+   */
+  mailbox?: { check: MailboxCheck; tickMs?: number; digestHour?: number };
+  /** Called when mailbox sources or letters changed, for the app. */
+  mailboxChanged?: () => void;
   /** A watched source failing this long is told to the owner (default 30, ADR 0050). */
   sourceDownMinutes?: number;
   /**

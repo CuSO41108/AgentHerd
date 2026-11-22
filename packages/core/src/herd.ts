@@ -35,6 +35,7 @@ import {
 import { Inbox, type OwnerAnswer } from "./inbox.ts";
 import { Intake, type IntakeItem, type IntakeRequest, itemLine } from "./intake.ts";
 import { MailWatches } from "./mail-watch.ts";
+import { type LetterFate, Mailbox, type MailboxPatch, type MailboxSourceInput } from "./mailbox.ts";
 import { type JsonRpcMessage, McpGateway } from "./mcp-gateway.ts";
 import { noticeLevels, setNoticeLevel } from "./notices.ts";
 import { Outbox } from "./outbox.ts";
@@ -86,6 +87,8 @@ export class Herd {
   private readonly intake: Intake | undefined;
   /** What the Herder does at set times (ADR 0055); the app lists, pauses and removes them. */
   readonly schedules: Schedules;
+  /** The owner's mailbox sources, when the host can look at them (ADR 0099). */
+  readonly mailbox: Mailbox | undefined;
   /** Asks about tasks that wait on the owner for long (ADR 0081). */
   readonly waits: WaitWatch;
   /** Mail the owner asked to hear about; only with connected apps (ADR 0048). */
@@ -211,6 +214,17 @@ export class Herd {
             start: (item, auto, trial) => this.startIntake(item, auto, trial),
           });
     this.schedules = new Schedules(this.ctx);
+    this.mailbox =
+      opts.mailbox === undefined
+        ? undefined
+        : new Mailbox(this.ctx, {
+            check: opts.mailbox.check,
+            ...(opts.mailbox.tickMs === undefined ? {} : { tickMs: opts.mailbox.tickMs }),
+            ...(opts.mailbox.digestHour === undefined
+              ? {}
+              : { digestHour: opts.mailbox.digestHour }),
+            ...(opts.mailboxChanged === undefined ? {} : { changed: opts.mailboxChanged }),
+          });
     this.waits = new WaitWatch(
       this.ctx,
       {
@@ -334,6 +348,18 @@ export class Herd {
             },
             unwatchIntake: (id: string) => this.intake?.remove(id) ?? false,
           }),
+      ...(this.mailbox === undefined
+        ? {}
+        : {
+            mailboxSources: () => this.mailbox?.list() ?? [],
+            addMailboxSource: (input: MailboxSourceInput) => this.needMailbox().add(input),
+            changeMailboxSource: (id: string, patch: MailboxPatch) =>
+              this.needMailbox().set(id, patch),
+            removeMailboxSource: (id: string) => this.mailbox?.remove(id) ?? false,
+            tryMailboxSource: (input: MailboxSourceInput) => this.needMailbox().tryOut(input),
+            fileLetters: (items: { id: number; fate: LetterFate; why: string }[]) =>
+              this.needMailbox().file(items),
+          }),
       schedules: () => this.schedules.list(),
       addSchedule: (input: ScheduleInput) => this.schedules.add(input),
       changeSchedule: (id: string, patch: SchedulePatch) => this.schedules.change(id, patch),
@@ -445,6 +471,7 @@ export class Herd {
     this.socials?.start();
     this.intake?.start();
     this.schedules.start();
+    this.mailbox?.start();
     // A one-off run beside a host leaves that host's tasks alone.
     if (this.opts.closeStaleTasks !== false) this.waits.start();
     await this.endOldRelay(relay?.taskId);
@@ -584,6 +611,16 @@ export class Herd {
   }
 
   /** Looks at the new-work watches now (tests). */
+  private needMailbox(): Mailbox {
+    if (this.mailbox === undefined) throw new Error("there is no mailbox here");
+    return this.mailbox;
+  }
+
+  /** Looks at every due mailbox source now and delivers what came. For tests. */
+  checkMailbox(): Promise<void> {
+    return this.mailbox?.tick() ?? Promise.resolve();
+  }
+
   pollIntake(): Promise<void> {
     return this.intake?.poll() ?? Promise.resolve();
   }
@@ -676,6 +713,7 @@ export class Herd {
     this.socials?.stop();
     this.intake?.stop();
     this.schedules.stop();
+    this.mailbox?.stop();
     this.waits.stop();
     if (this.started) await this.opts.channel.stop();
     this.store.audit("herd.stopped", {});

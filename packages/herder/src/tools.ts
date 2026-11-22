@@ -23,6 +23,7 @@ import type { AgentTool, AgentToolResult } from "@agentherd/herder-loop";
 import { OUTBOUND_STEPS, type OutboundStep, stepsSaidIn } from "@agentherd/rules";
 import { arr, bool, int, num, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import { agentForModel } from "./agent-models.ts";
+import { mailboxTools } from "./mailbox-tools.ts";
 import {
   decisionsText,
   decisionWords,
@@ -38,7 +39,8 @@ import { composeTaskPrompt, HERDER_LABEL, quoteAgent } from "./prompt.ts";
 export interface TurnContext {
   /** `intake`: new work the owner tapped 「开任务」 on, or their automatic watch found (ADR 0052). */
   /** `scheduled`: a schedule the owner made is due (ADR 0055); its saved words are the owner's. */
-  kind: "owner" | "answer" | "event" | "intake" | "scheduled";
+  /** `letters`: letters the mailbox brought (ADR 0099); other people's words, filed one by one. */
+  kind: "owner" | "answer" | "event" | "intake" | "scheduled" | "letters";
   /** The owner's words this turn may pass on: the message, or the one the answer belongs to. */
   ownerText: string;
   /**
@@ -58,6 +60,8 @@ export interface TurnContext {
   pickedDirs: string[];
   /** New work from a watch on its trial run: session_start starts nothing (ADR 0064). */
   trial?: boolean;
+  /** Letters this turn filed (ADR 0099). */
+  filed?: Set<number>;
 }
 
 /** The answer that lets the owner type their own (ADR 0035). */
@@ -858,7 +862,8 @@ export function herderTools(
         },
       ) => {
         const t = turn();
-        if (t.kind === "event") throw new Error("tasks start only when the owner asks");
+        if (t.kind === "event" || t.kind === "letters")
+          throw new Error("tasks start only when the owner asks; offer it with ask");
         const hard = args.hard === true;
         if (!isVerbatim(args.ownerText, t.ownerText)) {
           throw new Error("ownerText must be the owner's words copied exactly from their message");
@@ -993,7 +998,8 @@ export function herderTools(
       parameters: promptSchema,
       execute: async (_id: string, args: { task: string; text: string; name?: string }) => {
         const t = turn();
-        if (t.kind === "event") throw new Error("only the owner can message tasks; use notify");
+        if (t.kind === "event" || t.kind === "letters")
+          throw new Error("only the owner can message tasks; use notify");
         const task = anyTask(host, args.task);
         const verbatim = isVerbatim(args.text, t.ownerText);
         const name = args.name?.trim();
@@ -1017,7 +1023,8 @@ export function herderTools(
       description: "Cancels the running turn of a task. The task stays open.",
       parameters: taskSchema,
       execute: async (_id: string, args: { task: string }) => {
-        if (turn().kind === "event") throw new Error("only the owner can cancel");
+        if (turn().kind === "event" || turn().kind === "letters")
+          throw new Error("only the owner can cancel");
         const task = oneTask(host, args.task);
         await host.cancelTurn(task.id);
         return ok(`cancelled the turn of ${task.id.slice(0, 8)}`);
@@ -1030,7 +1037,8 @@ export function herderTools(
         'Closes a task for good when the owner says it is finished or no longer wanted ("可以结束了", "不用了"). The agent stops; the task stays in the list as ended and can be continued later with session_prompt. To stop only what it is doing now, use session_cancel.',
       parameters: taskSchema,
       execute: async (_id: string, args: { task: string }) => {
-        if (turn().kind === "event") throw new Error("only the owner can end a task");
+        if (turn().kind === "event" || turn().kind === "letters")
+          throw new Error("only the owner can end a task");
         const task = oneTask(host, args.task);
         await host.endTask(task.id);
         return ok(`ended ${task.id.slice(0, 8)}`);
@@ -1042,7 +1050,8 @@ export function herderTools(
       description: "Owner messages go straight to this task until /end.",
       parameters: taskSchema,
       execute: async (_id: string, args: { task: string }) => {
-        if (turn().kind === "event") throw new Error("only the owner can start a relay");
+        if (turn().kind === "event" || turn().kind === "letters")
+          throw new Error("only the owner can start a relay");
         const task = oneTask(host, args.task);
         await host.startRelay(task.id);
         return ok(`relay to ${task.id.slice(0, 8)} started`);
@@ -1236,6 +1245,7 @@ export function herderTools(
   if (host.addSchedule !== undefined) {
     all.push(...scheduleTools(host, turn).map((t) => t as unknown as AgentTool));
   }
+  all.push(...mailboxTools(host, turn));
   return all;
 }
 
@@ -1245,7 +1255,7 @@ const SPEAK_IN_REPLY = "while telling a task's result, put everything in your re
 /** Only the owner's own words create or change a new-work watch (ADR 0052). */
 function ownerOnly(turn: () => TurnContext, what: string): void {
   const kind = turn().kind;
-  if (kind === "event" || kind === "intake" || kind === "scheduled") {
+  if (kind === "event" || kind === "intake" || kind === "scheduled" || kind === "letters") {
     throw new Error(`only the owner can ${what}`);
   }
 }

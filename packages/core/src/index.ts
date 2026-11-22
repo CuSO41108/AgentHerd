@@ -95,6 +95,35 @@ export {
 } from "./intake.ts";
 export type { MailMessage, MailWatchOptions } from "./mail-watch.ts";
 export { fetchMail, MAIL_POLL_MINUTES, MAIL_WATCHES_MAX, MailWatches } from "./mail-watch.ts";
+export {
+  type CheckResult,
+  cleanLetters,
+  DIGEST_HOUR,
+  LETTER_BODY_MAX,
+  LETTER_FATES,
+  LETTER_TITLE_MAX,
+  LETTERS_PER_DELIVERY,
+  LETTERS_PER_LOOK,
+  type Letter,
+  type LetterDelivery,
+  type LetterFate,
+  type LetterGroup,
+  MAILBOX_EVERY_DEFAULT,
+  MAILBOX_EVERY_MIN,
+  MAILBOX_FAILS_TOLD,
+  MAILBOX_KINDS,
+  MAILBOX_SOURCES_MAX,
+  MAILBOX_STATE_MAX,
+  Mailbox,
+  type MailboxCheck,
+  type MailboxKind,
+  type MailboxOptions,
+  type MailboxPatch,
+  type MailboxSource,
+  type MailboxSourceInput,
+  type StoredLetter,
+} from "./mailbox.ts";
+export { LETTERS_KEEP, MailboxStore, SEEN_KEEP } from "./mailbox-store.ts";
 export type {
   AppToolInfo,
   AppTools,

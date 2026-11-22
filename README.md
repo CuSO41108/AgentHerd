@@ -54,6 +54,10 @@ English · [简体中文](README.zh-CN.md)
   things ask you, and the Herder uses a plugin only if you switch it on.
 - **Schedules in plain words.** "Every weekday at 9, check for new issues" — the Herder makes the
   schedule, and missed runs happen once when your machine wakes.
+- **A mailbox for the outside world.** "Keep an eye on new issues in openai/codex" — a repository,
+  an RSS feed, a Hacker News search or your own script is looked at by code on its own clock, and
+  only new things reach the Herder. It tells you what matters now, keeps the rest for a morning
+  digest, and the 信箱 page shows what it did with each letter and why.
 - **Memory that stays useful.** The whole conversation is kept, and the Herder folds old parts
   itself. It keeps a profile card of you (what to call you, what you work on, your hours and
   likes), from things you say in passing; you see and edit it on the Memory page, and the first

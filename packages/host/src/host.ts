@@ -7,12 +7,18 @@ import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 import {
   chooseModel,
+  DIGEST_HOUR,
   emptyModelSettings,
   FEED_SOURCES,
   type GhRun,
   Herd,
   isSubscription,
   type JsonRpcMessage,
+  MAILBOX_EVERY_DEFAULT,
+  MAILBOX_EVERY_MIN,
+  MAILBOX_KINDS,
+  type Mailbox,
+  type MailboxKind,
   type MemoryStore,
   type ModelRef,
   type ModelRole,
@@ -48,6 +54,7 @@ import {
   resolveModel,
   serviceKey,
   serviceReady,
+  sourceConfig,
   subscriptionProviders,
   TIERS,
   type TierPlacement,
@@ -75,7 +82,12 @@ import type {
   ItemSummary,
   LarkLogin,
   LarkView,
+  Letter,
   LoginView,
+  MailboxDraft,
+  MailboxLetterView,
+  MailboxSourcePatch,
+  MailboxView,
   MemoryView,
   ModelProbe,
   ModelsView,
@@ -130,6 +142,7 @@ import { LocalEmbedder } from "./embedder.ts";
 import { FEED_NAMES, Feeds } from "./feeds.ts";
 import { foldText, herderContextView, herderMessages } from "./herder-context-view.ts";
 import { Lark } from "./lark.ts";
+import { mailboxCheck, type ScriptRun } from "./mailbox-sources.ts";
 import { mcpServerFor } from "./mcp-socket.ts";
 import { LoginRun } from "./model-logins.ts";
 import { PET_CARDS_MAX, PET_HISTORY_MAX, PetFeed, petConversation } from "./pet.ts";
@@ -186,6 +199,10 @@ export interface HostOptions {
   pluginClient?: (server: RunningServer) => McpClient;
   /** Runs `gh` for following pull requests tasks open (tests replace it). */
   gh?: GhRun;
+  /** Runs mailbox scripts; tests pass a fake (ADR 0099). */
+  mailboxScript?: ScriptRun;
+  /** How often the mailbox looks for due sources; tests make it short. */
+  mailboxTickMs?: number;
   target?: string;
   exists?: (path: string) => boolean;
   /** Options for verifyAgent (tests). */
@@ -311,13 +328,7 @@ export class Host implements HostApi {
       config: () => this.config(),
       save: (change) => writeConfig(this.opts.home, change(this.config())),
       changed: () => this.emit({ topic: "plugins", data: this.plugins() }),
-      env: () => {
-        const base: Record<string, string> = {};
-        for (const [k, v] of Object.entries(this.opts.env ?? process.env)) {
-          if (v !== undefined) base[k] = v;
-        }
-        return this.withToolPath(base);
-      },
+      env: () => this.toolEnv(),
       ...(opts.fetch === undefined ? {} : { fetchFn: opts.fetch }),
       ...(opts.pluginExtract === undefined ? {} : { extract: opts.pluginExtract }),
       ...(opts.pluginClient === undefined ? {} : { client: opts.pluginClient }),
@@ -483,6 +494,61 @@ export class Host implements HostApi {
 
   removePlugin(id: string): Promise<PluginView[]> {
     return this.pluginList.remove(id);
+  }
+
+  mailbox(): MailboxView {
+    return mailboxView(this.herd?.mailbox);
+  }
+
+  async mailboxAdd(draft: MailboxDraft): Promise<MailboxView> {
+    this.needMailbox().add({
+      kind: draft.kind,
+      name: draft.name,
+      note: draft.note ?? "",
+      config: sourceConfig(draft.kind, draft),
+      by: "owner",
+      ...(draft.everyMinutes === undefined ? {} : { everyMinutes: draft.everyMinutes }),
+    });
+    return this.mailbox();
+  }
+
+  async mailboxSet(id: string, patch: MailboxSourcePatch): Promise<MailboxView> {
+    const box = this.needMailbox();
+    const source = box.list().find((s) => s.id === id);
+    if (source === undefined) throw new Error(`no source ${id}`);
+    box.set(id, {
+      ...(patch.name === undefined ? {} : { name: patch.name }),
+      ...(patch.note === undefined ? {} : { note: patch.note }),
+      ...(patch.everyMinutes === undefined ? {} : { everyMinutes: patch.everyMinutes }),
+      ...(patch.paused === undefined ? {} : { paused: patch.paused }),
+      ...(patch.fields === undefined ? {} : { config: sourceConfig(source.kind, patch.fields) }),
+    });
+    return this.mailbox();
+  }
+
+  async mailboxRemove(id: string): Promise<MailboxView> {
+    this.needMailbox().remove(id);
+    return this.mailbox();
+  }
+
+  async mailboxRun(id: string): Promise<MailboxView> {
+    await this.needMailbox().runNow(id);
+    return this.mailbox();
+  }
+
+  mailboxTry(draft: MailboxDraft): Promise<Letter[]> {
+    return this.needMailbox().tryOut({
+      kind: draft.kind,
+      name: draft.name,
+      note: draft.note ?? "",
+      config: sourceConfig(draft.kind, draft),
+    });
+  }
+
+  private needMailbox(): Mailbox {
+    const box = this.herd?.mailbox;
+    if (box === undefined) throw new Error("AgentHerd is not running yet");
+    return box;
   }
 
   socials(): SocialView[] {
@@ -718,6 +784,17 @@ export class Host implements HostApi {
           this.emit({ topic: "pet", data: this.pet() });
         },
       },
+      mailbox: {
+        check: mailboxCheck({
+          gh: this.opts.gh ?? runGh(withSystemProxy()),
+          home: this.opts.userHome ?? homedir(),
+          env: () => this.toolEnv(),
+          ...(this.opts.fetch === undefined ? {} : { fetchFn: this.opts.fetch }),
+          ...(this.opts.mailboxScript === undefined ? {} : { script: this.opts.mailboxScript }),
+        }),
+        ...(this.opts.mailboxTickMs === undefined ? {} : { tickMs: this.opts.mailboxTickMs }),
+      },
+      mailboxChanged: () => this.emit({ topic: "mailbox", data: this.mailbox() }),
       plugins: {
         list: () => this.pluginList.herderList(),
         call: (name, args) => this.pluginList.herderCall(name, args),
@@ -1240,6 +1317,15 @@ export class Host implements HostApi {
     return builtinProviders();
   }
 
+  /** The environment tools run in: ours, with `<home>/bin` on the path. */
+  private toolEnv(): Record<string, string> {
+    const base: Record<string, string> = {};
+    for (const [k, v] of Object.entries(this.opts.env ?? process.env)) {
+      if (v !== undefined) base[k] = v;
+    }
+    return this.withToolPath(base);
+  }
+
   /** Prepends `<home>/bin` (`westock`, etc.) to `PATH` when present without duplicating `Path`/`PATH` (ADR 0076). */
   private withToolPath(env: Record<string, string>): Record<string, string> {
     const dir = this.westockCli.binDir();
@@ -1713,4 +1799,25 @@ function petSettings(config: CliConfig): PetSettings {
     overFullscreen: flag("overFullscreen"),
     suggest: flag("suggest"),
   };
+}
+
+/** Letters shown on the 信箱 page. */
+export const MAILBOX_LETTERS_SHOWN = 300;
+
+/** The 信箱 page: sources and the newest letters, each with its source's name (ADR 0099). */
+export function mailboxView(box: Mailbox | undefined): MailboxView {
+  const every = Object.fromEntries(
+    MAILBOX_KINDS.map((k) => [k, { min: MAILBOX_EVERY_MIN[k], default: MAILBOX_EVERY_DEFAULT[k] }]),
+  ) as Record<MailboxKind, { min: number; default: number }>;
+  if (box === undefined)
+    return { on: false, sources: [], letters: [], every, digestHour: DIGEST_HOUR };
+  const sources = box.list();
+  const byId = new Map(sources.map((s) => [s.id, s]));
+  const letters: MailboxLetterView[] = [];
+  for (const l of box.letters(MAILBOX_LETTERS_SHOWN)) {
+    const s = byId.get(l.sourceId);
+    if (s === undefined) continue;
+    letters.push({ ...l, source: s.name, kind: s.kind });
+  }
+  return { on: true, sources, letters, every, digestHour: DIGEST_HOUR };
 }

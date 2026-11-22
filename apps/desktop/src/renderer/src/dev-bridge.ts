@@ -31,6 +31,7 @@ import type {
   HostStatus,
   LarkView,
   LoginView,
+  MailboxView,
   MemoryView,
   ModelsView,
   ModelTiersView,
@@ -62,6 +63,7 @@ import {
   sampleHerderContext,
   sampleHerderMessages,
   sampleLark,
+  sampleMailbox,
   sampleMemory,
   sampleSchedules,
   sampleServices,
@@ -515,6 +517,12 @@ function installFakeBridge(): void {
       installed: false,
     },
   ];
+  let mailbox: MailboxView = sampleMailbox(sim === "empty" || sim === "no-agent");
+  const setMailbox = (next: MailboxView): Promise<MailboxView> => {
+    mailbox = next;
+    emit({ topic: "mailbox", data: structuredClone(mailbox) });
+    return delay(structuredClone(mailbox));
+  };
   let plugins: PluginView[] = [
     {
       id: "context7",
@@ -866,6 +874,84 @@ function installFakeBridge(): void {
       });
     },
     danjuan: () => delay(structuredClone(danjuan)),
+    mailbox: () => delay(structuredClone(mailbox)),
+    mailboxAdd: (draft) =>
+      setMailbox({
+        ...mailbox,
+        sources: [
+          ...mailbox.sources,
+          {
+            id: `m-${Date.now()}`,
+            kind: draft.kind,
+            name: draft.name,
+            note: draft.note ?? "",
+            config: {
+              ...(draft.repo === undefined
+                ? {}
+                : { repo: draft.repo, what: draft.what ?? ["issues", "releases"] }),
+              ...(draft.url === undefined ? {} : { url: draft.url }),
+              ...(draft.words === undefined ? {} : { words: draft.words }),
+              ...(draft.command === undefined ? {} : { command: draft.command }),
+            },
+            everyMinutes: draft.everyMinutes ?? mailbox.every[draft.kind].default,
+            paused: false,
+            by: "owner",
+            createdAt: new Date().toISOString(),
+            started: draft.kind === "timer",
+            fails: 0,
+            letters: 0,
+          },
+        ],
+      }),
+    mailboxSet: (id, patch) =>
+      setMailbox({
+        ...mailbox,
+        sources: mailbox.sources.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                ...(patch.paused === undefined ? {} : { paused: patch.paused }),
+                ...(patch.name === undefined ? {} : { name: patch.name }),
+                ...(patch.note === undefined ? {} : { note: patch.note }),
+                ...(patch.everyMinutes === undefined ? {} : { everyMinutes: patch.everyMinutes }),
+              }
+            : s,
+        ),
+      }),
+    mailboxRemove: (id) =>
+      setMailbox({
+        ...mailbox,
+        sources: mailbox.sources.filter((s) => s.id !== id),
+        letters: mailbox.letters.filter((l) => l.sourceId !== id),
+      }),
+    mailboxRun: async (id) => {
+      await new Promise((r) => setTimeout(r, 700));
+      return setMailbox({
+        ...mailbox,
+        sources: mailbox.sources.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                lastRunAt: new Date().toISOString(),
+                lastError: undefined,
+                fails: 0,
+                started: true,
+              }
+            : s,
+        ),
+      });
+    },
+    mailboxTry: async (draft) => {
+      await new Promise((r) => setTimeout(r, 700));
+      if (draft.kind === "github") {
+        return [
+          { id: "issue:7012", title: "#7012 Crash on macOS 26 when resuming a session" },
+          { id: "issue:7011", title: "#7011 Support for custom MCP timeouts" },
+          { id: "release:1", title: "发布 rust-v0.72.0" },
+        ];
+      }
+      return [];
+    },
     pluginCatalog: () => delay(structuredClone(pluginCatalog)),
     plugins: () => delay(structuredClone(plugins)),
     previewPlugin: async (source) => {

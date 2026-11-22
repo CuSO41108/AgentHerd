@@ -9,6 +9,10 @@ import type {
   HerderContextParts,
   HerderFoldBy,
   HerderFoldState,
+  Letter,
+  LetterFate,
+  MailboxKind,
+  MailboxSource,
   MemoryRow,
   ModelRef,
   ModelRole,
@@ -35,6 +39,10 @@ export type {
   HerderContextParts,
   HerderFoldBy,
   HerderFoldState,
+  Letter,
+  LetterFate,
+  MailboxKind,
+  MailboxSource,
 } from "@agentherd/core";
 
 export const API_VERSION = 1;
@@ -955,6 +963,73 @@ export interface PluginPatch {
   keys?: Record<string, string>;
 }
 
+// --- 信箱 (ADR 0099) ---------------------------------------------------------------------------
+
+/** What the owner fills in for a source; the host turns it into the source's config. */
+export interface MailboxFields {
+  /** github: owner/name or the repository's address. */
+  repo?: string;
+  /** github: what to look at (default issues and releases). */
+  what?: ("issues" | "prs" | "releases")[];
+  /** rss: the feed's address. */
+  url?: string;
+  /** github and rss: keep only items with one of these words; hn: the words to search. */
+  words?: string;
+  /** hn: only stories with at least this many points. */
+  points?: number;
+  /** script: the command line and the folder it runs in. */
+  command?: string;
+  cwd?: string;
+}
+
+export interface MailboxDraft extends MailboxFields {
+  kind: MailboxKind;
+  name: string;
+  /** One sentence for the Herder: what the owner cares about here. */
+  note?: string;
+  everyMinutes?: number;
+}
+
+export interface MailboxSourcePatch {
+  name?: string;
+  note?: string;
+  everyMinutes?: number;
+  paused?: boolean;
+  /** New fields: the source starts over with a first look that only remembers what is there. */
+  fields?: MailboxFields;
+}
+
+/** A letter as the 信箱 page shows it: where it came from and what the Herder made of it. */
+export interface MailboxLetterView {
+  id: number;
+  sourceId: string;
+  /** The source's own id for it (issue:901, a feed's guid…): the same id never comes twice. */
+  letterId: string;
+  source: string;
+  kind: MailboxKind;
+  at: string;
+  title: string;
+  body: string;
+  link?: string;
+  /** Handed to the Herder; until then it waits (the Herder is busy or not running). */
+  sentAt?: string;
+  fate?: LetterFate;
+  why?: string;
+  filedAt?: string;
+  digestedAt?: string;
+}
+
+export interface MailboxView {
+  /** False while AgentHerd is not running: nothing can be added or looked at. */
+  on: boolean;
+  sources: MailboxSource[];
+  letters: MailboxLetterView[];
+  /** How often each kind is looked at: the least and the default, in minutes. */
+  every: Record<MailboxKind, { min: number; default: number }>;
+  /** The hour the morning digest goes out. */
+  digestHour: number;
+}
+
 export interface HostApi {
   status(): HostStatus;
   tasks(): TasksView;
@@ -1089,6 +1164,15 @@ export interface HostApi {
   installPlugin(source: string, keys: Record<string, string>): Promise<PluginView[]>;
   setPlugin(id: string, patch: PluginPatch): Promise<PluginView[]>;
   removePlugin(id: string): Promise<PluginView[]>;
+  /** 信箱 (ADR 0099): the sources and the newest letters with what the Herder made of them. */
+  mailbox(): MailboxView;
+  mailboxAdd(draft: MailboxDraft): Promise<MailboxView>;
+  mailboxSet(id: string, patch: MailboxSourcePatch): Promise<MailboxView>;
+  mailboxRemove(id: string): Promise<MailboxView>;
+  /** Looks at a source now and hands what came to the Herder. */
+  mailboxRun(id: string): Promise<MailboxView>;
+  /** One look without keeping anything: what the source would bring now. */
+  mailboxTry(draft: MailboxDraft): Promise<Letter[]>;
 }
 
 export type HostMethod = keyof HostApi;
@@ -1174,6 +1258,12 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "installPlugin",
   "setPlugin",
   "removePlugin",
+  "mailbox",
+  "mailboxAdd",
+  "mailboxSet",
+  "mailboxRemove",
+  "mailboxRun",
+  "mailboxTry",
 ];
 
 export type HostEvent =
@@ -1190,7 +1280,8 @@ export type HostEvent =
   | { topic: "danjuan"; data: DanjuanView }
   | { topic: "login"; data: LoginView }
   | { topic: "pet"; data: PetView }
-  | { topic: "plugins"; data: PluginView[] };
+  | { topic: "plugins"; data: PluginView[] }
+  | { topic: "mailbox"; data: MailboxView };
 
 /** The same API, asynchronous, as seen by a client. */
 export type RemoteHost = {
