@@ -1,9 +1,21 @@
-// How each kind of mailbox source is looked at (ADR 0099). Code only: a look fetches what is
-// there now and returns it as letters with ids; the mailbox keeps the ids it has seen and passes
-// only new ones on, so nothing here decides what is new and no model runs.
+// How each kind of mailbox source is looked at (ADR 0099, 0100). Code only: a look fetches what
+// is there now and returns it as letters with ids; the mailbox keeps the ids it has seen and passes
+// only new ones on, so nothing here decides what is new and no model runs. Timers are not looked
+// at; the mailbox runs them itself.
 
 import { spawn } from "node:child_process";
-import type { GhRun, Letter, MailboxCheck, MailboxSource } from "@agentherd/core";
+import {
+  type AppTools,
+  fetchMail,
+  type GhRun,
+  type IntakeKind,
+  type Letter,
+  type MailboxCheck,
+  type MailboxSource,
+  type SocialSource,
+  searchItems,
+  searchSince,
+} from "@agentherd/core";
 
 export const MAILBOX_FETCH_MS = 20_000;
 export const MAILBOX_FETCH_MAX = 2_000_000;
@@ -26,6 +38,10 @@ export interface MailboxSourcesOptions {
   fetchFn?: typeof fetch;
   script?: ScriptRun;
   env?: () => NodeJS.ProcessEnv;
+  /** The owner's connected apps (Gmail through Composio), for mail sources. */
+  apps?: () => AppTools | undefined;
+  /** The owner's 小红书/知乎 accounts, for social sources. */
+  socials?: () => readonly SocialSource[];
 }
 
 function text(value: unknown): string {
@@ -259,6 +275,84 @@ export async function hnLetters(
     });
 }
 
+// --- GitHub work for the owner (ADR 0052, 0100) ------------------------------------------------
+
+const WORK_KINDS: Record<string, IntakeKind> = { assigned: "issues", reviews: "reviews" };
+
+/** Open issues assigned to the owner and pull requests asking for their review; id is the address. */
+export async function workLetters(gh: GhRun, config: Record<string, unknown>): Promise<Letter[]> {
+  const what = (Array.isArray(config.what) ? config.what.map(String) : []).filter(
+    (w) => WORK_KINDS[w] !== undefined,
+  );
+  if (what.length === 0) throw new Error('work needs what: ["assigned"] or ["reviews"]');
+  const repo = text(config.repo).trim();
+  const label = text(config.label).trim();
+  const letters: Letter[] = [];
+  for (const w of what) {
+    const kind = WORK_KINDS[w] as IntakeKind;
+    const items = await searchItems(gh, {
+      kind,
+      ...(repo === "" ? {} : { repo }),
+      ...(label === "" ? {} : { label }),
+    });
+    for (const item of items) {
+      letters.push({
+        id: item.url,
+        title: `${kind === "issues" ? "派给你的 issue" : "等你评审的 PR"} ${item.repo} #${item.number} ${item.title}`,
+        link: item.url,
+      });
+    }
+  }
+  return letters;
+}
+
+// --- Gmail (ADR 0048, 0100) ---------------------------------------------------------------------
+
+/** New mail matching the search since the source was made; id is Gmail's. */
+export async function mailLetters(
+  apps: AppTools | undefined,
+  source: MailboxSource,
+): Promise<Letter[]> {
+  const query = text(source.config.query).trim();
+  if (query === "") throw new Error("mail needs a Gmail search as query");
+  if (apps === undefined) throw new Error("Gmail is not connected; connect it in 应用连接");
+  const found = await fetchMail(apps, searchSince(query, source.createdAt));
+  return found
+    .filter((m) => m.at === "" || m.at >= source.createdAt)
+    .map((m) => ({
+      id: m.id,
+      title: `${m.sender}：${m.subject}`,
+      body: cut(m.preview),
+      ...(/^https?:\/\//.test(m.url) ? { link: m.url } : {}),
+    }));
+}
+
+// --- 小红书 and 知乎 notices (ADR 0058, 0100) -------------------------------------------------------
+
+/**
+ * Comments, answers and @ on the owner's account; id is the platform's. A platform that is not
+ * signed in is skipped (not a look). After the first look the notices are read only when the
+ * platform says something is unread, because reading them may mark them read.
+ */
+export async function socialLetters(
+  socials: readonly SocialSource[],
+  source: MailboxSource,
+): Promise<{ letters: Letter[]; skipped?: boolean }> {
+  const platform = text(source.config.platform);
+  const account = socials.find((s) => s.platform === platform);
+  if (account === undefined || !account.ready()) return { letters: [], skipped: true };
+  if (source.started && ((await account.unread()).mentions ?? 0) === 0) return { letters: [] };
+  const notices = await account.notices("mentions");
+  return {
+    letters: notices.map((n) => ({
+      id: n.id,
+      title: `${n.who}${n.on === undefined || n.on === "" ? "" : `在「${cut(n.on, 40)}」`}：${cut(n.text, 120)}`,
+      body: cut(n.text),
+      ...(n.url === undefined ? {} : { link: n.url }),
+    })),
+  };
+}
+
 // --- A script the owner (or a task) wrote ------------------------------------------------------
 
 /** Runs a command through the shell, feeding `input` on stdin, and returns what it printed. */
@@ -353,6 +447,12 @@ export function mailboxCheck(opts: MailboxSourcesOptions): MailboxCheck {
       }
       case "hn":
         return { letters: await hnLetters(fetchFn, config) };
+      case "work":
+        return { letters: await workLetters(opts.gh, config) };
+      case "mail":
+        return { letters: await mailLetters(opts.apps?.(), source) };
+      case "social":
+        return socialLetters(opts.socials?.() ?? [], source);
       case "script": {
         const command = text(config.command).trim();
         if (command === "") throw new Error("script needs a command");

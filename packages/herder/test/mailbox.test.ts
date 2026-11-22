@@ -1,7 +1,7 @@
 // The Herder's side of the mailbox (ADR 0099): letters come as a turn of their own, quoted as
 // other people's words; each is filed; only "now" letters are told; the turn starts nothing.
 
-import type { LetterDelivery, MailboxSource, MailboxSourceInput } from "@agentherd/core";
+import type { LetterDelivery, MailboxSource } from "@agentherd/core";
 import {
   fauxAssistantMessage,
   fauxToolCall,
@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import { Herder } from "../src/herder.ts";
-import { sourceConfig } from "../src/mailbox-tools.ts";
+import { actFrom, sourceConfig } from "../src/mailbox-tools.ts";
 import { lettersLine, lettersPrompt, systemPrompt } from "../src/prompt.ts";
 import { fakeHost } from "./helpers.ts";
 
@@ -48,31 +48,12 @@ const delivery: LetterDelivery = {
 function setup() {
   const registration = registerFauxProvider();
   faux.push(registration);
-  const { host, rec } = fakeHost();
   const filed: { id: number; fate: string; why: string }[] = [];
   const sources: MailboxSource[] = [];
+  const { host, rec } = fakeHost({ mailbox: sources });
   host.fileLetters = (items) => {
     filed.push(...items);
     return items.filter((i) => i.id > 100).map((i) => i.id);
-  };
-  host.mailboxSources = () => sources;
-  host.addMailboxSource = (input: MailboxSourceInput) => {
-    const s: MailboxSource = {
-      id: `id-${sources.length + 1}`,
-      kind: input.kind,
-      name: input.name,
-      note: input.note ?? "",
-      config: input.config ?? {},
-      everyMinutes: input.everyMinutes ?? 10,
-      paused: false,
-      by: input.by ?? "owner",
-      createdAt: "2026-11-22T00:00:00.000Z",
-      started: false,
-      fails: 0,
-      letters: 0,
-    };
-    sources.push(s);
-    return s;
   };
   const herder = new Herder({
     host,
@@ -97,7 +78,11 @@ describe("letters in the Herder (ADR 0099)", () => {
     expect(lettersPrompt({ ...delivery, kind: "digest" })).toContain(
       "[Mailbox digest, not from the owner]",
     );
-    expect(systemPrompt("zh-CN")).toContain("call mailbox_add with one sentence");
+    const system = systemPrompt("zh-CN");
+    expect(system).toContain("call mailbox_add with one");
+    expect(system).toContain("add a timer: mailbox_add kind timer");
+    expect(system).toContain("call mailbox_change with trial false");
+    expect(system).not.toMatch(/mail_watch|intake_watch|social_watch|schedule_add/);
   });
 
   it("files every letter, tells the owner only the 'now' one, and starts nothing", async () => {
@@ -212,6 +197,29 @@ describe("letters in the Herder (ADR 0099)", () => {
       words: "agent memory",
       points: 50,
     });
-    expect(sourceConfig("timer")).toEqual({});
+    expect(() => sourceConfig("timer")).toThrow(/a timer needs when/);
+    expect(() => sourceConfig("work", { what: ["issues"] })).toThrow(/assigned/);
+    expect(() => sourceConfig("mail", {})).toThrow(/Gmail/);
+    expect(() => sourceConfig("social", { platform: "weibo" })).toThrow(/xiaohongshu or zhihu/);
+    expect(
+      sourceConfig("work", { what: ["reviews", "reviews"], repo: "https://github.com/acme/app" }),
+    ).toEqual({
+      what: ["reviews"],
+      repo: "acme/app",
+    });
+    expect(sourceConfig("timer", { when: { kind: "once", at: "2026-12-01 15:00" } })).toEqual({
+      when: { kind: "once", at: "2026-12-01 15:00" },
+    });
+  });
+
+  it("decides what a source does with its letters from act and trial", () => {
+    expect(actFrom("work", undefined, undefined)).toBe("offer");
+    expect(actFrom("github", undefined, undefined)).toBe("sort");
+    expect(actFrom("timer", "auto", undefined)).toBeUndefined();
+    expect(actFrom("work", "auto", undefined)).toBe("trial");
+    expect(actFrom("work", "auto", false)).toBe("auto");
+    expect(actFrom("work", undefined, false, "trial")).toBe("auto");
+    expect(actFrom("work", "auto", undefined, "auto")).toBe("auto");
+    expect(actFrom("work", undefined, undefined, "offer")).toBeUndefined();
   });
 });

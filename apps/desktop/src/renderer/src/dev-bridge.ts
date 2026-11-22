@@ -41,7 +41,6 @@ import type {
   PluginPreview,
   PluginView,
   RemoteHost,
-  SchedulesView,
   SetupState,
   SocialView,
   Tier,
@@ -54,7 +53,6 @@ import { HERD_UI_TARGET, herdUiChoices, herdUiFence } from "@agentherd/protocol/
 import type { Bridge } from "../../shared/bridge";
 import type { Theme } from "../../shared/theme";
 import {
-  hoursFromNow,
   PLACEHOLDER_QR,
   providers,
   SAMPLE_SUBSCRIPTIONS,
@@ -65,7 +63,6 @@ import {
   sampleLark,
   sampleMailbox,
   sampleMemory,
-  sampleSchedules,
   sampleServices,
   sampleSocials,
   sampleTasks,
@@ -425,7 +422,6 @@ function installFakeBridge(): void {
 
   let setup: SetupState = { phase: "idle" };
   let memory: MemoryView = sampleMemory();
-  let schedules: SchedulesView = sampleSchedules(sim === "empty" || sim === "no-agent");
   let apps: AppsView =
     sim === "ready"
       ? {
@@ -886,14 +882,30 @@ function installFakeBridge(): void {
             name: draft.name,
             note: draft.note ?? "",
             config: {
-              ...(draft.repo === undefined
-                ? {}
-                : { repo: draft.repo, what: draft.what ?? ["issues", "releases"] }),
+              ...(draft.repo === undefined ? {} : { repo: draft.repo }),
+              ...(draft.what === undefined ? {} : { what: draft.what }),
               ...(draft.url === undefined ? {} : { url: draft.url }),
               ...(draft.words === undefined ? {} : { words: draft.words }),
               ...(draft.command === undefined ? {} : { command: draft.command }),
+              ...(draft.query === undefined ? {} : { query: draft.query }),
+              ...(draft.platform === undefined ? {} : { platform: draft.platform }),
+              ...(draft.label === undefined ? {} : { label: draft.label }),
+              ...(draft.when === undefined ? {} : { when: draft.when }),
             },
-            everyMinutes: draft.everyMinutes ?? mailbox.every[draft.kind].default,
+            everyMinutes:
+              draft.kind === "timer"
+                ? 0
+                : (draft.everyMinutes ?? mailbox.every[draft.kind].default),
+            act:
+              draft.kind === "timer"
+                ? "sort"
+                : draft.act === "auto"
+                  ? "trial"
+                  : (draft.act ?? "sort"),
+            trials: 0,
+            ...(draft.kind === "timer"
+              ? { nextAt: new Date(Date.now() + 3600_000).toISOString() }
+              : {}),
             paused: false,
             by: "owner",
             createdAt: new Date().toISOString(),
@@ -914,6 +926,9 @@ function installFakeBridge(): void {
                 ...(patch.name === undefined ? {} : { name: patch.name }),
                 ...(patch.note === undefined ? {} : { note: patch.note }),
                 ...(patch.everyMinutes === undefined ? {} : { everyMinutes: patch.everyMinutes }),
+                ...(patch.act === undefined
+                  ? {}
+                  : { act: patch.act === "auto" ? ("trial" as const) : patch.act }),
               }
             : s,
         ),
@@ -943,6 +958,10 @@ function installFakeBridge(): void {
     },
     mailboxTry: async (draft) => {
       await new Promise((r) => setTimeout(r, 700));
+      if (draft.kind === "timer") {
+        const next = new Date(Date.now() + 3600_000).toISOString();
+        return [{ id: "next", title: draft.name, body: `daily; next ${next}` }];
+      }
       if (draft.kind === "github") {
         return [
           { id: "issue:7012", title: "#7012 Crash on macOS 26 when resuming a session" },
@@ -1200,22 +1219,6 @@ function installFakeBridge(): void {
         `${blockId} 原文\n\n[Owner's message]\n帮我看看别人的搜索方案\n\n主管：Codex 和 Claude Code 都只有一个 web_search……`,
       ),
     memories: () => delay(memory),
-    schedules: () => delay(schedules),
-    setSchedulePaused: (id, paused) => {
-      schedules = {
-        ...schedules,
-        schedules: schedules.schedules.map((s) => {
-          if (s.id !== id) return s;
-          const { nextAt: _, ...rest } = s;
-          return paused ? { ...rest, paused } : { ...rest, paused, nextAt: hoursFromNow(20) };
-        }),
-      };
-      return delay(schedules);
-    },
-    removeSchedule: (id) => {
-      schedules = { ...schedules, schedules: schedules.schedules.filter((s) => s.id !== id) };
-      return delay(schedules);
-    },
     editMemory: (id, text) => {
       memory = {
         ...memory,

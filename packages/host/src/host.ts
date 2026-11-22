@@ -35,6 +35,7 @@ import {
   UnknownTokenError,
 } from "@agentherd/core";
 import {
+  actFrom,
   activityTurns,
   agentForModel,
   builtinProviders,
@@ -86,7 +87,9 @@ import type {
   LoginView,
   MailboxDraft,
   MailboxLetterView,
+  MailboxSource,
   MailboxSourcePatch,
+  MailboxSourceView,
   MailboxView,
   MemoryView,
   ModelProbe,
@@ -105,7 +108,6 @@ import type {
   ProbeTarget,
   ProfileFieldName,
   ProviderView,
-  SchedulesView,
   SettingsPatch,
   SetupState,
   SocialKind,
@@ -307,7 +309,7 @@ export class Host implements HostApi {
       home: opts.home,
       changed: () => this.socialsChanged(),
       log: (line) => this.log(line),
-      watch: (platform) => this.herd?.socials?.watch(platform),
+      watch: (platform) => this.socialWatch(platform),
     });
     this.larkCli = new Lark({
       changed: () => this.emit({ topic: "lark", data: this.larkCli.current() }),
@@ -464,10 +466,47 @@ export class Host implements HostApi {
   }
 
   private socialsChanged(): void {
-    // A platform that just signed in starts being looked at.
-    this.herd?.socials?.schedule();
+    // A platform that just signed in is looked at now, not at its next turn (ADR 0100).
+    const box = this.herd?.mailbox;
+    for (const s of box?.list() ?? []) {
+      if (s.kind === "social" && !s.paused && !s.started) {
+        void box?.runNow(s.id).catch(() => {});
+      }
+    }
     this.emit({ topic: "socials", data: this.socials() });
-    this.emit({ topic: "watches", data: this.watches() });
+  }
+
+  /** What reaches the Herder from a platform: mentions while its social source looks (ADR 0100). */
+  private socialWatch(platform: SocialPlatform): Record<SocialKind, boolean> | undefined {
+    const box = this.herd?.mailbox;
+    if (box === undefined) return undefined;
+    const on = box.list().some((s) => this.isSocialSource(s, platform) && !s.paused);
+    return { mentions: on, likes: false, follows: false };
+  }
+
+  private isSocialSource(s: MailboxSource, platform: SocialPlatform): boolean {
+    return s.kind === "social" && s.config.platform === platform;
+  }
+
+  /** Turns a platform's comments and @ on or off: its social source in the mailbox (ADR 0100). */
+  private setSocialMentions(platform: SocialPlatform, on: boolean, addMissing: boolean): void {
+    const box = this.herd?.mailbox;
+    if (box === undefined) return;
+    const found = box.list().filter((s) => this.isSocialSource(s, platform));
+    if (found.length === 0) {
+      if (!on || !addMissing) return;
+      const name = this.socialList.views().find((v) => v.platform === platform)?.name ?? platform;
+      box.add({
+        kind: "social",
+        name: `${name}的评论和@`,
+        note: "有人评论或 @ 我就告诉我",
+        config: { platform },
+        by: "owner",
+      });
+    } else {
+      for (const s of found) if (s.paused === on) box.set(s.id, { paused: !on });
+    }
+    this.emit({ topic: "mailbox", data: this.mailbox() });
   }
 
   // ---- Plugins (ADR 0094) ----
@@ -501,13 +540,17 @@ export class Host implements HostApi {
   }
 
   async mailboxAdd(draft: MailboxDraft): Promise<MailboxView> {
+    const act = actFrom(draft.kind, draft.act, undefined);
     this.needMailbox().add({
       kind: draft.kind,
       name: draft.name,
       note: draft.note ?? "",
       config: sourceConfig(draft.kind, draft),
       by: "owner",
-      ...(draft.everyMinutes === undefined ? {} : { everyMinutes: draft.everyMinutes }),
+      ...(draft.everyMinutes === undefined || draft.kind === "timer"
+        ? {}
+        : { everyMinutes: draft.everyMinutes }),
+      ...(act === undefined ? {} : { act }),
     });
     return this.mailbox();
   }
@@ -516,12 +559,17 @@ export class Host implements HostApi {
     const box = this.needMailbox();
     const source = box.list().find((s) => s.id === id);
     if (source === undefined) throw new Error(`no source ${id}`);
+    const act =
+      patch.act === undefined && patch.trial === undefined
+        ? undefined
+        : actFrom(source.kind, patch.act, patch.trial, source.act);
     box.set(id, {
       ...(patch.name === undefined ? {} : { name: patch.name }),
       ...(patch.note === undefined ? {} : { note: patch.note }),
       ...(patch.everyMinutes === undefined ? {} : { everyMinutes: patch.everyMinutes }),
       ...(patch.paused === undefined ? {} : { paused: patch.paused }),
       ...(patch.fields === undefined ? {} : { config: sourceConfig(source.kind, patch.fields) }),
+      ...(act === undefined ? {} : { act }),
     });
     return this.mailbox();
   }
@@ -557,6 +605,8 @@ export class Host implements HostApi {
 
   async enableSocial(platform: SocialPlatform, accepted: boolean): Promise<SocialView[]> {
     await this.socialList.enable(platform, accepted);
+    // Comments and @ are told by default (ADR 0058), now as a mailbox source (ADR 0100).
+    this.setSocialMentions(platform, true, true);
     return this.socials();
   }
 
@@ -580,23 +630,24 @@ export class Host implements HostApi {
   }
 
   setSocialWatch(platform: SocialPlatform, kind: SocialKind, on: boolean): SocialView[] {
-    const socials = this.herd?.socials;
-    if (socials === undefined) throw new Error("AgentHerd is not running; connect Feishu first");
-    socials.setWatch(platform, kind, on);
+    if (this.herd?.mailbox === undefined) {
+      throw new Error("AgentHerd is not running; connect Feishu first");
+    }
+    if (kind !== "mentions") throw new Error("only comments and @ are told");
+    this.setSocialMentions(platform, on, true);
     return this.socials();
   }
 
   watches(): WatchView[] {
     const herd = this.herd;
     if (herd === undefined) return [];
-    return watchViews(herd, this.socialList.views());
+    return watchViews(herd);
   }
 
   setWatchPaused(id: string, paused: boolean): WatchView[] {
     const herd = this.herd;
     if (herd === undefined) throw new Error("AgentHerd is not running; connect Feishu first");
     pauseWatch(herd, id, paused);
-    this.emit({ topic: "socials", data: this.socials() });
     return this.watches();
   }
 
@@ -768,7 +819,6 @@ export class Host implements HostApi {
         holdings: (query) => this.danjuanCli.holdings(query),
       },
       toolNotes: () => this.toolNotes(),
-      watchesChanged: () => this.socialsChanged(),
       herderTurnAdded: () => {
         // Anything said makes the last guess stale (ADR 0084).
         this.petSuggestion = undefined;
@@ -789,6 +839,8 @@ export class Host implements HostApi {
           gh: this.opts.gh ?? runGh(withSystemProxy()),
           home: this.opts.userHome ?? homedir(),
           env: () => this.toolEnv(),
+          apps: () => this.appList.appTools(),
+          socials: () => this.socialList.sources(),
           ...(this.opts.fetch === undefined ? {} : { fetchFn: this.opts.fetch }),
           ...(this.opts.mailboxScript === undefined ? {} : { script: this.opts.mailboxScript }),
         }),
@@ -1231,28 +1283,6 @@ export class Host implements HostApi {
     memory.setStatus(id, "active");
     memory.log("owner.restored", memory.get(id)?.abstract ?? "", id);
     return this.memories();
-  }
-
-  schedules(): SchedulesView {
-    const herd = this.herd;
-    if (herd === undefined) return { schedules: [], ready: false };
-    return { schedules: herd.schedules.list(), ready: true };
-  }
-
-  setSchedulePaused(id: string, paused: boolean): SchedulesView {
-    this.ownSchedules().change(id, { paused });
-    return this.schedules();
-  }
-
-  removeSchedule(id: string): SchedulesView {
-    if (!this.ownSchedules().remove(id)) throw new Error("no such schedule");
-    return this.schedules();
-  }
-
-  private ownSchedules() {
-    const herd = this.herd;
-    if (herd === undefined) throw new Error("AgentHerd is not running; connect Feishu first");
-    return herd.schedules;
   }
 
   ownerProfile(): OwnerProfile {
@@ -1811,7 +1841,10 @@ export function mailboxView(box: Mailbox | undefined): MailboxView {
   ) as Record<MailboxKind, { min: number; default: number }>;
   if (box === undefined)
     return { on: false, sources: [], letters: [], every, digestHour: DIGEST_HOUR };
-  const sources = box.list();
+  const sources: MailboxSourceView[] = box.list().map((s) => {
+    const nextAt = s.kind === "timer" ? box.nextAt(s) : undefined;
+    return nextAt === undefined ? s : { ...s, nextAt };
+  });
   const byId = new Map(sources.map((s) => [s.id, s]));
   const letters: MailboxLetterView[] = [];
   for (const l of box.letters(MAILBOX_LETTERS_SHOWN)) {

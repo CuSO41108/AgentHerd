@@ -66,7 +66,7 @@ rules), rakazo (revisions, "data, not instructions" header).
 | `experience` 经验 | Situation / approach / reflection: a lesson | Lesson job, only for tasks with a signal (below); upserted; global only when seen in ≥2 projects | Recall |
 
 Not memory: what happened (→ `memory_log`), task transcripts (already in `transcript`), todos
-(→ schedules), project folders as facts (a folder in `project` is only a clue; `project_find`
+(→ timers in the 信箱, ADR 0100), project folders as facts (a folder in `project` is only a clue; `project_find`
 checks it again and the owner still picks).
 
 ### Tables (schema v4)
@@ -196,7 +196,7 @@ already saved, nothing extra is written: the turns come from `herder_messages` (
 ADR 0045, ADR 0095), and errors, retries, model switches, guard hits and folds from the `herder.*` rows of
 `audit` (not `herder.turn`, `herder.tool` and `herder.answer`, which the turns already show).
 
-- A turn is one line: the time, what started it (你说 / 你选了 / 任务结果 / 定时任务 / 新活 /
+- A turn is one line: the time, what started it (你说 / 你选了 / 任务结果 / 定时 / 新活 / 信箱 /
   收到通知), the words, and badges for steps, failed steps, 「重启前的」 and 「没说话」.
 - Opened, it shows the question the owner answered, the notices that came with it, each tool
   call by a Chinese name with its key argument (opened: the arguments and the result, which is

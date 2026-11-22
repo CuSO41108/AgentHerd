@@ -18,7 +18,7 @@ import { type HerdContext, openTasks, say, steerable, type TaskOps } from "./her
 import type { OwnerImage } from "./herder-port.ts";
 import { HERDER_RETRY_TARGET } from "./herder-port.ts";
 import { DEFAULT_TIMEOUT_MINUTES } from "./inbox.ts";
-import { INTAKE_TARGET } from "./intake.ts";
+import { MAILBOX_TARGET } from "./mailbox.ts";
 import { forgetMemory, memoryListText, restoreMemory } from "./memory-commands.ts";
 import type { Relay } from "./relay.ts";
 import { WORKSPACE_TARGET } from "./task-runner.ts";
@@ -70,8 +70,8 @@ export class OwnerCommands {
         if (inbound.target.startsWith(HERD_UI_TARGET)) {
           return await this.onChoice(inbound.target, inbound.action);
         }
-        if (inbound.target.startsWith(INTAKE_TARGET)) {
-          return await ctx.intake()?.answer(inbound.target, inbound.action);
+        if (inbound.target.startsWith(MAILBOX_TARGET)) {
+          return await ctx.mailbox()?.answer(inbound.target, inbound.action);
         }
         if (inbound.target.startsWith(WAIT_TARGET)) {
           return await ctx.waits().answer(inbound.target, inbound.action);

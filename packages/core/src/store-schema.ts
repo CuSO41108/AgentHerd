@@ -274,7 +274,23 @@ CREATE TABLE IF NOT EXISTS mailbox_letters(
 );
 CREATE INDEX IF NOT EXISTS mailbox_letters_at ON mailbox_letters(at);`;
 
-export const LATEST_SCHEMA_VERSION = 18;
+/**
+ * Every watch and schedule is a mailbox source (ADR 0100): what a source does with a new letter
+ * (`act`), its trial run so far, and the offer card a letter got with the owner's answer.
+ */
+/** Columns ADR 0100 adds: [table, column, definition]. */
+export const MAILBOX_V19_COLUMNS: readonly [string, string, string][] = [
+  ["mailbox_sources", "act", "TEXT NOT NULL DEFAULT 'sort'"],
+  ["mailbox_sources", "trials", "INTEGER NOT NULL DEFAULT 0"],
+  ["mailbox_letters", "ref_json", "TEXT"],
+  ["mailbox_letters", "answer", "TEXT"],
+];
+
+export const MAILBOX_V19_SQL = MAILBOX_V19_COLUMNS.map(
+  ([table, column, def]) => `ALTER TABLE ${table} ADD COLUMN ${column} ${def};`,
+).join("\n");
+
+export const LATEST_SCHEMA_VERSION = 19;
 
 export const SCHEMA_SQL = `
 CREATE TABLE sessions(
@@ -335,11 +351,9 @@ ${TASK_WORKSPACE_SQL}
 ${MESSAGE_TASKS_TABLE_SQL}
 ${OUTBOX_TABLE_SQL}
 ${PR_WATCHES_TABLE_SQL}
-${MAIL_WATCHES_TABLE_SQL}
-${INTAKE_WATCHES_TABLE_SQL}
-${SCHEDULES_TABLE_SQL}
 ${TASK_ALLOWED_STEPS_SQL}
 ${OWNER_CARDS_TABLE_SQL}
 ${HERDER_TABLES_SQL}
 ${MAILBOX_TABLES_SQL}
+${MAILBOX_V19_SQL}
 `;

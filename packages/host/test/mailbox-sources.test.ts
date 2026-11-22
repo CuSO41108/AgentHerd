@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeChannel } from "@agentherd/channel-fake";
-import type { Herd, SecretStore } from "@agentherd/core";
+import type { AppTools, Herd, MailboxSource, SecretStore, SocialSource } from "@agentherd/core";
 import { afterEach, describe, expect, it } from "vitest";
 import type { HostEvent } from "../src/api.ts";
 import { writeConfig } from "../src/config.ts";
@@ -14,9 +14,12 @@ import {
   githubLetters,
   hnLetters,
   mailboxCheck,
+  mailLetters,
   runScript,
   scriptAnswer,
+  socialLetters,
   withWords,
+  workLetters,
 } from "../src/mailbox-sources.ts";
 
 const issues = [
@@ -157,6 +160,8 @@ describe("looking at mailbox sources (ADR 0099)", () => {
       started: true,
       fails: 0,
       letters: 0,
+      act: "sort" as const,
+      trials: 0,
     };
     expect(await check(source, 4)).toEqual({ letters: [{ id: "n5", title: "第 5 封" }], state: 5 });
     await expect(
@@ -167,6 +172,151 @@ describe("looking at mailbox sources (ADR 0099)", () => {
       letters: [{ id: "a", title: "A" }],
     });
     expect(() => scriptAnswer("hello")).toThrow("the script printed no JSON: hello");
+  });
+});
+
+function sourceOf(kind: MailboxSource["kind"], config: Record<string, unknown>): MailboxSource {
+  return {
+    id: "s1",
+    kind,
+    name: kind,
+    note: "",
+    config,
+    everyMinutes: 5,
+    paused: false,
+    by: "owner",
+    createdAt: "2026-11-20T00:00:00.000Z",
+    started: true,
+    fails: 0,
+    letters: 0,
+    act: "sort",
+    trials: 0,
+  };
+}
+
+describe("watches that moved into the mailbox (ADR 0100)", () => {
+  it("GitHub work: issues assigned to the owner and reviews asked of them, one letter per address", async () => {
+    const calls: string[][] = [];
+    const gh = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      const issues = args[1] === "issues";
+      return JSON.stringify([
+        {
+          number: issues ? 7 : 8,
+          title: issues ? "Fix login" : "Add tests",
+          url: `https://github.com/openai/codex/${issues ? "issues/7" : "pull/8"}`,
+          repository: { nameWithOwner: "openai/codex" },
+        },
+      ]);
+    };
+    const letters = await workLetters(gh, {
+      what: ["assigned", "reviews"],
+      repo: "openai/codex",
+      label: "bug",
+    });
+    expect(letters).toEqual([
+      {
+        id: "https://github.com/openai/codex/issues/7",
+        title: "派给你的 issue openai/codex #7 Fix login",
+        link: "https://github.com/openai/codex/issues/7",
+      },
+      {
+        id: "https://github.com/openai/codex/pull/8",
+        title: "等你评审的 PR openai/codex #8 Add tests",
+        link: "https://github.com/openai/codex/pull/8",
+      },
+    ]);
+    expect(calls[0]).toEqual(expect.arrayContaining(["--assignee=@me", "--repo", "openai/codex"]));
+    expect(calls[1]).toEqual(expect.arrayContaining(["--review-requested=@me"]));
+    await expect(workLetters(gh, { what: [] })).rejects.toThrow("work needs what");
+  });
+
+  it("mail: a Gmail search since the source was made; a missing Gmail is said plainly", async () => {
+    const asked: unknown[] = [];
+    const apps = {
+      list: async () => [],
+      describe: async () => new Map(),
+      call: async (_name: string, args: unknown) => {
+        asked.push(args);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                successful: true,
+                data: {
+                  results: [
+                    {
+                      response: {
+                        successful: true,
+                        data: {
+                          messages: [
+                            {
+                              messageId: "m2",
+                              sender: "Li Wei <li@uni.edu>",
+                              subject: "组会改到周五",
+                              messageTimestamp: "2026-11-21T08:00:00Z",
+                              preview: { body: "大家好，组会改到周五下午。" },
+                            },
+                            {
+                              messageId: "m1",
+                              sender: "li@uni.edu",
+                              subject: "old",
+                              messageTimestamp: "2026-11-19T08:00:00Z",
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                },
+              }),
+            },
+          ],
+        };
+      },
+    } satisfies AppTools;
+    const source = sourceOf("mail", { query: "from:li@uni.edu" });
+    expect(await mailLetters(apps, source)).toEqual([
+      {
+        id: "m2",
+        title: "Li Wei：组会改到周五",
+        body: "大家好，组会改到周五下午。",
+        link: "https://mail.google.com/mail/u/0/#all/m2",
+      },
+    ]);
+    expect(JSON.stringify(asked[0])).toContain(
+      `(from:li@uni.edu) after:${Date.parse("2026-11-20T00:00:00.000Z") / 1000}`,
+    );
+    await expect(mailLetters(undefined, source)).rejects.toThrow("Gmail is not connected");
+  });
+
+  it("小红书: skipped while signed out; after the first look only read when something is unread", async () => {
+    let ready = false;
+    let unread = 0;
+    let reads = 0;
+    const account: SocialSource = {
+      platform: "xiaohongshu",
+      name: "小红书",
+      ready: () => ready,
+      unread: async () => ({ mentions: unread }),
+      notices: async () => {
+        reads += 1;
+        return [{ id: "n1", kind: "mentions", who: "小王", text: "写得好", on: "冬训营招募" }];
+      },
+    };
+    const fresh = { ...sourceOf("social", { platform: "xiaohongshu" }), started: false };
+    expect(await socialLetters([account], fresh)).toEqual({ letters: [], skipped: true });
+    ready = true;
+    expect((await socialLetters([account], fresh)).letters).toEqual([
+      { id: "n1", title: "小王在「冬训营招募」：写得好", body: "写得好" },
+    ]);
+    const looked = { ...fresh, started: true };
+    expect(await socialLetters([account], looked)).toEqual({ letters: [] });
+    expect(reads).toBe(1);
+    unread = 1;
+    expect((await socialLetters([account], looked)).letters).toHaveLength(1);
+    expect(reads).toBe(2);
   });
 });
 

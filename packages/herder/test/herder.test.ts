@@ -692,7 +692,7 @@ describe("Herder schedules (ADR 0055)", () => {
   };
 
   it("a due schedule comes back as the owner's words and the reply is said", async () => {
-    const { herder, rec, faux } = setup({ schedules: [] });
+    const { herder, rec, faux } = setup({ mailbox: [] });
     const prompts: string[] = [];
     faux.setResponses([
       (context) => {
@@ -709,10 +709,17 @@ describe("Herder schedules (ADR 0055)", () => {
 
   it("[quiet] says nothing, and a schedule cannot make another", async () => {
     const schedules: never[] = [];
-    const { herder, rec, faux } = setup({ schedules });
+    const { herder, rec, faux } = setup({ mailbox: schedules });
     faux.setResponses([
       fauxAssistantMessage(
-        [fauxToolCall("schedule_add", { about: "x", prompt: "y", kind: "every", hours: 1 })],
+        [
+          fauxToolCall("mailbox_add", {
+            kind: "timer",
+            name: "x",
+            note: "y",
+            config: { when: { kind: "every", hours: 1 } },
+          }),
+        ],
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage(QUIET),

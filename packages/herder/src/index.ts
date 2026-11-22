@@ -61,7 +61,7 @@ export {
   type LookupOptions,
   lookupTools,
 } from "./lookup.ts";
-export { mailboxTools, sourceConfig, sourceLine } from "./mailbox-tools.ts";
+export { actFrom, mailboxTools, sourceConfig, sourceLine, whenFrom } from "./mailbox-tools.ts";
 export {
   HERDER_KINDS,
   LESSONS_MAX,

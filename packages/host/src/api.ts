@@ -18,7 +18,7 @@ import type {
   ModelRole,
   ModelService,
   ModelSettings,
-  Schedule,
+  ScheduleWhen,
   Task,
   TranscriptEntry,
 } from "@agentherd/core";
@@ -41,8 +41,10 @@ export type {
   HerderFoldState,
   Letter,
   LetterFate,
+  MailboxAct,
   MailboxKind,
   MailboxSource,
+  ScheduleWhen,
 } from "@agentherd/core";
 
 export const API_VERSION = 1;
@@ -807,13 +809,6 @@ export interface AppsView {
   apps: AppView[];
 }
 
-/** What the Herder does at set times, for the 定时任务 page (ADR 0055). */
-export interface SchedulesView {
-  schedules: Schedule[];
-  /** False while AgentHerd is not following tasks (no herd): nothing to show or change. */
-  ready: boolean;
-}
-
 /** Chinese platforms AgentHerd can use with the owner's own account (ADR 0058). */
 export type SocialPlatform = "xiaohongshu" | "zhihu";
 
@@ -850,7 +845,7 @@ export interface SocialView {
   account?: string;
   /** Something the owner should know, in Chinese. */
   problem?: string;
-  /** What the watch tells the owner about (ADR 0058 defaults: mentions on, the rest off). */
+  /** What reaches the Herder: mentions while a social source in the mailbox looks (ADR 0100). */
   watch: Record<SocialKind, boolean>;
   /** The last look for new notices (ISO). */
   checkedAt?: string;
@@ -864,17 +859,16 @@ export interface SocialLoginCode {
   signedIn: boolean;
 }
 
-/** One thing AgentHerd watches, for the 应用连接 page (ADR 0058). */
+/** A pull request a task opened that AgentHerd keeps an eye on (ADR 0058); the rest is in the mailbox. */
 export interface WatchView {
-  /** `pr:<repo>#<n>`, `mail:<id>`, `intake:<id>`, `social:<platform>:<kind>`. */
+  /** `pr:<repo>#<n>`. */
   id: string;
-  kind: "pr" | "mail" | "intake" | "social";
+  kind: "pr";
   /** What it watches, in the owner's words where there are some. */
   title: string;
   /** One line: how, how often. */
   detail: string;
   paused: boolean;
-  /** Social watches are switched, not removed. */
   removable: boolean;
   createdAt?: string;
   /** Last news from it (ISO). */
@@ -963,14 +957,14 @@ export interface PluginPatch {
   keys?: Record<string, string>;
 }
 
-// --- 信箱 (ADR 0099) ---------------------------------------------------------------------------
+// --- 信箱 (ADR 0099, 0100) ---------------------------------------------------------------------
 
 /** What the owner fills in for a source; the host turns it into the source's config. */
 export interface MailboxFields {
-  /** github: owner/name or the repository's address. */
+  /** github and work: owner/name or the repository's address. */
   repo?: string;
-  /** github: what to look at (default issues and releases). */
-  what?: ("issues" | "prs" | "releases")[];
+  /** github: what to look at (default issues and releases); work: assigned and/or reviews. */
+  what?: ("issues" | "prs" | "releases" | "assigned" | "reviews")[];
   /** rss: the feed's address. */
   url?: string;
   /** github and rss: keep only items with one of these words; hn: the words to search. */
@@ -980,14 +974,26 @@ export interface MailboxFields {
   /** script: the command line and the folder it runs in. */
   command?: string;
   cwd?: string;
+  /** work: only items with this label. */
+  label?: string;
+  /** mail: a Gmail search. */
+  query?: string;
+  /** social: whose notices. */
+  platform?: SocialPlatform;
+  /** timer: when it runs. */
+  when?: ScheduleWhen;
 }
+
+/** What a source does with a new letter: the Herder sorts it, it is offered, or work starts. */
+export type MailboxActChoice = "sort" | "offer" | "auto";
 
 export interface MailboxDraft extends MailboxFields {
   kind: MailboxKind;
   name: string;
-  /** One sentence for the Herder: what the owner cares about here. */
+  /** One sentence for the Herder: what the owner cares about here. A timer's job. */
   note?: string;
   everyMinutes?: number;
+  act?: MailboxActChoice;
 }
 
 export interface MailboxSourcePatch {
@@ -995,6 +1001,9 @@ export interface MailboxSourcePatch {
   note?: string;
   everyMinutes?: number;
   paused?: boolean;
+  act?: MailboxActChoice;
+  /** false ends an automatic source's trial run. */
+  trial?: boolean;
   /** New fields: the source starts over with a first look that only remembers what is there. */
   fields?: MailboxFields;
 }
@@ -1019,10 +1028,13 @@ export interface MailboxLetterView {
   digestedAt?: string;
 }
 
+/** A source as the 信箱 page shows it; a timer also says when it runs next. */
+export type MailboxSourceView = MailboxSource & { nextAt?: string };
+
 export interface MailboxView {
   /** False while AgentHerd is not running: nothing can be added or looked at. */
   on: boolean;
-  sources: MailboxSource[];
+  sources: MailboxSourceView[];
   letters: MailboxLetterView[];
   /** How often each kind is looked at: the least and the default, in minutes. */
   every: Record<MailboxKind, { min: number; default: number }>;
@@ -1059,10 +1071,6 @@ export interface HostApi {
    * first-run guide), the value waits in config.json and is written when it starts.
    */
   setProfile(field: ProfileFieldName, value: string): OwnerProfile;
-  /** Schedules are made in chat; the app shows them and can pause or remove one. */
-  schedules(): SchedulesView;
-  setSchedulePaused(id: string, paused: boolean): SchedulesView;
-  removeSchedule(id: string): SchedulesView;
   providers(): ProviderView[];
   models(): ModelsView;
   /** Adds or replaces a service. `key`: undefined keeps the saved key, "" removes it. */
@@ -1191,9 +1199,6 @@ export const HOST_METHODS: readonly HostMethod[] = [
   "setProfile",
   "forgetMemory",
   "restoreMemory",
-  "schedules",
-  "setSchedulePaused",
-  "removeSchedule",
   "providers",
   "models",
   "putService",

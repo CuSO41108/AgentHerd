@@ -1,8 +1,10 @@
-// The 信箱 page's words and filters (ADR 0099).
+// The 信箱 page's words and filters (ADR 0099, 0100).
 
 import { describe, expect, it } from "vitest";
 import { sampleMailbox } from "../src/renderer/src/dev-fixtures.ts";
 import {
+  actChoice,
+  actText,
   draftProblem,
   everyText,
   fateCounts,
@@ -12,6 +14,7 @@ import {
   sourceState,
   suggestedName,
   whatText,
+  whenProblem,
   whenText,
 } from "../src/renderer/src/mailbox.ts";
 
@@ -50,6 +53,8 @@ describe("the 信箱 page (ADR 0099)", () => {
   it("shows what became of each letter and filters by it", () => {
     const fates = view.letters.map((l) => fateOf(l).label);
     expect(fates).toEqual([
+      "告诉你了",
+      "告诉你了",
       "等主管看",
       "留到汇总",
       "告诉你了",
@@ -58,11 +63,11 @@ describe("the 信箱 page (ADR 0099)", () => {
       "记下了",
       "记下了",
     ]);
-    expect(fateCounts(view.letters)).toEqual({ all: 7, now: 1, digest: 3, noted: 2, waiting: 1 });
+    expect(fateCounts(view.letters)).toEqual({ all: 9, now: 3, digest: 3, noted: 2, waiting: 1 });
     expect(filterLetters(view.letters, "noted").map((l) => l.id)).toEqual([4, 3]);
     expect(filterLetters(view.letters, "all", "m-simon").map((l) => l.id)).toEqual([5, 3]);
     expect(filterLetters(view.letters, "waiting").map((l) => l.id)).toEqual([9]);
-    const sent = view.letters[0];
+    const sent = view.letters[2];
     if (sent === undefined) throw new Error("no letter");
     expect(fateOf({ ...sent, sentAt: "2026-11-22T00:00:00Z" }).label).toBe("主管在看");
   });
@@ -79,7 +84,14 @@ describe("the 信箱 page (ADR 0099)", () => {
     expect(draftProblem({ kind: "rss", name: "x", url: "feed" }, view)).toMatch(/地址/);
     expect(draftProblem({ kind: "hn", name: "x" }, view)).toBe("填要搜的词");
     expect(draftProblem({ kind: "script", name: "x" }, view)).toBe("填要运行的命令");
-    expect(draftProblem({ kind: "timer", name: "x" }, view)).toBe("写下到点要主管做什么");
+    expect(draftProblem({ kind: "timer", name: "x" }, view)).toBe("选好什么时候");
+    expect(
+      draftProblem({ kind: "timer", name: "x", when: { kind: "daily", at: "09:00" } }, view),
+    ).toBe("写下到点要主管做什么");
+    expect(draftProblem({ kind: "work", name: "x", what: [] }, view)).toMatch(/派给你的 issue/);
+    expect(draftProblem({ kind: "mail", name: "x" }, view)).toMatch(/Gmail 的搜索条件/);
+    expect(draftProblem({ kind: "social", name: "x" }, view)).toBe("选一个平台");
+    expect(draftProblem({ kind: "work", name: "x", what: ["assigned"] }, view)).toBe(undefined);
     expect(draftProblem({ kind: "github", name: "x", repo: "a/b", everyMinutes: 2 }, view)).toBe(
       "GitHub 仓库最快每 5 分钟看一次",
     );
@@ -90,6 +102,50 @@ describe("the 信箱 page (ADR 0099)", () => {
       "example.com",
     );
     expect(suggestedName({ kind: "hn", name: "", words: " agent " })).toBe("HN：agent");
+    expect(suggestedName({ kind: "work", name: "", what: ["reviews"] })).toBe("等我评审的 PR");
+    expect(suggestedName({ kind: "work", name: "", what: ["assigned", "reviews"] })).toBe(
+      "派给我的活",
+    );
+    expect(suggestedName({ kind: "social", name: "", platform: "xiaohongshu" })).toBe(
+      "小红书的评论和@",
+    );
+  });
+
+  it("shows GitHub work, mail, 小红书 and timers in the same list (ADR 0100)", () => {
+    const work = view.sources.find((s) => s.kind === "work");
+    const timer = view.sources.find((s) => s.kind === "timer");
+    const social = view.sources.find((s) => s.kind === "social");
+    if (work === undefined || timer === undefined || social === undefined) {
+      throw new Error("sample sources missing");
+    }
+    expect(whatText(work)).toBe("vastsa/PI-Desktop 里派给你的 issue");
+    expect(whatText(timer)).toBe("工作日 09:00");
+    expect(whatText(social)).toBe("小红书的新评论和 @");
+    expect(whatText({ ...work, kind: "mail", config: { query: "from:li@uni.edu" } })).toBe(
+      "Gmail 搜「from:li@uni.edu」",
+    );
+    expect(sourceLine(timer, new Date(timer.lastRunAt ?? ""))).toMatch(
+      /^下次：\d+月\d+日 \d\d:\d\d · 上次 今天 \d\d:\d\d · 主管加的$/,
+    );
+    expect(sourceLine({ ...timer, paused: true, nextAt: undefined })).toMatch(/^已暂停/);
+    expect(actText(work)).toBe("每封都问你");
+    expect(actText({ act: "trial", trials: 0 })).toBe("试跑中");
+    expect(actText({ act: "trial", trials: 2 })).toBe("试跑中 · 已经 2 件");
+    expect(actText({ act: "auto", trials: 3 })).toBe("直接开任务");
+    expect(actText(timer)).toBe(undefined);
+    expect(actChoice("trial")).toBe("auto");
+    expect(actChoice("offer")).toBe("offer");
+  });
+
+  it("checks a timer's time before it can be added", () => {
+    expect(whenProblem(undefined)).toBe("选好什么时候");
+    expect(whenProblem({ kind: "every", hours: 0 })).toBe("每隔 1 到 168 小时");
+    expect(whenProblem({ kind: "every", hours: 3 })).toBe(undefined);
+    expect(whenProblem({ kind: "daily", at: "9:00" })).toBe("时间写成 09:00 这样");
+    expect(whenProblem({ kind: "daily", at: "09:00", days: [] })).toBe("至少选一天");
+    expect(whenProblem({ kind: "daily", at: "09:00", days: [1, 2] })).toBe(undefined);
+    expect(whenProblem({ kind: "once", at: "2026-11-23" })).toMatch(/2026-11-23 09:00/);
+    expect(whenProblem({ kind: "once", at: "2026-11-23 09:00" })).toBe(undefined);
   });
 
   it("writes times the way people say them", () => {
