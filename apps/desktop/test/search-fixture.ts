@@ -35,9 +35,13 @@ export function runSearchFixture(
       timer = setTimeout(() => {
         child.unref();
         reject(
-          new SearchFixtureStillRunning(`Could not confirm fixture ${child.pid} has exited`, {
-            cause: failure,
-          }),
+          new SearchFixtureStillRunning(
+            `Could not confirm fixture ${child.pid} has exited after ${KILL_GRACE_MS} ms ` +
+              `(result received: ${result !== undefined}; kill sent: ${sentKill}; ` +
+              `exit code: ${child.exitCode}; signal: ${child.signalCode}; ` +
+              `stdout closed: ${child.stdout?.closed}; stderr closed: ${child.stderr?.closed})`,
+            { cause: failure },
+          ),
         );
       }, KILL_GRACE_MS);
       // We already have a complete result or a failure. Don't wait on pipes held by helpers.
