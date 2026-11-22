@@ -74,7 +74,7 @@ English · [简体中文](README.zh-CN.md)
   tuck at a screen edge or float on top only when she has something for you.
 - **Local only.** No AgentHerd server. Keys and sign-ins stay in `~/.agentherd/secrets.json`
   (`%USERPROFILE%\.agentherd\secrets.json` on Windows). On Windows, access depends on the data
-  directory's permissions. Keep it in a private folder. Turn on 防止休眠 to ask the system to
+  directory's permissions. Turn on 防止休眠 to ask the system to
   prevent idle sleep while AgentHerd is open.
 
 ## How it works
@@ -97,10 +97,10 @@ pnpm --filter @agentherd/desktop start
 
 The first run walks you through it: say what the Herder should call you and pick its figure
 (both can be skipped), scan a QR code to connect Feishu, add a model service and its key (or
-sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. Pi and Codex
-come with the app; on the **Agent** page, press 验证 to check that one starts. In development,
-run `pnpm --filter @agentherd/desktop fetch-agents` once to put them where the dev app looks
-(`pnpm --filter @agentherd/desktop dev` runs with live reload). Then send the Herder a message
+sign in with a ChatGPT, Claude, Copilot or other plan), pick the Herder's model. The packaged app includes Pi and Codex.
+When running from source, download them once with `pnpm --filter @agentherd/desktop fetch-agents`
+before using either one. On the **Agent** page, press 验证 to check that it starts.
+For UI development, `pnpm --filter @agentherd/desktop dev` enables live reload. Then send the Herder a message
 in Feishu.
 
 - **Windows:** run the same commands in PowerShell. Closing the window keeps AgentHerd connected
