@@ -8,6 +8,7 @@ import type {
   HerderEvent,
   HerderHost,
   HerderPort,
+  LetterDelivery,
   OwnerImage,
   Schedule,
   VoiceRequest,
@@ -37,6 +38,8 @@ import {
   accountsPrompt,
   eventsPrompt,
   intakePrompt,
+  lettersLine,
+  lettersPrompt,
   nowLine,
   ownerAnswerPrompt,
   ownerMessagePrompt,
@@ -93,6 +96,7 @@ type Job = (
   | { kind: "answer"; question: string; answer: string; ownerText?: string }
   | { kind: "intake"; text: string; auto: boolean; trial?: boolean }
   | { kind: "scheduled"; schedule: Schedule }
+  | { kind: "letters"; delivery: LetterDelivery }
   | { kind: "voice"; request: VoiceRequest; done: (words: string | undefined) => void }
 ) & {
   recorded?: boolean;
@@ -346,6 +350,11 @@ export class Herder implements HerderPort {
     this.enqueue({ kind: "scheduled", schedule });
   }
 
+  /** Letters the mailbox brought, or the digest of the kept ones (ADR 0099). */
+  letters(delivery: LetterDelivery): void {
+    this.enqueue({ kind: "letters", delivery });
+  }
+
   /**
    * Tells the owner a task's result in the Herder's words (ADR 0053), after the turns queued
    * before it. "" when it chose to say nothing; undefined when it could not speak.
@@ -502,6 +511,20 @@ export class Herder implements HerderPort {
       };
       if (!job.recorded) this.host.recordTurn("event", `${about}: ${words}`);
       prompt = scheduledPrompt(about, words, createdAt);
+    } else if (job.kind === "letters") {
+      // Other people's words: the turn files them and may tell or ask the owner, nothing more.
+      this.turn = {
+        kind: "letters",
+        ownerText: "",
+        typedText: "",
+        images: [],
+        asked: false,
+        notified: false,
+        pickedDirs: [],
+        filed: new Set<number>(),
+      };
+      if (!job.recorded) this.host.recordTurn("event", lettersLine(job.delivery));
+      prompt = lettersPrompt(job.delivery);
     } else if (job.kind === "intake") {
       // The item's title is someone else's words: it can name the project (repository name)
       // but is quoted to the model as untrusted (ADR 0052).
@@ -592,6 +615,12 @@ export class Herder implements HerderPort {
       this.save();
       return;
     }
+    if (job.kind === "letters") this.fileTheRest(job.delivery);
+    if (job.kind === "letters" && (text.includes(QUIET) || text === "")) {
+      this.host.audit("mailbox.quiet", { kind: job.delivery.kind });
+      this.save();
+      return;
+    }
     if (job.kind === "voice" && text.includes(QUIET)) {
       this.save();
       job.done("");
@@ -611,6 +640,21 @@ export class Herder implements HerderPort {
     }
     this.save();
     if (text !== "" && job.kind !== "intake") this.suggestNext(text);
+  }
+
+  /** Letters the turn did not file are only noted, so none stays undecided (ADR 0099). */
+  private fileTheRest(delivery: LetterDelivery): void {
+    if (delivery.kind !== "new" || this.host.fileLetters === undefined) return;
+    const filed = this.turn.filed ?? new Set<number>();
+    const rest = delivery.groups
+      .flatMap((g) => g.letters.map((l) => l.id))
+      .filter((id) => !filed.has(id));
+    if (rest.length === 0) return;
+    try {
+      this.host.fileLetters(rest.map((id) => ({ id, fate: "noted", why: "主管没有分拣" })));
+    } catch (error) {
+      this.host.audit("mailbox.file.error", { message: (error as Error).message });
+    }
   }
 
   /** Stops a suggestion still being worked out; a new turn makes it stale (ADR 0084). */

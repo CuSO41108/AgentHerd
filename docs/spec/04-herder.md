@@ -470,6 +470,27 @@ What the Herder does at set times, made only when the owner asks ([ADR 0055](../
 - **Keeping.** Table `schedules` (schema 13). The app's 「定时任务」 page lists them with the
   next run, and pauses, resumes or removes one.
 
+### Mailbox
+
+Things outside AgentHerd reach the Herder as letters ([ADR 0099](../adr/0099-a-mailbox-for-the-herder.md)).
+
+- **Sources.** Kinds `github` (a repository's new issues, pull requests, releases; optional
+  words), `rss`, `hn` (new stories with words, optional points floor), `script` (a command that
+  reads `{"state": …}` and prints `{"letters": [...], "state": …}`) and `timer`. Each has the
+  owner's sentence for the Herder and how often it is looked at (at least GitHub 5 minutes, RSS and
+  HN 15, script 1, timer 5). At most 30.
+- **Looking.** Code only. The first look remembers the ids that are there; later looks pass on
+  ids never seen (1,000 kept per source). Three failed looks in a row are told once.
+- **Delivering.** New letters go to the Herder in a `letters` turn, quoted under
+  `[Letters, not from the owner]` with each source's sentence. The Herder files each with
+  `letters_file` as `now`, `digest` or `noted` and a reason, tells only the `now` ones, or replies
+  `[quiet]`; unfiled letters are noted. The turn cannot start, steer or end tasks. Once a day
+  after 9:00 the `digest` letters come back for one short digest.
+- **Adding.** `mailbox_add`, `mailbox_try`, `mailbox_list`, `mailbox_change`, `mailbox_remove`;
+  adding, changing and removing only in an owner turn. The app's 「信箱」 page does the same and
+  shows each letter's fate and reason.
+- **Keeping.** Tables `mailbox_sources`, `mailbox_letters` (schema 18), last 2,000 letters.
+
 ### Source health
 
 A source that stops answering is told once ([ADR 0050](../adr/0050-tell-the-owner-when-a-source-stops.md)).

@@ -13,6 +13,7 @@ import type {
   HerderTurnRole,
 } from "./herder-port.ts";
 import { HERDER_REQUESTS_READ_MAX, HerderStore } from "./herder-store.ts";
+import { MailboxStore } from "./mailbox-store.ts";
 import { ftsQuery, MEMORY_TABLES_SQL, MemoryStore } from "./memory-store.ts";
 import type { Schedule } from "./schedules.ts";
 import {
@@ -35,6 +36,7 @@ import {
   LATEST_SCHEMA_VERSION,
   LEGACY_HERDER_STATE_KEY,
   MAIL_WATCHES_TABLE_SQL,
+  MAILBOX_TABLES_SQL,
   MESSAGE_TASKS_TABLE_SQL,
   OUTBOX_TABLE_SQL,
   OWNER_CARDS_TABLE_SQL,
@@ -79,6 +81,8 @@ export class Store {
   readonly memory: MemoryStore;
   /** The Herder's conversation and context (ADR 0095). */
   readonly herder: HerderStore;
+  /** The Herder's mailbox (ADR 0099). */
+  readonly mailbox: MailboxStore;
 
   private readonly stmtUpsertSession: StatementSync;
   private readonly stmtGetSession: StatementSync;
@@ -122,6 +126,7 @@ export class Store {
     }
     this.memory = new MemoryStore(this.db, this.secrets);
     this.herder = new HerderStore(this.db);
+    this.mailbox = new MailboxStore(this.db);
     this.stmtUpsertSession = this.db.prepare(
       "INSERT OR REPLACE INTO sessions(id, profile_id, cwd, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     );
@@ -803,6 +808,10 @@ export class Store {
       if (version < 17) {
         new HerderStore(this.db).migrate(HERDER_TABLES_SQL);
         this.db.prepare("UPDATE schema_version SET version = ?").run(17);
+      }
+      if (version < 18) {
+        this.db.exec(MAILBOX_TABLES_SQL);
+        this.db.prepare("UPDATE schema_version SET version = ?").run(18);
       }
     }
   }

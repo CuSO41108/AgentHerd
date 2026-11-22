@@ -238,7 +238,43 @@ CREATE TABLE IF NOT EXISTS herder_prompts(
   tools_json TEXT NOT NULL
 );`;
 
-export const LATEST_SCHEMA_VERSION = 17;
+/** The Herder's mailbox (ADR 0099): the sources the owner set up and the letters they brought. */
+export const MAILBOX_TABLES_SQL = `CREATE TABLE IF NOT EXISTS mailbox_sources(
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  note TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  every_minutes INTEGER NOT NULL,
+  paused INTEGER NOT NULL DEFAULT 0,
+  made_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  started INTEGER NOT NULL DEFAULT 0,
+  last_run_at TEXT,
+  last_ok_at TEXT,
+  last_error TEXT,
+  fails INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT,
+  seen_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE TABLE IF NOT EXISTS mailbox_letters(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL,
+  letter_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  link TEXT,
+  sent_at TEXT,
+  fate TEXT,
+  why TEXT,
+  filed_at TEXT,
+  digested_at TEXT,
+  UNIQUE(source_id, letter_id)
+);
+CREATE INDEX IF NOT EXISTS mailbox_letters_at ON mailbox_letters(at);`;
+
+export const LATEST_SCHEMA_VERSION = 18;
 
 export const SCHEMA_SQL = `
 CREATE TABLE sessions(
@@ -305,4 +341,5 @@ ${SCHEDULES_TABLE_SQL}
 ${TASK_ALLOWED_STEPS_SQL}
 ${OWNER_CARDS_TABLE_SQL}
 ${HERDER_TABLES_SQL}
+${MAILBOX_TABLES_SQL}
 `;

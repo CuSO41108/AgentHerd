@@ -6,6 +6,14 @@ import type { SourceState } from "./source-health.ts";
 import type { Locale, ReportResult } from "@agentherd/protocol";
 import type { OutboundStep } from "@agentherd/rules";
 import type { IntakeRequest } from "./intake.ts";
+import type {
+  Letter,
+  LetterDelivery,
+  LetterFate,
+  MailboxPatch,
+  MailboxSource,
+  MailboxSourceInput,
+} from "./mailbox.ts";
 import type { HerdReport } from "./mcp-gateway.ts";
 import type { Completer, Embedder, MemoryStore } from "./memory-store.ts";
 import type { NoticeKind, NoticeLevel } from "./notices.ts";
@@ -158,6 +166,15 @@ export interface HerderHost {
   ask(text: string, options: string[]): Promise<void>;
   /** Names of the owner's connected apps; agents use them (docs/spec/09-agent-tools.md §3). */
   apps?(): string[];
+  /** The owner's mailbox sources (ADR 0099). */
+  mailboxSources?(): MailboxSource[];
+  addMailboxSource?(input: MailboxSourceInput): MailboxSource;
+  changeMailboxSource?(id: string, patch: MailboxPatch): MailboxSource;
+  removeMailboxSource?(id: string): boolean;
+  /** One look without keeping anything. */
+  tryMailboxSource?(input: MailboxSourceInput): Promise<Letter[]>;
+  /** What the Herder made of letters; returns ids that are not letters. */
+  fileLetters?(items: { id: number; fate: LetterFate; why: string }[]): number[];
   /** Mail the owner asked to hear about (ADR 0048); absent without connected apps. */
   mailWatches?(): MailWatch[];
   /** Starts telling the owner about mail matching a Gmail search; throws when Gmail cannot be read. */
@@ -375,6 +392,11 @@ export interface HerderPort {
   intake?(text: string, auto: boolean, trial?: boolean): void;
   /** A schedule is due (ADR 0055): its words come back as a turn of their own. */
   scheduled?(schedule: Schedule): void;
+  /**
+   * Letters the owner's mailbox sources brought (ADR 0099), or the ones kept for the morning
+   * digest: a turn that files each and tells the owner only what matters now.
+   */
+  letters?(delivery: LetterDelivery): void;
   /**
    * Tells the owner a task's result in the Herder's words. Resolves with the message to send ("" to
    * send nothing: the owner already heard it), or undefined when the Herder could not speak.

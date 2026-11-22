@@ -8,6 +8,9 @@ import type {
   HerderContextView,
   HerderMessageView,
   LarkView,
+  MailboxLetterView,
+  MailboxSource,
+  MailboxView,
   MemoryView,
   ModelsView,
   ProviderView,
@@ -946,4 +949,138 @@ export function sampleHerderMessages(from: number, to: number): HerderMessageVie
       more: 0,
     };
   });
+}
+
+/** What the 信箱 page shows in the browser preview (ADR 0099); `empty` has no sources yet. */
+export function sampleMailbox(empty: boolean): MailboxView {
+  const every = {
+    github: { min: 5, default: 10 },
+    rss: { min: 15, default: 60 },
+    hn: { min: 15, default: 60 },
+    script: { min: 1, default: 30 },
+    timer: { min: 5, default: 1440 },
+  };
+  if (empty) return { on: true, sources: [], letters: [], every, digestHour: 9 };
+  const sources: MailboxSource[] = [
+    {
+      id: "m-codex",
+      kind: "github",
+      name: "codex",
+      note: "macOS 上崩溃、卡住的马上告诉我，新版本早上汇总",
+      config: { repo: "openai/codex", what: ["issues", "releases"] },
+      everyMinutes: 10,
+      paused: false,
+      by: "herder",
+      createdAt: hoursFromNow(-50),
+      started: true,
+      lastRunAt: hoursFromNow(-0.1),
+      lastOkAt: hoursFromNow(-0.1),
+      fails: 0,
+      letters: 4,
+    },
+    {
+      id: "m-simon",
+      kind: "rss",
+      name: "simonwillison.net",
+      note: "讲 agent 和记忆的文章留到汇总",
+      config: { url: "https://simonwillison.net/atom/everything/" },
+      everyMinutes: 60,
+      paused: false,
+      by: "owner",
+      createdAt: hoursFromNow(-30),
+      started: true,
+      lastRunAt: hoursFromNow(-0.6),
+      lastOkAt: hoursFromNow(-0.6),
+      fails: 0,
+      letters: 2,
+    },
+    {
+      id: "m-hn",
+      kind: "hn",
+      name: "HN：agent memory",
+      note: "100 分以上的告诉我",
+      config: { words: "agent memory", points: 50 },
+      everyMinutes: 60,
+      paused: false,
+      by: "owner",
+      createdAt: hoursFromNow(-20),
+      started: true,
+      lastRunAt: hoursFromNow(-0.4),
+      lastError: "hn.algolia.com answered 503",
+      fails: 1,
+      letters: 1,
+    },
+    {
+      id: "m-prices",
+      kind: "script",
+      name: "机票价格",
+      note: "上海到东京低于 2000 告诉我",
+      config: { command: "python3 ~/bin/flights.py" },
+      everyMinutes: 120,
+      paused: true,
+      by: "owner",
+      createdAt: hoursFromNow(-80),
+      started: true,
+      lastRunAt: hoursFromNow(-26),
+      fails: 0,
+      letters: 0,
+    },
+  ];
+  const letter = (
+    id: number,
+    source: MailboxSource,
+    hours: number,
+    title: string,
+    rest: Partial<MailboxLetterView>,
+  ): MailboxLetterView => ({
+    id,
+    sourceId: source.id,
+    letterId: `${source.kind}:${id}`,
+    source: source.name,
+    kind: source.kind,
+    at: hoursFromNow(-hours),
+    title,
+    body: "",
+    sentAt: hoursFromNow(-hours),
+    ...rest,
+  });
+  const [codex, simon, hn] = sources as [MailboxSource, MailboxSource, MailboxSource];
+  const letters: MailboxLetterView[] = [
+    letter(9, codex, 0.1, "#7012 Crash on macOS 26 when resuming a session", {
+      link: "https://github.com/openai/codex/issues/7012",
+      sentAt: undefined,
+    }),
+    letter(8, hn, 1.2, "Show HN: A memory layer for coding agents", {
+      link: "https://news.ycombinator.com/item?id=46000001",
+      fate: "digest",
+      why: "跟你在做的记忆有关，82 分还不到 100",
+    }),
+    letter(7, codex, 2, "#7008 codex exec hangs on macOS after sleep", {
+      link: "https://github.com/openai/codex/issues/7008",
+      fate: "now",
+      why: "macOS 上卡住，你说过要马上知道",
+    }),
+    letter(6, codex, 5, "发布 rust-v0.72.0", {
+      link: "https://github.com/openai/codex/releases/tag/rust-v0.72.0",
+      fate: "digest",
+      why: "新版本，按你说的早上汇总",
+    }),
+    letter(5, simon, 9, "Prompt injection in agent memory, again", {
+      link: "https://simonwillison.net/2026/Nov/21/memory-injection/",
+      fate: "digest",
+      why: "讲 agent 记忆的安全问题",
+      digestedAt: hoursFromNow(-3),
+    }),
+    letter(4, codex, 14, "#6990 Typo in docs/config.md", {
+      link: "https://github.com/openai/codex/issues/6990",
+      fate: "noted",
+      why: "文档错字，跟你没关系",
+    }),
+    letter(3, simon, 26, "Weeknotes: a quiet week", {
+      link: "https://simonwillison.net/2026/Nov/20/weeknotes/",
+      fate: "noted",
+      why: "周记，没有你关心的内容",
+    }),
+  ];
+  return { on: true, sources, letters, every, digestHour: 9 };
 }
