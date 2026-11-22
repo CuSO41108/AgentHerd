@@ -14,6 +14,12 @@ it("returns a slow fixture's result only once its process is gone", async () => 
   expect(() => process.kill(pid as number, 0)).toThrow(/ESRCH/);
 });
 
+it.runIf(process.platform === "win32")("waits for the fixture's own exit on Windows", async () => {
+  await expect(
+    run(`console.log('SEARCH_RESULT 42'); setTimeout(() => { process.exitCode = 7 }, 1250)`),
+  ).rejects.toThrow("Fixture exited abnormally (7)");
+});
+
 it("reports an early abnormal exit even if a helper keeps the pipes open", async () => {
   const script = `
     require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], {

@@ -92,8 +92,12 @@ export function runSearchFixture(
         stop();
         return;
       }
-      clearTimeout(timer);
-      timer = setTimeout(stop, Math.min(QUIT_GRACE_MS, deadline - performance.now()));
+      // On Windows CI a forced exit was still pending after the confirmation window.
+      // Let Electron shut down naturally there, up to the original watchdog deadline.
+      if (process.platform !== "win32") {
+        clearTimeout(timer);
+        timer = setTimeout(stop, Math.min(QUIT_GRACE_MS, deadline - performance.now()));
+      }
     });
     child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
       stderr = (stderr + chunk).slice(-MAX_OUTPUT);
